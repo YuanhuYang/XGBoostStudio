@@ -1,0 +1,55 @@
+# ============================================================
+# XGBoost Studio .gitignore
+# ============================================================
+
+# 构建产物
+build/
+dist/
+client/dist/
+server/dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# uv 虚拟环境（不提交，但 pyproject.toml 和 uv.lock 需提交）
+.venv/
+venv/
+server/.venv/
+
+# Node
+node_modules/
+client/node_modules/
+
+# 运行时数据（用户数据，不入库）
+*.db
+*.sqlite
+data/
+logs/
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/
+*.suo
+*.user
+
+# 密钥/证书/环境变量
+*.pem
+*.key
+*.p12
+.env
+.env.local
+
+# PyInstaller 临时文件
+*.spec.bak
+
+# electron-builder 缓存
+client/.electron-builder-cache/
