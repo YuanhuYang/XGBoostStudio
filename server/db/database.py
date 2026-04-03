@@ -37,7 +37,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 class Base(DeclarativeBase):
-    pass
+    """所有 ORM 模型的声明基类。"""
 
 
 def get_db():
@@ -51,6 +51,8 @@ def get_db():
 
 def init_db():
     """初始化数据库，创建所有表"""
-    import db.models  # 触发所有 ORM 模型的 mapper 注册（副作用导入）
-    _ = db.models
+    # 触发所有 ORM 模型的 mapper 注册（副作用导入）
+    import importlib
+    importlib.import_module("db.models")
+
     Base.metadata.create_all(bind=engine)

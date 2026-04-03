@@ -5,7 +5,6 @@
 import random
 import math
 import csv
-import os
 from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -23,6 +22,7 @@ def rand_normal(mu=0.0, sigma=1.0):
 
 # ── Titanic 训练集（891行×12列，二分类）────────────────────────────────────────
 def create_titanic_train():
+    """生成 Titanic 训练集（891行×12列，二分类）并写入 CSV 文件。"""
     headers = ["PassengerId", "Survived", "Pclass", "Name", "Sex", "Age",
                "SibSp", "Parch", "Ticket", "Fare", "Cabin", "Embarked"]
     rows = []
@@ -49,6 +49,7 @@ def create_titanic_train():
 
 # ── Titanic 测试集（418行×11列，无目标列）─────────────────────────────────────
 def create_titanic_test():
+    """生成 Titanic 测试集（418行×11列，无目标列）并写入 CSV 文件。"""
     headers = ["PassengerId", "Pclass", "Name", "Sex", "Age",
                "SibSp", "Parch", "Ticket", "Fare", "Cabin", "Embarked"]
     rows = []
@@ -72,6 +73,7 @@ def create_titanic_test():
 
 # ── Boston Housing（506行×14列，回归）─────────────────────────────────────────
 def create_boston_housing():
+    """生成 Boston Housing 数据集（506行×14列，回归）并写入 CSV 文件。"""
     headers = ["CRIM", "ZN", "INDUS", "CHAS", "NOX", "RM", "AGE",
                "DIS", "RAD", "TAX", "PTRATIO", "B", "LSTAT", "MEDV"]
     rows = []
@@ -100,6 +102,7 @@ def create_boston_housing():
 
 # ── Iris（150行×5列，多分类）──────────────────────────────────────────────────
 def create_iris():
+    """生成 Iris 数据集（150行×5列，多分类）并写入 CSV 文件。"""
     headers = ["sepal_length", "sepal_width", "petal_length", "petal_width", "species"]
     specs = [
         ("setosa", 5.0, 0.35, 3.4, 0.38, 1.46, 0.17, 0.24, 0.11),
@@ -126,6 +129,7 @@ def create_iris():
 
 # ── Large 100k（10万行×20列，性能测试）───────────────────────────────────────
 def create_large_100k():
+    """生成大规模数据集（10万行×20列，性能测试）并写入 CSV 文件。"""
     headers = [f"feature_{i}" for i in range(1, 21)] + ["target"]
     with open(FIXTURES_DIR / "large_100k.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -140,6 +144,7 @@ def create_large_100k():
 
 # ── Missing Heavy（500行，缺失率约30%）───────────────────────────────────────
 def create_missing_heavy():
+    """生成含大量缺失值的数据集（500行，缺失率约30%）并写入 CSV 文件。"""
     headers = [f"col_{i}" for i in range(1, 11)] + ["target"]
     rows = []
     for _ in range(500):
@@ -160,6 +165,7 @@ def create_missing_heavy():
 
 # ── Duplicate Rows（200行含50条重复行）───────────────────────────────────────
 def create_duplicate_rows():
+    """生成含重复行的数据集（200行含50条重复行）并写入 CSV 文件。"""
     headers = ["id", "name", "value", "category", "target"]
     base = []
     for i in range(150):
@@ -177,6 +183,7 @@ def create_duplicate_rows():
 
 # ── Multisheet Excel（3个Sheet）──────────────────────────────────────────────
 def create_multisheet_excel():
+    """生成多 Sheet 的 Excel 文件（Sales/Customers/Products 三个工作表）。"""
     try:
         import openpyxl
         wb = openpyxl.Workbook()
