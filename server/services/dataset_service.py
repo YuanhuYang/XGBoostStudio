@@ -3,7 +3,6 @@
 """
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -59,7 +58,7 @@ def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Opti
             df = pd.read_csv(save_path, encoding="utf-8-sig")
     except Exception as e:
         save_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=f"文件解析失败: {e}")
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {e}") from e
 
     dataset = Dataset(
         name=original_filename.rsplit(".", 1)[0],
@@ -175,7 +174,7 @@ def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dat
             df[col] = df[col].fillna(fill_value)
         elif strategy == "drop":
             df = df.dropna(subset=[col])
-    new_filename = _save_df(df, dataset.path)
+    _save_df(df, dataset.path)
     dataset.rows = len(df)
     db.commit()
     db.refresh(dataset)
@@ -304,7 +303,7 @@ def split_dataset(
             stratify=stratify_col,
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"数据划分失败: {e}")
+        raise HTTPException(status_code=400, detail=f"数据划分失败: {e}") from e
 
     base = dataset.path.rsplit(".", 1)[0]
     train_filename = f"{base}_train_{uuid.uuid4().hex[:8]}.csv"

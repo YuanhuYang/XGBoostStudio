@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -51,11 +51,9 @@ def _load_model_and_data(model_id: int, db: Session):
 def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
     from sklearn.metrics import (  # type: ignore
         confusion_matrix, roc_curve, auc,
-        accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
-        mean_squared_error, mean_absolute_error, r2_score,
     )
 
-    model, model_rec, X_test, y_test, target_col = _load_model_and_data(model_id, db)
+    model, model_rec, X_test, y_test, _target_col = _load_model_and_data(model_id, db)
     base_metrics = json.loads(model_rec.metrics_json or "{}")
     result: dict[str, Any] = {"metrics": base_metrics, "task_type": model_rec.task_type}
 
@@ -104,7 +102,7 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
             {"feature": X_test.columns[i], "importance": round(float(importance[i]), 4)}
             for i in top_idx
         ]
-    except Exception:
+    except (ImportError, ValueError, AttributeError):
         # SHAP 计算失败时用内置特征重要性
         try:
             fi = model.feature_importances_
@@ -113,7 +111,7 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
                 {"feature": X_test.columns[i], "importance": round(float(fi[i]), 4)}
                 for i in top_idx
             ]
-        except Exception:
+        except (AttributeError, IndexError):
             pass
 
     return result
@@ -122,7 +120,7 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
 def get_shap_detail(model_id: int, db: Session) -> dict[str, Any]:
     import shap  # type: ignore
 
-    model, model_rec, X_test, y_test, _ = _load_model_and_data(model_id, db)
+    model, _model_rec, X_test, _y_test, _ = _load_model_and_data(model_id, db)
     if X_test is None:
         raise HTTPException(status_code=400, detail="无测试数据")
 

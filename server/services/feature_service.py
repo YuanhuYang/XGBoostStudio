@@ -3,7 +3,6 @@
 """
 from __future__ import annotations
 
-import uuid
 import warnings
 from typing import Any, Optional
 
@@ -12,7 +11,6 @@ import pandas as pd
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from db.database import DATA_DIR
 from db.models import Dataset
 from services.dataset_service import _load_df, _save_df
 
@@ -36,7 +34,7 @@ def get_feature_distributions(dataset: Dataset) -> list[dict[str, Any]]:
         sample = series if len(series) <= 5000 else series.sample(5000, random_state=42)
         try:
             _, p_value = sp_stats.shapiro(sample)
-        except Exception:
+        except (ValueError, TypeError):
             p_value = None
         result.append({
             "column": col,
@@ -116,7 +114,7 @@ def get_vif(dataset: Dataset) -> list[dict[str, Any]]:
     for i, col in enumerate(cols):
         try:
             vif = float(variance_inflation_factor(X, i))
-        except Exception:
+        except (ValueError, np.linalg.LinAlgError):
             vif = float("inf")
         result.append({
             "column": col,
@@ -159,7 +157,6 @@ def get_mutual_info_importance(dataset: Dataset, target_column: str) -> list[dic
 
 def get_mahalanobis_outliers(dataset: Dataset) -> list[dict[str, Any]]:
     from scipy.spatial.distance import mahalanobis  # type: ignore
-    from scipy import stats as sp_stats  # type: ignore
 
     df = _load_df(dataset)
     numeric_df = df.select_dtypes(include=[np.number]).dropna()
@@ -181,7 +178,7 @@ def get_mahalanobis_outliers(dataset: Dataset) -> list[dict[str, Any]]:
             if dist > threshold:
                 result.append({"row_index": int(idx), "mahalanobis_dist": round(dist, 4)})
         return result[:200]
-    except Exception:
+    except (ValueError, np.linalg.LinAlgError):
         return []
 
 
@@ -244,7 +241,7 @@ def box_cox_transform(dataset: Dataset, columns: list[str], db: Session) -> Data
         try:
             transformed, _ = boxcox(series)
             df.loc[series.index, col] = transformed
-        except Exception:
+        except (ValueError, RuntimeError):
             pass
     _save_df(df, dataset.path)
     db.commit()
@@ -280,6 +277,7 @@ def select_features(
     dataset: Dataset, method: str, target_column: str,
     threshold: Optional[float], n_features: Optional[int], db: Session
 ) -> Dataset:
+    # n_features: used by l1 method to limit SelectFromModel.max_features
     from sklearn.feature_selection import VarianceThreshold, SelectFromModel  # type: ignore
     from sklearn.linear_model import LassoCV  # type: ignore
 
@@ -306,7 +304,8 @@ def select_features(
     elif method == "l1":
         lasso = LassoCV(cv=3, random_state=42, max_iter=1000)
         lasso.fit(X, y)
-        sel = SelectFromModel(lasso, prefit=True)
+        max_feat = n_features if n_features and n_features > 0 else -1
+        sel = SelectFromModel(lasso, prefit=True, max_features=max_feat if max_feat > 0 else None)
         selected = [c for c, s in zip(feature_cols, sel.get_support()) if s] or feature_cols
 
     keep_cols = selected + [target_column]

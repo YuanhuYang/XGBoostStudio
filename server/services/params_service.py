@@ -3,10 +3,8 @@
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -77,7 +75,7 @@ def recommend_params(split_id: int, db: Session) -> dict[str, Any]:
 
     try:
         train_df = pd.read_csv(DATA_DIR / split.train_path, encoding="utf-8-sig")
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return {"params": {}, "search_space": DEFAULT_SEARCH_SPACE, "note": "无法读取训练集"}
 
     n_rows, n_cols = train_df.shape

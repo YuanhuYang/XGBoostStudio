@@ -7,13 +7,10 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-import numpy as np
-import pandas as pd
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from db.database import DATA_DIR, MODELS_DIR, REPORTS_DIR
+from db.database import REPORTS_DIR
 from db.models import Dataset, DatasetSplit, Model, Report
 
 

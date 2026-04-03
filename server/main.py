@@ -24,7 +24,7 @@ logger = logging.getLogger("xgboost-studio")
 # ── 生命周期 ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """启动/关闭钩子"""
     logger.info("XGBoost Studio 后端启动中...")
     init_db()
@@ -77,7 +77,7 @@ async def root():
 
 # ── 优雅关闭（捕获 SIGTERM）────────────────────────────────────────────────────
 
-def handle_sigterm(signum, frame):
+def handle_sigterm(_signum: int, _frame: object) -> None:
     logger.info("收到 SIGTERM 信号，准备优雅关闭...")
     sys.exit(0)
 

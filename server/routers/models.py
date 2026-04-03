@@ -12,7 +12,6 @@ POST   /api/models/{id}/export          → 导出模型文件
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query

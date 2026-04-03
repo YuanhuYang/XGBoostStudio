@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import io
-import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -55,7 +54,7 @@ def single_predict(model_id: int, features: dict[str, Any], db: Session) -> dict
             sv = sv[1] if len(sv) > 1 else sv[0]
         shap_vals = dict(zip(df.columns.tolist(), [round(float(v), 4) for v in sv[0]]))
         result["shap_values"] = shap_vals
-    except Exception:
+    except (ImportError, ValueError, AttributeError):
         pass
 
     return result

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator
 
 import numpy as np
 import pandas as pd
@@ -126,7 +126,7 @@ async def tuning_stream(task_id: str, db: Session) -> AsyncGenerator[str, None]:
 
             try:
                 study.optimize(objective, n_trials=1, show_progress_bar=False)
-            except Exception:
+            except (RuntimeError, ValueError):
                 continue
 
             last_trial = study.trials[-1]
@@ -154,7 +154,7 @@ async def tuning_stream(task_id: str, db: Session) -> AsyncGenerator[str, None]:
         model_filename = f"model_tuned_{uuid.uuid4().hex[:12]}.ubj"
         model.save_model(str(MODELS_DIR / model_filename))
 
-        metrics = _compute_metrics(model, X_train, y_train, X_test, y_test, task_type)
+        metrics = _compute_metrics(model, X_test, y_test, task_type)
         final_model = Model(
             name=f"Tuned_{task_id[:8]}",
             path=model_filename,
@@ -177,7 +177,7 @@ async def tuning_stream(task_id: str, db: Session) -> AsyncGenerator[str, None]:
         yield f"data: {json.dumps({'completed': True, 'best_params': study.best_params, 'best_score': round(float(best_score), 4), 'model_id': final_model.id})}\n\n"
         yield "event: done\ndata: {}\n\n"
 
-    except Exception as e:
+    except Exception as e:  # type: ignore[broad-exception-caught]  # async generator needs broad catch
         task.status = "failed"
         task.error_msg = str(e)
         db.commit()
