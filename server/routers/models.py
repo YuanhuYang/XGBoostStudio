@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from db.database import get_db, MODELS_DIR
 from db.models import Model
-from services.eval_service import get_evaluation, get_shap_detail
+from services.eval_service import get_evaluation, get_shap_detail, get_learning_curve
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -111,6 +111,11 @@ def evaluation(model_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.get("/{model_id}/shap")
 def shap_detail(model_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     return get_shap_detail(model_id, db)
+
+
+@router.get("/{model_id}/learning-curve")
+def learning_curve(model_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return get_learning_curve(model_id, db)
 
 
 @router.post("/{model_id}/export")

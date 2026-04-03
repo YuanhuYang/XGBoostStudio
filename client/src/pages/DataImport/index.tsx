@@ -2,16 +2,17 @@ import React, { useState, useCallback } from 'react'
 import {
   Upload, Table, Button, Space, Tag, Modal, Form, Select, Typography,
   Card, Statistic, Row, Col, Progress, message, Popconfirm, Tooltip,
-  Badge, Divider
+  Badge, Divider, List
 } from 'antd'
 import {
   InboxOutlined, DatabaseOutlined, EyeOutlined, DeleteOutlined,
-  CheckCircleOutlined, WarningOutlined, FileTextOutlined
+  CheckCircleOutlined, WarningOutlined, FileTextOutlined, SafetyOutlined
 } from '@ant-design/icons'
 import type { UploadProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { datasetsApi } from '../../api/datasets'
 import { useAppStore } from '../../store/appStore'
+import type { QualityScore } from '../../types'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
@@ -38,6 +39,9 @@ const DataImportPage: React.FC = () => {
   const [columnOptions, setColumnOptions] = useState<string[]>([])
   const [form] = Form.useForm()
   const setActiveDatasetId = useAppStore(s => s.setActiveDatasetId)
+  const [qualityScores, setQualityScores] = useState<Record<number, QualityScore>>({})
+  const [qualityModal, setQualityModal] = useState<{ open: boolean; datasetId: number | null; data: QualityScore | null; name: string }>({ open: false, datasetId: null, data: null, name: '' })
+  const [deduping, setDeduping] = useState(false)
 
   const fetchDatasets = useCallback(async () => {
     setLoading(true)
@@ -116,6 +120,32 @@ const DataImportPage: React.FC = () => {
     }
   }
 
+  const handleCheckQuality = async (record: DatasetRow) => {
+    try {
+      const res = await datasetsApi.qualityScore(record.id)
+      const data: QualityScore = res.data
+      setQualityScores(prev => ({ ...prev, [record.id]: data }))
+      setQualityModal({ open: true, datasetId: record.id, data, name: record.name })
+    } catch {
+      message.error('获取质量评分失败')
+    }
+  }
+
+  const handleDropDuplicates = async () => {
+    if (!qualityModal.datasetId) return
+    setDeduping(true)
+    try {
+      await datasetsApi.dropDuplicates(qualityModal.datasetId)
+      message.success('已删除重复行')
+      setQualityModal(prev => ({ ...prev, open: false }))
+      fetchDatasets()
+    } catch {
+      message.error('去重失败')
+    } finally {
+      setDeduping(false)
+    }
+  }
+
   const columns: ColumnsType<DatasetRow> = [
     { title: '数据集名称', dataIndex: 'name', key: 'name', render: (v) => <Text strong>{v}</Text> },
     { title: '原始文件', dataIndex: 'original_filename', key: 'original_filename', ellipsis: true },
@@ -126,6 +156,21 @@ const DataImportPage: React.FC = () => {
       render: (v) => v ? <Tag color="blue">{v}</Tag> : <Tag color="default">未设置</Tag>
     },
     { title: '上传时间', dataIndex: 'created_at', key: 'created_at', render: (v) => v?.slice(0, 19) },
+    {
+      title: '数据质量', key: 'quality',
+      render: (_: unknown, record: DatasetRow) => {
+        const qs = qualityScores[record.id]
+        if (!qs) return (
+          <Button size="small" icon={<SafetyOutlined />} onClick={() => handleCheckQuality(record)}>检测</Button>
+        )
+        const color = qs.score >= 80 ? 'success' : qs.score >= 60 ? 'warning' : 'error'
+        return (
+          <Tag color={color} style={{ cursor: 'pointer' }} onClick={() => handleCheckQuality(record)}>
+            {Math.round(qs.score)} 分
+          </Tag>
+        )
+      }
+    },
     {
       title: '操作', key: 'action',
       render: (_, record) => (
@@ -254,6 +299,67 @@ const DataImportPage: React.FC = () => {
             <Select placeholder="选择目标列" options={columnOptions.map(c => ({ label: c, value: c }))} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={<Space><SafetyOutlined />数据质量报告 — {qualityModal.name}</Space>}
+        open={qualityModal.open}
+        onCancel={() => setQualityModal(prev => ({ ...prev, open: false }))}
+        footer={[
+          qualityModal.data && qualityModal.data.duplicate_rate > 0 && (
+            <Popconfirm
+              key="dedup"
+              title={`确认删除 ${Math.round(qualityModal.data.duplicate_rate * 100)}% 的重复行？`}
+              onConfirm={handleDropDuplicates}
+            >
+              <Button danger loading={deduping}>删除重复行</Button>
+            </Popconfirm>
+          ),
+          <Button key="close" onClick={() => setQualityModal(prev => ({ ...prev, open: false }))}>关闭</Button>,
+        ].filter(Boolean)}
+        width={520}
+      >
+        {qualityModal.data && (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Statistic
+                  title="综合质量"
+                  value={Math.round(qualityModal.data.score)}
+                  suffix="/ 100"
+                  valueStyle={{ color: qualityModal.data.score >= 80 ? '#52c41a' : qualityModal.data.score >= 60 ? '#faad14' : '#ff4d4f' }}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic title="缺失率" value={`${(qualityModal.data.missing_rate * 100).toFixed(1)}%`}
+                  valueStyle={{ color: qualityModal.data.missing_rate > 0.1 ? '#faad14' : '#52c41a' }} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="异常率" value={`${(qualityModal.data.outlier_rate * 100).toFixed(1)}%`}
+                  valueStyle={{ color: qualityModal.data.outlier_rate > 0.05 ? '#faad14' : '#52c41a' }} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="重复行" value={`${(qualityModal.data.duplicate_rate * 100).toFixed(1)}%`}
+                  valueStyle={{ color: qualityModal.data.duplicate_rate > 0 ? '#ff4d4f' : '#52c41a' }} />
+              </Col>
+            </Row>
+            {qualityModal.data.suggestions.length > 0 && (
+              <>
+                <Divider style={{ margin: '12px 0' }}>改善建议</Divider>
+                <List
+                  size="small"
+                  dataSource={qualityModal.data.suggestions}
+                  renderItem={(s) => <List.Item><WarningOutlined style={{ color: '#faad14', marginRight: 8 }} />{s}</List.Item>}
+                />
+              </>
+            )}
+            {qualityModal.data.duplicate_rate === 0 && qualityModal.data.suggestions.length === 0 && (
+              <Tag icon={<CheckCircleOutlined />} color="success" style={{ padding: '4px 12px', fontSize: 13 }}>
+                数据质量优良，无需额外处理
+              </Tag>
+            )}
+          </Space>
+        )}
       </Modal>
     </div>
   )

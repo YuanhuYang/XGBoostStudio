@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, InputNumber,
-  Slider, Select, Tag, Alert, message, Statistic, Progress, Form
+  Slider, Select, Tag, Alert, message, Statistic, Progress, Form, Popconfirm
 } from 'antd'
 import { RocketOutlined, StopOutlined, TrophyOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
+import { useAppStore } from '../../store/appStore'
 
 const { Title, Text } = Typography
 
@@ -17,7 +18,13 @@ interface TrialEvent {
 }
 
 const ModelTuningPage: React.FC = () => {
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const setActiveModelId = useAppStore(s => s.setActiveModelId)
   const [splitId, setSplitId] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (activeSplitId !== null && splitId === null) setSplitId(activeSplitId)
+  }, [activeSplitId]) // eslint-disable-line react-hooks/exhaustive-deps
   const [nTrials, setNTrials] = useState(30)
   const [strategy, setStrategy] = useState('tpe')
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -27,10 +34,18 @@ const ModelTuningPage: React.FC = () => {
   const [bestParams, setBestParams] = useState<Record<string, unknown> | null>(null)
   const [resultModelId, setResultModelId] = useState<number | null>(null)
   const esRef = useRef<EventSource | null>(null)
+  const sseRetryRef = useRef(0)
+  const MAX_SSE_RETRIES = 3
   const PORT = 18899
+
+  // SSE 清理（测试专家：防止组件卸载后连接泄漏）
+  useEffect(() => {
+    return () => { esRef.current?.close() }
+  }, [])
 
   const start = async () => {
     if (!splitId) { message.warning('请输入 Split ID'); return }
+    if (status === 'running') { message.warning('调优正在进行中'); return }
     setStatus('running')
     setTrialHistory([])
     setBestScore(null)
@@ -39,26 +54,46 @@ const ModelTuningPage: React.FC = () => {
       const r = await apiClient.post('/api/tuning/start', { split_id: splitId, n_trials: nTrials, strategy })
       const tid = r.data.task_id
       setTaskId(tid)
-      const es = new EventSource(`http://127.0.0.1:${PORT}/api/tuning/${tid}/progress`)
-      esRef.current = es
-      es.onmessage = (e) => {
-        try {
-          const data: TrialEvent = JSON.parse(e.data)
-          if (data.trial !== undefined) {
-            setTrialHistory(prev => [...prev, data])
-            setBestScore(data.best_score || null)
+      sseRetryRef.current = 0
+      esRef.current?.close()
+
+      const connectSSE = (retryDelay = 0) => {
+        setTimeout(() => {
+          const es = new EventSource(`http://127.0.0.1:${PORT}/api/tuning/${tid}/progress`)
+          esRef.current = es
+          es.onmessage = (e) => {
+            sseRetryRef.current = 0
+            try {
+              const data: TrialEvent = JSON.parse(e.data)
+              if (data.trial !== undefined) {
+                setTrialHistory(prev => [...prev, data])
+                setBestScore(data.best_score || null)
+              }
+              if (data.completed) {
+                setStatus('completed')
+                setBestParams(data.best_params || null)
+                message.success('调优完成！')
+                es.close()
+              }
+              if (data.stopped) { setStatus('stopped'); es.close() }
+              if (data.error) { setStatus('error'); message.error(data.error); es.close() }
+            } catch { /* ignore */ }
           }
-          if (data.completed) {
-            setStatus('completed')
-            setBestParams(data.best_params || null)
-            message.success('调优完成！')
+          es.onerror = () => {
             es.close()
+            if (sseRetryRef.current < MAX_SSE_RETRIES) {
+              sseRetryRef.current += 1
+              const delay = Math.pow(2, sseRetryRef.current) * 1000
+              message.warning(`SSE 连接中断，${delay / 1000}s 后第 ${sseRetryRef.current} 次重连...`)
+              connectSSE(delay)
+            } else {
+              setStatus('error')
+              message.error('SSE 重连失败（已重试 3 次），请检查后端服务')
+            }
           }
-          if (data.stopped) { setStatus('stopped'); es.close() }
-          if (data.error) { setStatus('error'); message.error(data.error); es.close() }
-        } catch { /* ignore */ }
+        }, retryDelay)
       }
-      es.onerror = () => { setStatus('error'); es.close() }
+      connectSSE()
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail || '启动失败')
@@ -82,6 +117,7 @@ const ModelTuningPage: React.FC = () => {
       setBestParams(r.data.best_params)
       setBestScore(r.data.best_score)
       setResultModelId(r.data.model_id)
+      if (r.data.model_id) setActiveModelId(r.data.model_id)
     } catch { message.error('获取结果失败') }
   }
 
@@ -125,9 +161,19 @@ const ModelTuningPage: React.FC = () => {
                 <Button type="primary" icon={<RocketOutlined />} onClick={start} disabled={status === 'running'} block loading={status === 'running'}>
                   开始调优
                 </Button>
-                <Button danger icon={<StopOutlined />} onClick={stop} disabled={status !== 'running'} block>
-                  停止调优
-                </Button>
+                <Popconfirm
+                  title="确认停止调优？"
+                  description="停止后已完成的试验数据将保留。"
+                  onConfirm={stop}
+                  okText="停止"
+                  cancelText="继续"
+                  okButtonProps={{ danger: true }}
+                  disabled={status !== 'running'}
+                >
+                  <Button danger icon={<StopOutlined />} disabled={status !== 'running'} block>
+                    停止调优
+                  </Button>
+                </Popconfirm>
                 <Button onClick={getResult} disabled={!taskId} block>
                   获取最终结果
                 </Button>

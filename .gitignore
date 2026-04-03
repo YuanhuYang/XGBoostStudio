@@ -53,3 +53,6 @@ desktop.ini
 
 # electron-builder 缓存
 client/.electron-builder-cache/
+
+client/out/
+client/dist-electron/

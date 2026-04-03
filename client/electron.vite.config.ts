@@ -5,6 +5,12 @@ import { resolve } from 'path'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      outDir: 'dist-electron',
+      lib: {
+        entry: resolve('electron/main.ts'),
+      }
+    },
     resolve: {
       alias: {
         '@': resolve('src')
@@ -12,10 +18,23 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      outDir: 'dist-electron',
+      emptyOutDir: false,
+      lib: {
+        entry: resolve('electron/preload.ts'),
+      }
+    }
   },
   renderer: {
     plugins: [react()],
+    root: resolve('.'),
+    build: {
+      rollupOptions: {
+        input: resolve('index.html'),
+      }
+    },
     resolve: {
       alias: {
         '@': resolve('src')

@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Layout, Menu, Typography, Tooltip, Button } from 'antd'
+import React, { useState, useEffect } from 'react'
+import { Layout, Menu, Typography, Tooltip, Button, Badge, Tag, Space } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   DatabaseOutlined,
@@ -14,6 +14,7 @@ import {
   RocketOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  BulbOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
 
@@ -28,11 +29,13 @@ import ModelTuningPage from '../pages/ModelTuning'
 import ModelManagementPage from '../pages/ModelManagement'
 import ReportPage from '../pages/Report'
 import PredictionPage from '../pages/Prediction'
+import SmartWorkflowPage from '../pages/SmartWorkflow'
 
 const { Sider, Content, Header } = Layout
 const { Text } = Typography
 
 type PageKey =
+  | 'smart-workflow'
   | 'data-import'
   | 'feature-analysis'
   | 'feature-engineering'
@@ -45,6 +48,12 @@ type PageKey =
   | 'prediction'
 
 const menuItems: MenuProps['items'] = [
+  {
+    key: 'smart-workflow',
+    icon: <Badge dot offset={[4, -2]}><BulbOutlined /></Badge>,
+    label: '智能向导',
+  },
+  { type: 'divider' },
   {
     key: 'data-import',
     icon: <DatabaseOutlined />,
@@ -98,6 +107,7 @@ const menuItems: MenuProps['items'] = [
 ]
 
 const pageMap: Record<PageKey, React.ReactNode> = {
+  'smart-workflow': <SmartWorkflowPage />,
   'data-import': <DataImportPage />,
   'feature-analysis': <FeatureAnalysisPage />,
   'feature-engineering': <FeatureEngineeringPage />,
@@ -111,8 +121,24 @@ const pageMap: Record<PageKey, React.ReactNode> = {
 }
 
 const MainLayout: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<PageKey>('data-import')
+  const [currentPage, setCurrentPage] = useState<PageKey>('smart-workflow')
   const { sidebarCollapsed, toggleSidebar } = useAppStore()
+  const activeDatasetName = useAppStore(s => s.activeDatasetName)
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const activeModelId = useAppStore(s => s.activeModelId)
+
+  // 监听页面内导航事件（由 SmartWorkflow 触发）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail
+      if (detail && Object.keys(pageMap).includes(detail)) {
+        setCurrentPage(detail as PageKey)
+      }
+    }
+    window.addEventListener('navigate', handler)
+    return () => window.removeEventListener('navigate', handler)
+  }, [])
 
   return (
     <Layout style={{ height: '100vh', background: '#0f172a' }}>
@@ -182,6 +208,51 @@ const MainLayout: React.FC = () => {
               ? (menuItems.find((m) => m?.key === currentPage) as { label: string }).label
               : ''}
           </Text>
+
+          {/* 右侧上下文状态栏 */}
+          <div style={{ marginLeft: 'auto' }}>
+            <Space size={4}>
+              {(activeDatasetId || activeDatasetName) ? (
+                <Tooltip title="点击跳转至数据导入">
+                  <Tag
+                    color="blue"
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setCurrentPage('data-import')}
+                  >
+                    📊 {activeDatasetName ?? `DS#${activeDatasetId}`}
+                  </Tag>
+                </Tooltip>
+              ) : (
+                <Tag color="default" style={{ color: '#475569' }}>📊 — 未设置 —</Tag>
+              )}
+              {activeSplitId ? (
+                <Tooltip title="点击跳转至特征工程">
+                  <Tag
+                    color="cyan"
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setCurrentPage('feature-engineering')}
+                  >
+                    ✂️ 划分#{activeSplitId}
+                  </Tag>
+                </Tooltip>
+              ) : (
+                <Tag color="default" style={{ color: '#475569' }}>✂️ — 未设置 —</Tag>
+              )}
+              {activeModelId ? (
+                <Tooltip title="点击跳转至模型评估">
+                  <Tag
+                    color="green"
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setCurrentPage('model-eval')}
+                  >
+                    🤖 模型#{activeModelId}
+                  </Tag>
+                </Tooltip>
+              ) : (
+                <Tag color="default" style={{ color: '#475569' }}>🤖 — 未设置 —</Tag>
+              )}
+            </Space>
+          </div>
         </Header>
 
         {/* 主内容区 */}

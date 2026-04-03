@@ -37,6 +37,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .metric-label {{ font-size:12px; color:#94a3b8; margin-top:4px; }}
   .tag {{ background:#1e3a5f; color:#93c5fd; border-radius:4px; padding:2px 8px; font-size:12px; }}
   footer {{ margin-top:48px; color:#475569; font-size:12px; border-top:1px solid #334155; padding-top:16px; }}
+  .alert {{ border-radius:8px; padding:16px 20px; margin-top:12px; }}
+  .alert-error {{ background:#450a0a; border:1px solid #7f1d1d; color:#fca5a5; }}
+  .alert-warning {{ background:#431407; border:1px solid #7c2d12; color:#fdba74; }}
+  .alert-success {{ background:#052e16; border:1px solid #14532d; color:#86efac; }}
+  .alert-title {{ font-weight:700; font-size:15px; margin-bottom:4px; }}
 </style>
 </head>
 <body>
@@ -55,6 +60,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <h2>评估指标</h2>
 {metrics_section}
 
+{overfitting_section}
+
 {extra_section}
 
 <footer>由 XGBoost Studio 自动生成 · {gen_time}</footer>
@@ -67,15 +74,53 @@ def _kv_table(data: dict[str, Any]) -> str:
     return f"<table><thead><tr><th>参数</th><th>值</th></tr></thead><tbody>{rows}</tbody></table>"
 
 
+_INTERNAL_METRIC_KEYS = frozenset({
+    "overfitting_level", "overfitting_gap", "train_accuracy", "train_rmse",
+    "early_stopped", "best_round",
+})
+
+
 def _metrics_grid(metrics: dict[str, Any]) -> str:
     cards = ""
     for k, v in metrics.items():
+        if k in _INTERNAL_METRIC_KEYS:
+            continue
         if isinstance(v, float):
             val = f"{v:.4f}"
         else:
             val = str(v)
         cards += f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{k}</div></div>'
     return f'<div class="metric-grid">{cards}</div>'
+
+
+def _overfitting_section(metrics: dict[str, Any]) -> str:
+    level = metrics.get("overfitting_level")
+    if not level:
+        return ""
+    gap = metrics.get("overfitting_gap", 0)
+    early_stopped = metrics.get("early_stopped", False)
+    best_round = metrics.get("best_round")
+    if level == "high":
+        cls, icon, title = "alert-error", "⚠️", "检测到明显过拟合"
+        body = (f"训练集与验证集指标差距 {abs(gap):.4f}，模型泛化能力存在较大风险。"
+                "<br>建议：降低 max_depth、增大 reg_lambda/reg_alpha、提高 subsample/colsample_bytree。")
+    elif level == "medium":
+        cls, icon, title = "alert-warning", "📊", "轻微过拟合"
+        body = (f"训练集与验证集指标差距 {abs(gap):.4f}，泛化能力尚可。"
+                "<br>建议适当增加正则化参数或提升数据量。")
+    else:
+        cls, icon, title = "alert-success", "✅", "过拟合风险低"
+        body = "训练集与验证集指标接近，模型泛化能力良好。"
+    extra = ""
+    if early_stopped and best_round:
+        extra = f'<br><small>🛑 训练在第 {best_round} 轮触发早停，自动保护了模型泛化能力。</small>'
+    return (
+        f'<h2>过拟合诊断</h2>'
+        f'<div class="alert {cls}">'
+        f'<div class="alert-title">{icon} {title}</div>'
+        f'<div>{body}{extra}</div>'
+        f'</div>'
+    )
 
 
 def generate_report(
@@ -128,6 +173,9 @@ def generate_report(
     # 备注
     extra_section = f"<h2>备注</h2><p>{notes}</p>" if notes else ""
 
+    # 过拟合诊断块
+    overfitting_section = _overfitting_section(metrics)
+
     html = _HTML_TEMPLATE.format(
         title=title or f"模型报告_{model_id}",
         gen_time=gen_time,
@@ -135,6 +183,7 @@ def generate_report(
         model_section=model_section,
         params_section=params_section,
         metrics_section=metrics_section,
+        overfitting_section=overfitting_section,
         extra_section=extra_section,
     )
 

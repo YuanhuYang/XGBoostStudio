@@ -8,9 +8,9 @@ export async function getParamsSchema(): Promise<Record<string, unknown>> {
 }
 
 /** 智能推荐参数 */
-export async function recommendParams(datasetId: number): Promise<Partial<XGBParams>> {
+export async function recommendParams(splitId: number): Promise<Partial<XGBParams>> {
   const res = await apiClient.get('/api/params/recommend', {
-    params: { dataset_id: datasetId },
+    params: { split_id: splitId },
   })
   return res.data
 }

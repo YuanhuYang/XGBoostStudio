@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import {
   Card, Table, Button, Space, Tag, Typography, Popconfirm,
-  Modal, Form, Input, Row, Col, Statistic, message, Tooltip, Empty, Select
+  Modal, Form, Input, Row, Col, Statistic, message, Tooltip, Empty, Tabs
 } from 'antd'
 import { AppstoreOutlined, DeleteOutlined, EditOutlined, DownloadOutlined, DiffOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -9,6 +9,14 @@ import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 
 const { Title, Text } = Typography
+
+// 过滤内部指标（不应展示在对比图中）
+const INTERNAL_METRIC_KEYS = new Set([
+  'overfitting_level', 'overfitting_gap', 'train_accuracy', 'train_rmse',
+  'early_stopped', 'best_round',
+])
+// 越小越好的指标（用于雷达图反向处理）
+const LOWER_IS_BETTER = new Set(['rmse', 'mse', 'mae', 'log_loss', 'logloss'])
 
 interface ModelRecord {
   id: number; name: string; task_type: string
@@ -104,22 +112,61 @@ const ModelManagementPage: React.FC = () => {
     }
   ]
 
-  // 对比雷达图
-  const radarOption = compareData.length > 0 ? (() => {
-    const allMetricKeys = [...new Set(compareData.flatMap(m => Object.keys(m.metrics || {})))]
+  // 对比雷达图（过滤内部指标，动态 max 值）
+  const compareMetricKeys = compareData.length > 0
+    ? [...new Set(compareData.flatMap(m => Object.keys(m.metrics || {})))].filter(k => !INTERNAL_METRIC_KEYS.has(k))
+    : []
+
+  const radarOption = compareData.length > 0 && compareMetricKeys.length > 0 ? (() => {
+    // 每个指标的最大值（动态 max，对 RMSE 类取实际 max 再乘 1.2）
+    const metricMax: Record<string, number> = {}
+    compareMetricKeys.forEach(k => {
+      const vals = compareData.map(m => m.metrics[k] ?? 0)
+      const actualMax = Math.max(...vals)
+      metricMax[k] = LOWER_IS_BETTER.has(k.toLowerCase())
+        ? actualMax * 1.3   // RMSE 类不反转，直接用实际范围
+        : Math.max(1, actualMax * 1.1) // AUC/Acc 类 max 至少 1
+    })
+    // 雷达图中对"越小越好"的指标取反：使用 max - val 映射让最优值在外边
     return {
       tooltip: {},
       legend: { textStyle: { color: '#94a3b8' }, data: compareData.map(m => m.name) },
-      radar: { indicator: allMetricKeys.map(k => ({ name: k, max: 1 })) },
+      radar: {
+        indicator: compareMetricKeys.map(k => ({
+          name: LOWER_IS_BETTER.has(k.toLowerCase()) ? `${k} ↓` : k,
+          max: metricMax[k],
+        })),
+        axisName: { color: '#94a3b8', fontSize: 12 },
+      },
       series: [{
         type: 'radar',
-        data: compareData.map(m => ({
+        data: compareData.map((m, idx) => ({
           name: m.name,
-          value: allMetricKeys.map(k => m.metrics[k] || 0)
-        }))
-      }]
+          value: compareMetricKeys.map(k => {
+            const v = m.metrics[k] ?? 0
+            // 越小越好：映射为 max - v（让最优在外）
+            return LOWER_IS_BETTER.has(k.toLowerCase()) ? Math.max(0, metricMax[k] - v) : v
+          }),
+          areaStyle: { opacity: 0.15 },
+          itemStyle: { color: ['#3b82f6', '#f59e0b', '#34d399', '#a855f7', '#f43f5e'][idx % 5] },
+        })),
+      }],
     }
   })() : null
+
+  // 柱状图（对比各模型的每个指标）
+  const barOption = compareData.length > 0 && compareMetricKeys.length > 0 ? {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { textStyle: { color: '#94a3b8' }, data: compareData.map(m => m.name) },
+    xAxis: { type: 'category', data: compareMetricKeys, axisLabel: { color: '#94a3b8', rotate: 20 } },
+    yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+    series: compareData.map((m, idx) => ({
+      name: m.name,
+      type: 'bar',
+      data: compareMetricKeys.map(k => typeof m.metrics[k] === 'number' ? Number(m.metrics[k].toFixed(4)) : 0),
+      itemStyle: { color: ['#3b82f6', '#f59e0b', '#34d399', '#a855f7', '#f43f5e'][idx % 5] },
+    })),
+  } : null
 
   return (
     <div style={{ padding: 24 }}>
@@ -152,22 +199,51 @@ const ModelManagementPage: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal title="模型对比" open={compareVisible} onCancel={() => setCompareVisible(false)} width={800} footer={null}>
-        {radarOption && <ReactECharts option={radarOption} style={{ height: 350 }} />}
-        <Table
-          size="small"
-          dataSource={compareData.map(m => ({
-            key: m.id, name: m.name, task_type: m.task_type,
-            ...Object.fromEntries(Object.entries(m.metrics).map(([k, v]) => [k, v.toFixed(4)]))
-          }))}
-          columns={[
-            { title: '模型', dataIndex: 'name', key: 'name' },
-            { title: '类型', dataIndex: 'task_type', key: 'task_type' },
-            ...[...new Set(compareData.flatMap(m => Object.keys(m.metrics)))].map(k => ({
-              title: k, dataIndex: k, key: k
-            }))
+      <Modal title="模型对比" open={compareVisible} onCancel={() => setCompareVisible(false)} width={860} footer={null}>
+        <Tabs
+          items={[
+            {
+              key: 'radar', label: '雷达图',
+              children: radarOption
+                ? <ReactECharts option={radarOption} style={{ height: 360 }} />
+                : <Empty description="无可对比的指标" />,
+            },
+            {
+              key: 'bar', label: '柱状图',
+              children: barOption
+                ? <ReactECharts option={barOption} style={{ height: 360 }} />
+                : <Empty description="无可对比的指标" />,
+            },
+            {
+              key: 'table', label: '数据表',
+              children: (
+                <Table
+                  size="small"
+                  dataSource={compareData.map(m => ({
+                    key: m.id, name: m.name, task_type: m.task_type,
+                    ...Object.fromEntries(
+                      Object.entries(m.metrics)
+                        .filter(([k]) => !INTERNAL_METRIC_KEYS.has(k))
+                        .map(([k, v]) => [k, typeof v === 'number' ? v.toFixed(4) : v])
+                    )
+                  }))}
+                  columns={[
+                    { title: '模型', dataIndex: 'name', key: 'name', render: v => <Text style={{ color: '#60a5fa' }}>{v}</Text> },
+                    { title: '类型', dataIndex: 'task_type', key: 'task_type', render: v => <Tag color={v === 'classification' ? 'blue' : 'orange'}>{v}</Tag> },
+                    ...compareMetricKeys.map(k => ({
+                      title: <span>{k}{LOWER_IS_BETTER.has(k.toLowerCase()) ? ' ↓' : ' ↑'}</span>,
+                      dataIndex: k, key: k,
+                    }))
+                  ]}
+                  pagination={false}
+                />
+              ),
+            },
           ]}
         />
+        <div style={{ marginTop: 8, fontSize: 12, color: '#475569' }}>
+          ↑ 越大越好 &nbsp;|&nbsp; ↓ 越小越好（雷达图中已反向映射，外圈 = 更优）
+        </div>
       </Modal>
     </div>
   )

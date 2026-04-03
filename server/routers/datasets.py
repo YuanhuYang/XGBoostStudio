@@ -204,6 +204,29 @@ def multivariate_outliers(dataset_id: int, db: Session = Depends(get_db)):
     return feat_svc.get_mahalanobis_outliers(ds)
 
 
+@router.get("/{dataset_id}/feature-analysis/distribution-test")
+def distribution_test(
+    dataset_id: int,
+    column: str = Query(..., description="要检验的数值列名"),
+    db: Session = Depends(get_db),
+):
+    """对指定列拟合正态/对数正态/指数分布并返回 KS/Anderson-Darling 检验结果"""
+    ds = _get_dataset(dataset_id, db)
+    return feat_svc.get_distribution_tests(ds, column)
+
+
+@router.get("/{dataset_id}/feature-analysis/pca")
+def pca_analysis(
+    dataset_id: int,
+    n_components: int = Query(10, ge=2, le=50, description="最大主成分数"),
+    db: Session = Depends(get_db),
+):
+    """PCA 分析：碎石图数据、载荷矩阵、双标图、降维建议"""
+    ds = _get_dataset(dataset_id, db)
+    return feat_svc.get_pca_analysis(ds, n_components)
+
+
+
 # ── 特征工程（模块3） ─────────────────────────────────────────────────────────
 
 @router.post("/{dataset_id}/feature-engineering/encode", response_model=DatasetResponse)

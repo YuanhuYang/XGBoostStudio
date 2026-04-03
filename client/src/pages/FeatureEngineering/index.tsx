@@ -11,6 +11,7 @@ const { Title, Text } = Typography
 
 const FeatureEngineeringPage: React.FC = () => {
   const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const setActiveSplitId = useAppStore(s => s.setActiveSplitId)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
 
@@ -71,6 +72,7 @@ const FeatureEngineeringPage: React.FC = () => {
         train_ratio: trainRatio, random_seed: randomSeed, stratify, target_column: targetCol
       })
       setSplitResult(r.data)
+      setActiveSplitId(r.data.split_id)
       message.success(`划分成功！训练集: ${r.data.train_rows} 行，测试集: ${r.data.test_rows} 行`)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }

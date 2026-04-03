@@ -113,13 +113,20 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
         task_type = _detect_task_type(y_train)
         merged_params = {**_default_params(task_type), **params}
         n_estimators = int(merged_params.pop("n_estimators", 100))
+        # 提取早停参数（不传入 XGBoost sklearn API）
+        early_stopping_rounds = int(merged_params.pop("early_stopping_rounds", 0))
 
         model = xgb.XGBClassifier(**merged_params) if task_type == "classification" else xgb.XGBRegressor(**merged_params)
 
         start_time = time.time()
 
-        # 逐步训练，推送进度
+        # 逐步训练，推送进度；同时实施早停
         step = max(1, n_estimators // 20)
+        best_val_metric = float("inf")
+        best_round = step
+        no_improve_rounds = 0
+        early_stopped = False
+
         for i in range(step, n_estimators + step, step):
             current_rounds = min(i, n_estimators)
             model.set_params(n_estimators=current_rounds)
@@ -138,27 +145,48 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
                 progress["train_logloss"] = round(float(log_loss(y_train, train_pred)), 4)
                 if y_test is not None:
                     test_pred = model.predict_proba(X_test)
-                    progress["val_logloss"] = round(float(log_loss(y_test, test_pred)), 4)
+                    val_m = float(log_loss(y_test, test_pred))
+                    progress["val_logloss"] = round(val_m, 4)
             else:
                 from sklearn.metrics import mean_squared_error  # type: ignore
                 train_pred = model.predict(X_train)
                 progress["train_rmse"] = round(float(np.sqrt(mean_squared_error(y_train, train_pred))), 4)
                 if y_test is not None:
                     test_pred = model.predict(X_test)
-                    progress["val_rmse"] = round(float(np.sqrt(mean_squared_error(y_test, test_pred))), 4)
+                    val_m = float(np.sqrt(mean_squared_error(y_test, test_pred)))
+                    progress["val_rmse"] = round(val_m, 4)
+
+            # 早停检测
+            if early_stopping_rounds > 0 and y_test is not None:
+                val_m_cur = progress.get("val_logloss") or progress.get("val_rmse", float("inf"))
+                if val_m_cur is not None:
+                    if float(val_m_cur) < best_val_metric - 1e-5:
+                        best_val_metric = float(val_m_cur)
+                        best_round = current_rounds
+                        no_improve_rounds = 0
+                    else:
+                        no_improve_rounds += step
+                    if no_improve_rounds >= early_stopping_rounds:
+                        progress["early_stopping_hint"] = True
+                        yield f"data: {json.dumps(progress)}\n\n"
+                        early_stopped = True
+                        break
 
             yield f"data: {json.dumps(progress)}\n\n"
 
-            # 检查是否被停止
+            # 检查是否被停止（每步检查，而非每 10 步）
             db.refresh(task)
             if task.status == "stopped":
                 yield f"data: {json.dumps({'stopped': True})}\n\n"
                 yield "event: done\ndata: {}\n\n"
                 return
 
-        # 最终训练完成 - 计算全量指标并保存模型
+        # 最终训练完成 - 计算全量指标（含过拟合诊断）并保存模型
         training_time = round(time.time() - start_time, 2)
-        metrics = _compute_metrics(model, X_test, y_test, task_type)
+        metrics = _compute_metrics(model, X_test, y_test, task_type, X_train, y_train)
+        if early_stopped:
+            metrics["early_stopped"] = True
+            metrics["best_round"] = best_round
 
         # 保存模型文件
         model_filename = f"model_{uuid.uuid4().hex[:12]}.ubj"
@@ -184,7 +212,7 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
         task.model_id = final_model.id
         db.commit()
 
-        yield f"data: {json.dumps({'completed': True, 'model_id': final_model.id, 'metrics': metrics})}\n\n"
+        yield f"data: {json.dumps({'completed': True, 'model_id': final_model.id, 'metrics': metrics, 'early_stopped': early_stopped, 'best_round': best_round})}\n\n"
         yield "event: done\ndata: {}\n\n"
 
     except BaseException as e:  # pylint: disable=broad-except  # type: ignore[misc]
@@ -195,8 +223,14 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
         yield "event: done\ndata: {}\n\n"
 
 
-def _compute_metrics(model: Any, X_test: Optional[pd.DataFrame], y_test: Optional[pd.Series],
-                     task_type: str) -> dict[str, Any]:
+def _compute_metrics(
+    model: Any,
+    X_test: Optional[pd.DataFrame],
+    y_test: Optional[pd.Series],
+    task_type: str,
+    X_train: Optional[pd.DataFrame] = None,
+    y_train: Optional[pd.Series] = None,
+) -> dict[str, Any]:
     from sklearn.metrics import (  # type: ignore
         accuracy_score, precision_score, recall_score, f1_score,
         roc_auc_score, mean_squared_error, mean_absolute_error, r2_score
@@ -219,6 +253,19 @@ def _compute_metrics(model: Any, X_test: Optional[pd.DataFrame], y_test: Optiona
             metrics["auc"] = round(float(auc), 4)
         except (ValueError, TypeError):  # type: ignore[misc]
             pass
+        # 过拟合诊断：对比训练集与验证集准确率
+        if X_train is not None and y_train is not None:
+            try:
+                y_train_pred = model.predict(X_train)
+                train_acc = float(accuracy_score(y_train, y_train_pred))
+                metrics["train_accuracy"] = round(train_acc, 4)
+                gap = train_acc - metrics["accuracy"]
+                metrics["overfitting_gap"] = round(gap, 4)
+                metrics["overfitting_level"] = (
+                    "high" if gap > 0.15 else ("medium" if gap > 0.05 else "low")
+                )
+            except (ValueError, TypeError):
+                pass
     else:
         y_pred = model.predict(X_test)
         mse = mean_squared_error(y_test, y_pred)
@@ -229,6 +276,19 @@ def _compute_metrics(model: Any, X_test: Optional[pd.DataFrame], y_test: Optiona
         non_zero = y_test != 0
         if non_zero.any():
             metrics["mape"] = round(float(np.mean(np.abs((y_test[non_zero] - y_pred[non_zero]) / y_test[non_zero])) * 100), 4)
+        # 过拟合诊断：对比训练集与验证集 RMSE
+        if X_train is not None and y_train is not None:
+            try:
+                y_train_pred = model.predict(X_train)
+                train_rmse = float(np.sqrt(mean_squared_error(y_train, y_train_pred)))
+                metrics["train_rmse"] = round(train_rmse, 4)
+                ratio = metrics["rmse"] / max(train_rmse, 1e-8)
+                metrics["overfitting_gap"] = round(ratio - 1, 4)
+                metrics["overfitting_level"] = (
+                    "high" if ratio > 1.5 else ("medium" if ratio > 1.2 else "low")
+                )
+            except (ValueError, TypeError):
+                pass
 
     return metrics
 

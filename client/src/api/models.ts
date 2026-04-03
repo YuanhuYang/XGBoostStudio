@@ -48,6 +48,12 @@ export async function compareModels(ids: number[]): Promise<Record<string, unkno
   return res.data
 }
 
+/** 学习曲线 */
+export async function getLearningCurve(id: number): Promise<Record<string, unknown>> {
+  const res = await apiClient.get(`/api/models/${id}/learning-curve`)
+  return res.data
+}
+
 /** 导出模型 */
 export async function exportModel(id: number, format: 'ubj' | 'pickle' = 'ubj'): Promise<Blob> {
   const res = await apiClient.post(

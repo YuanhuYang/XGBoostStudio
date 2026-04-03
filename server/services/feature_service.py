@@ -317,3 +317,152 @@ def select_features(
     db.commit()
     db.refresh(dataset)
     return dataset
+
+
+# ── 分布拟合检验 ──────────────────────────────────────────────────────────────
+
+def get_distribution_tests(dataset: Dataset, column: str) -> dict[str, Any]:
+    """拟合正态、对数正态、指数三种分布，返回 KS/Anderson-Darling 检验结果"""
+    from scipy import stats as sp_stats  # type: ignore
+
+    df = _load_df(dataset)
+    if column not in df.columns:
+        raise HTTPException(status_code=400, detail=f"列不存在: {column}")
+    if not pd.api.types.is_numeric_dtype(df[column]):
+        raise HTTPException(status_code=400, detail=f"列 {column} 不是数值型")
+
+    series = df[column].dropna()
+    if len(series) < 10:
+        raise HTTPException(status_code=400, detail="样本量不足（< 10）")
+
+    _dist_map = [
+        ("正态分布", "norm"),
+        ("对数正态分布", "lognorm"),
+        ("指数分布", "expon"),
+    ]
+    tests: list[dict[str, Any]] = []
+    for dist_label, dist_name in _dist_map:
+        dist = getattr(sp_stats, dist_name)
+        try:
+            if dist_name == "lognorm" and (series <= 0).any():
+                tests.append({"distribution": dist_label, "ks_stat": None, "ks_p": None,
+                               "ks_pass": False, "ad_stat": None, "ad_pass": None})
+                continue
+            params = dist.fit(series)
+            ks_stat, ks_p = sp_stats.kstest(series, dist_name, args=params)
+            ad_stat: float | None = None
+            ad_pass: bool | None = None
+            if dist_name == "norm":
+                try:
+                    ad_result = sp_stats.anderson(series.values, dist="norm")
+                    ad_stat = round(float(ad_result.statistic), 4)
+                    # 5% 显著性水平对应 critical_values[2]
+                    ad_pass = bool(ad_stat < ad_result.critical_values[2])
+                except (ValueError, IndexError):
+                    pass
+            tests.append({
+                "distribution": dist_label,
+                "ks_stat": round(float(ks_stat), 4),
+                "ks_p": round(float(ks_p), 4),
+                "ks_pass": bool(ks_p > 0.05),
+                "ad_stat": ad_stat,
+                "ad_pass": ad_pass,
+            })
+        except (ValueError, TypeError, FloatingPointError, OverflowError):
+            tests.append({"distribution": dist_label, "ks_stat": None, "ks_p": None,
+                           "ks_pass": False, "ad_stat": None, "ad_pass": None})
+
+    valid = [t for t in tests if t.get("ks_p") is not None]
+    best = max(valid, key=lambda x: x["ks_p"]) if valid else None
+    is_normal = next((t["ks_pass"] for t in tests if t["distribution"] == "正态分布"), False)
+    skewness = round(float(series.skew()), 4)
+
+    if is_normal:
+        recommendation = (
+            f"该列符合正态分布（KS p = {next((t['ks_p'] for t in tests if t['distribution']=='正态分布'), 0):.3f}，> 0.05）"
+        )
+    elif best:
+        transform_hint = (
+            "，建议对该列进行 Box-Cox / Yeo-Johnson 变换以改善偏度" if abs(skewness) > 1 else ""
+        )
+        recommendation = (
+            f"不符合正态分布（p < 0.05）。推荐最佳拟合分布：{best['distribution']}"
+            f"（KS p = {best['ks_p']:.3f}）{transform_hint}"
+        )
+    else:
+        recommendation = "无法确定最佳分布，请检查数据"
+
+    return {
+        "column": column,
+        "n": int(len(series)),
+        "mean": round(float(series.mean()), 4),
+        "std": round(float(series.std()), 4),
+        "skewness": skewness,
+        "kurtosis": round(float(series.kurtosis()), 4),
+        "tests": tests,
+        "best_fit": best["distribution"] if best else None,
+        "is_normal": is_normal,
+        "recommendation": recommendation,
+    }
+
+
+# ── PCA 辅助分析 ──────────────────────────────────────────────────────────────
+
+def get_pca_analysis(dataset: Dataset, n_components: int = 10) -> dict[str, Any]:
+    """PCA 分析：碎石图、载荷矩阵、双标图数据、降维建议"""
+    from sklearn.decomposition import PCA  # type: ignore
+    from sklearn.preprocessing import StandardScaler  # type: ignore
+
+    df = _load_df(dataset)
+    numeric_df = df.select_dtypes(include=[np.number])
+    if numeric_df.shape[1] < 2:
+        raise HTTPException(status_code=400, detail="需要至少 2 个数值特征才能做 PCA")
+
+    # 填充缺失值（用列均值）并标准化
+    numeric_filled = numeric_df.fillna(numeric_df.mean())
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(numeric_filled)
+
+    n_features = numeric_df.shape[1]
+    k = min(n_components, n_features, len(numeric_filled))
+
+    pca = PCA(n_components=k, random_state=42)
+    X_pca = pca.fit_transform(X_scaled)
+
+    explained_var = [round(float(v), 4) for v in pca.explained_variance_ratio_]
+    cumulative_var = [round(float(v), 4) for v in np.cumsum(pca.explained_variance_ratio_)]
+
+    # 降维建议：累计方差 >= 95% 所需最少主成分数
+    rec_idx = next((i for i, v in enumerate(cumulative_var) if v >= 0.95), k - 1)
+    rec_k = rec_idx + 1
+    rec_var = cumulative_var[rec_idx]
+
+    # 载荷：各特征对前 min(k,5) 个主成分的贡献
+    max_pcs = min(k, 5)
+    loadings: list[dict[str, Any]] = []
+    features = list(numeric_df.columns)
+    for i, feat in enumerate(features):
+        entry: dict[str, Any] = {"feature": feat}
+        for j in range(max_pcs):
+            entry[f"PC{j + 1}"] = round(float(pca.components_[j][i]), 4)
+        loadings.append(entry)
+
+    # Biplot 数据（最多取 150 个样本点）
+    n_sample = min(150, len(X_pca))
+    biplot_points = [
+        {"x": round(float(X_pca[i, 0]), 4), "y": round(float(X_pca[i, 1]), 4)}
+        for i in range(n_sample)
+    ]
+
+    return {
+        "n_components": k,
+        "n_features": n_features,
+        "n_samples": int(len(df)),
+        "features": features,
+        "explained_variance": explained_var,
+        "cumulative_variance": cumulative_var,
+        "loadings": loadings,
+        "biplot_points": biplot_points,
+        "recommendation": f"保留前 {rec_k} 个主成分可解释 {rec_var * 100:.1f}% 的方差",
+    }
+

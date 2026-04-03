@@ -6,6 +6,7 @@ import {
 import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../../api/client'
+import { useAppStore } from '../../store/appStore'
 
 const { Title, Text } = Typography
 
@@ -14,6 +15,7 @@ interface ReportRecord {
 }
 
 const ReportPage: React.FC = () => {
+  const activeModelId = useAppStore(s => s.activeModelId)
   const [reports, setReports] = useState<ReportRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [genModal, setGenModal] = useState(false)
@@ -32,6 +34,13 @@ const ReportPage: React.FC = () => {
   }
 
   useEffect(() => { fetchReports() }, [])
+
+  // 报告生成对话框打开时，预填当前活跃模型 ID
+  useEffect(() => {
+    if (genModal && activeModelId !== null) {
+      form.setFieldsValue({ model_id: activeModelId })
+    }
+  }, [genModal, activeModelId, form])
 
   const handleGenerate = async () => {
     const values = await form.validateFields()

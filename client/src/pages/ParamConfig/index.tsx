@@ -1,27 +1,32 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Card, Row, Col, Button, Table, Typography, Space,
-  InputNumber, Select, Slider, Tooltip, Tag, Alert, message,
-  Tabs, Statistic, Badge, Divider, Form
+  Card, Row, Col, Button, Typography, Space,
+  InputNumber, Tag, Alert, message,
+  Statistic, Badge, Divider, Collapse
 } from 'antd'
-import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, DownOutlined } from '@ant-design/icons'
 import apiClient from '../../api/client'
+import { useAppStore } from '../../store/appStore'
+import ParamExplainCard from '../../components/ParamExplainCard'
+import type { ParamSchema } from '../../components/ParamExplainCard'
 
 const { Title, Text } = Typography
 
-interface ParamSchema {
-  name: string; label: string; type: string; default: unknown
-  min?: number; max?: number; step?: number; log_scale?: boolean
-  options?: string[]; tooltip: string
-}
+// 核心参数（面向所有用户）
+const CORE_PARAM_NAMES = ['n_estimators', 'max_depth', 'learning_rate', 'subsample', 'colsample_bytree', 'reg_lambda']
 
 const ParamConfigPage: React.FC = () => {
+  const activeSplitId = useAppStore(s => s.activeSplitId)
   const [schema, setSchema] = useState<ParamSchema[]>([])
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [splitId, setSplitId] = useState<number | null>(null)
-  const [recommendation, setRecommendation] = useState<{ params: Record<string, unknown>; notes: string[] } | null>(null)
+  const [recommendation, setRecommendation] = useState<{ params: Record<string, unknown>; notes: string[]; explanations?: Record<string, string> } | null>(null)
   const [validation, setValidation] = useState<{ valid: boolean; errors: Record<string, string> } | null>(null)
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (activeSplitId !== null && splitId === null) setSplitId(activeSplitId)
+  }, [activeSplitId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     apiClient.get('/api/params/schema').then(r => {
@@ -62,18 +67,8 @@ const ParamConfigPage: React.FC = () => {
     setValidation(null)
   }
 
-  const renderControl = (p: ParamSchema) => {
-    const val = params[p.name]
-    if (p.type === 'select') {
-      return <Select value={val as string} onChange={v => handleParamChange(p.name, v)} style={{ width: '100%' }}
-        options={(p.options || []).map(o => ({ value: o, label: o }))} />
-    }
-    if (p.type === 'int') {
-      return <InputNumber min={p.min} max={p.max} step={p.step} value={val as number} onChange={v => handleParamChange(p.name, v)} style={{ width: '100%' }} />
-    }
-    return <InputNumber min={p.min} max={p.max} step={p.step} value={val as number} precision={4}
-      onChange={v => handleParamChange(p.name, v)} style={{ width: '100%' }} />
-  }
+  const coreSchema = schema.filter(p => CORE_PARAM_NAMES.includes(p.name))
+  const advancedSchema = schema.filter(p => !CORE_PARAM_NAMES.includes(p.name))
 
   return (
     <div style={{ padding: 24 }}>
@@ -97,8 +92,8 @@ const ParamConfigPage: React.FC = () => {
             </Space>
           </Card>
 
-          <Card title={<Text style={{ color: '#e2e8f0' }}>验证结果</Text>}
-            style={{ background: '#1e293b', border: '1px solid #334155' }}>
+          <Card title={<Text style={{ color: '#e2e8f0' }}>参数验证</Text>}
+            style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
             <Button icon={<CheckCircleOutlined />} onClick={handleValidate} block style={{ marginBottom: 12 }}>
               验证当前参数
             </Button>
@@ -113,31 +108,69 @@ const ParamConfigPage: React.FC = () => {
                 </div>
             )}
           </Card>
+
+          <Card title={<Text style={{ color: '#e2e8f0' }}>当前参数（JSON）</Text>}
+            style={{ background: '#1e293b', border: '1px solid #334155' }}>
+            <pre style={{ color: '#34d399', fontFamily: 'monospace', fontSize: 11, margin: 0, overflow: 'auto', maxHeight: 300 }}>
+              {JSON.stringify(params, null, 2)}
+            </pre>
+          </Card>
         </Col>
 
         <Col span={16}>
-          <Card title={<Text style={{ color: '#e2e8f0' }}>参数设置</Text>}
-            style={{ background: '#1e293b', border: '1px solid #334155' }}>
-            <Row gutter={[16, 8]}>
-              {schema.map(p => (
-                <Col span={12} key={p.name}>
-                  <Tooltip title={p.tooltip}>
-                    <div style={{ marginBottom: 8 }}>
-                      <Text style={{ color: '#94a3b8', fontSize: 12 }}>{p.label}</Text>
-                      {validation?.errors?.[p.name] && <WarningOutlined style={{ color: '#fca5a5', marginLeft: 4 }} />}
-                      <div style={{ marginTop: 4 }}>{renderControl(p)}</div>
-                    </div>
-                  </Tooltip>
-                </Col>
-              ))}
-            </Row>
-            <Divider style={{ borderColor: '#334155' }} />
-            <Card style={{ background: '#0f172a', border: '1px solid #334155' }}>
-              <Text style={{ color: '#34d399', fontFamily: 'monospace', fontSize: 12 }}>
-                {JSON.stringify(params, null, 2)}
-              </Text>
-            </Card>
+          <Card
+            title={
+              <Space>
+                <Text style={{ color: '#e2e8f0' }}>核心参数</Text>
+                <Badge count="6" style={{ backgroundColor: '#3b82f6' }} />
+                <Text style={{ color: '#64748b', fontSize: 12 }}>滑块颜色表示过拟合风险：🟢 安全 🟡 注意 🔴 高风险</Text>
+              </Space>
+            }
+            style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}
+          >
+            {coreSchema.map(p => (
+              <div key={p.name} style={{ position: 'relative' }}>
+                {validation?.errors?.[p.name] && (
+                  <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}>
+                    <Tag color="red" style={{ fontSize: 11 }}><WarningOutlined /> 参数错误</Tag>
+                  </div>
+                )}
+                <ParamExplainCard
+                  schema={p}
+                  value={params[p.name] as number | string ?? p.default}
+                  onChange={v => handleParamChange(p.name, v)}
+                  explanation={recommendation?.explanations?.[p.name]}
+                />
+              </div>
+            ))}
           </Card>
+
+          <Collapse
+            ghost
+            size="small"
+            items={[{
+              key: 'advanced',
+              label: (
+                <Space>
+                  <DownOutlined style={{ color: '#64748b', fontSize: 11 }} />
+                  <Text style={{ color: '#64748b', fontSize: 13 }}>高级参数（{advancedSchema.length} 个，通常无需修改）</Text>
+                </Space>
+              ),
+              children: (
+                <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
+                  {advancedSchema.map(p => (
+                    <ParamExplainCard
+                      key={p.name}
+                      schema={p}
+                      value={params[p.name] as number | string ?? p.default}
+                      onChange={v => handleParamChange(p.name, v)}
+                      explanation={recommendation?.explanations?.[p.name]}
+                    />
+                  ))}
+                </Card>
+              ),
+            }]}
+          />
         </Col>
       </Row>
     </div>

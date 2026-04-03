@@ -2,17 +2,18 @@
 XGBoost Studio — FastAPI 后端入口
 监听地址：127.0.0.1:18899
 """
+import logging
 import signal
 import sys
-import logging
-import uvicorn
 from contextlib import asynccontextmanager
+
+import uvicorn
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # 路由模块
-from routers import datasets, params, training, models, tuning, reports, prediction
+from routers import datasets, params, training, models, tuning, reports, prediction, wizard
 from db.database import init_db
 
 logging.basicConfig(
@@ -60,6 +61,7 @@ app.include_router(models.router)
 app.include_router(tuning.router)
 app.include_router(reports.router)
 app.include_router(prediction.router)
+app.include_router(wizard.router)
 
 
 # ── 健康检查 ──────────────────────────────────────────────────────────────────
