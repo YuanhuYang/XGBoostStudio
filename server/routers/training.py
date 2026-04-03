@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,7 @@ def start_training(body: TrainRequest, db: Session = Depends(get_db)) -> dict[st
         split_id=body.split_id,
         params=body.params or {},
         db=db,
+        model_name=body.model_name,
     )
     return {"task_id": task_id}
 

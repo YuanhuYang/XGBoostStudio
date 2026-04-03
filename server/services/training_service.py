@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 import numpy as np
@@ -61,13 +60,15 @@ def _default_params(task_type: str) -> dict[str, Any]:
 
 # ── 创建任务 ──────────────────────────────────────────────────────────────────
 
-def create_task(split_id: int, params: dict[str, Any], model_name: Optional[str], db: Session) -> str:
+def create_task(split_id: int, params: dict[str, Any], db: Session, model_name: Optional[str] = None) -> str:
     task_id = uuid.uuid4().hex
+    # model_name 存入 params_json，供 training_stream 读取命名模型
+    params_with_meta = {**params, "_model_name": model_name or ""}
     task = TrainingTask(
         id=task_id,
         status="pending",
         split_id=split_id,
-        params_json=json.dumps(params),
+        params_json=json.dumps(params_with_meta),
     )
     db.add(task)
     db.commit()
@@ -76,7 +77,7 @@ def create_task(split_id: int, params: dict[str, Any], model_name: Optional[str]
 
 # ── SSE 训练流 ────────────────────────────────────────────────────────────────
 
-async def training_stream(task_id: str, model_name: Optional[str], db: Session) -> AsyncGenerator[str, None]:
+async def training_stream(task_id: str, db: Session, model_name: Optional[str] = None) -> AsyncGenerator[str, None]:
     task = db.query(TrainingTask).filter(TrainingTask.id == task_id).first()
     if not task:
         yield f"data: {json.dumps({'error': 'task not found'})}\n\n"
@@ -86,6 +87,8 @@ async def training_stream(task_id: str, model_name: Optional[str], db: Session) 
     db.commit()
 
     params = json.loads(task.params_json or "{}")
+    # 提取内部元数据，不传给 XGBoost
+    _model_name_from_task = params.pop("_model_name", None) or model_name
     split_id = task.split_id
 
     try:
@@ -155,7 +158,7 @@ async def training_stream(task_id: str, model_name: Optional[str], db: Session) 
 
         # 最终训练完成 - 计算全量指标并保存模型
         training_time = round(time.time() - start_time, 2)
-        metrics = _compute_metrics(model, X_train, y_train, X_test, y_test, task_type)
+        metrics = _compute_metrics(model, X_test, y_test, task_type)
 
         # 保存模型文件
         model_filename = f"model_{uuid.uuid4().hex[:12]}.ubj"
@@ -164,7 +167,7 @@ async def training_stream(task_id: str, model_name: Optional[str], db: Session) 
 
         # 写入数据库
         final_model = Model(
-            name=model_name or f"Model_{task_id[:8]}",
+            name=_model_name_from_task or f"Model_{task_id[:8]}",
             path=model_filename,
             task_type=task_type,
             metrics_json=json.dumps(metrics),
@@ -184,7 +187,7 @@ async def training_stream(task_id: str, model_name: Optional[str], db: Session) 
         yield f"data: {json.dumps({'completed': True, 'model_id': final_model.id, 'metrics': metrics})}\n\n"
         yield "event: done\ndata: {}\n\n"
 
-    except Exception as e:
+    except BaseException as e:  # pylint: disable=broad-except  # type: ignore[misc]
         task.status = "failed"
         task.error_msg = str(e)
         db.commit()
@@ -192,8 +195,7 @@ async def training_stream(task_id: str, model_name: Optional[str], db: Session) 
         yield "event: done\ndata: {}\n\n"
 
 
-def _compute_metrics(model: Any, X_train: pd.DataFrame, y_train: pd.Series,
-                     X_test: Optional[pd.DataFrame], y_test: Optional[pd.Series],
+def _compute_metrics(model: Any, X_test: Optional[pd.DataFrame], y_test: Optional[pd.Series],
                      task_type: str) -> dict[str, Any]:
     from sklearn.metrics import (  # type: ignore
         accuracy_score, precision_score, recall_score, f1_score,
@@ -215,7 +217,7 @@ def _compute_metrics(model: Any, X_train: pd.DataFrame, y_train: pd.Series,
             auc = roc_auc_score(y_test, y_prob if y_prob.shape[1] > 2 else y_prob[:, 1],
                                 multi_class="ovr", average="weighted")
             metrics["auc"] = round(float(auc), 4)
-        except Exception:
+        except (ValueError, TypeError):  # type: ignore[misc]
             pass
     else:
         y_pred = model.predict(X_test)
