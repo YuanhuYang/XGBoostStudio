@@ -1,0 +1,126 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""
+PyInstaller 构建配置
+输出：dist/xgboost-server.exe（单文件，含完整 Python + 所有依赖）
+"""
+import sys
+from pathlib import Path
+
+block_cipher = None
+
+# 收集所有需要的数据文件
+added_files = [
+    # xgboost 数据文件
+    ('routers', 'routers'),
+    ('services', 'services'),
+    ('schemas', 'schemas'),
+    ('db', 'db'),
+]
+
+a = Analysis(
+    ['main.py'],
+    pathex=['.'],
+    binaries=[],
+    datas=added_files,
+    hiddenimports=[
+        # FastAPI / Starlette
+        'fastapi',
+        'fastapi.middleware.cors',
+        'starlette',
+        'starlette.middleware',
+        'starlette.middleware.cors',
+        'uvicorn',
+        'uvicorn.logging',
+        'uvicorn.loops',
+        'uvicorn.loops.auto',
+        'uvicorn.protocols',
+        'uvicorn.protocols.http',
+        'uvicorn.protocols.http.auto',
+        'uvicorn.protocols.websockets',
+        'uvicorn.protocols.websockets.auto',
+        'uvicorn.lifespan',
+        'uvicorn.lifespan.on',
+        # SQLAlchemy
+        'sqlalchemy',
+        'sqlalchemy.dialects.sqlite',
+        'sqlalchemy.orm',
+        # 数据处理
+        'pandas',
+        'numpy',
+        'scipy',
+        'scipy.stats',
+        'statsmodels',
+        'sklearn',
+        'sklearn.ensemble',
+        'sklearn.linear_model',
+        'sklearn.preprocessing',
+        'sklearn.model_selection',
+        'sklearn.metrics',
+        # XGBoost
+        'xgboost',
+        # SHAP
+        'shap',
+        # Optuna
+        'optuna',
+        # 其他
+        'openpyxl',
+        'aiofiles',
+        'multipart',
+        'python_multipart',
+        # 路由模块
+        'routers',
+        'routers.datasets',
+        'routers.params',
+        'routers.training',
+        'routers.models',
+        'routers.tuning',
+        'routers.reports',
+        'routers.prediction',
+        # 数据库模块
+        'db',
+        'db.database',
+        'db.models',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'matplotlib',
+        'tkinter',
+        'PyQt5',
+        'PyQt6',
+        'wx',
+        'IPython',
+        'jupyter',
+        'notebook',
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='xgboost-server',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,
+)

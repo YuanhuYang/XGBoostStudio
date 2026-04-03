@@ -1,0 +1,332 @@
+"""
+数据集业务逻辑服务
+"""
+from __future__ import annotations
+
+import json
+import uuid
+from pathlib import Path
+from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from db.database import DATA_DIR
+from db.models import Dataset, DatasetSplit
+
+
+# ── 内部工具 ──────────────────────────────────────────────────────────────────
+
+def _dataset_path(filename: str) -> Path:
+    return DATA_DIR / filename
+
+
+def _load_df(dataset: Dataset) -> pd.DataFrame:
+    """从磁盘加载数据集"""
+    path = DATA_DIR / dataset.path
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"数据文件不存在: {dataset.path}")
+    if dataset.file_type in ("xlsx", "xls"):
+        return pd.read_excel(path, sheet_name=dataset.sheet_name or 0)
+    return pd.read_csv(path, encoding="utf-8-sig")
+
+
+def _save_df(df: pd.DataFrame, filename: str) -> str:
+    """保存 DataFrame 到 CSV，返回相对路径"""
+    path = DATA_DIR / filename
+    df.to_csv(path, index=False, encoding="utf-8-sig")
+    return filename
+
+
+# ── 上传 ──────────────────────────────────────────────────────────────────────
+
+def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Optional[str], db: Session) -> Dataset:
+    ext = original_filename.rsplit(".", 1)[-1].lower()
+    if ext not in ("csv", "xlsx", "xls"):
+        raise HTTPException(status_code=400, detail="仅支持 CSV / XLSX / XLS 格式")
+
+    unique_name = f"{uuid.uuid4().hex}.{ext}"
+    save_path = DATA_DIR / unique_name
+    save_path.write_bytes(file_bytes)
+
+    # 读取基本信息
+    try:
+        if ext in ("xlsx", "xls"):
+            df = pd.read_excel(save_path, sheet_name=sheet_name or 0)
+        else:
+            df = pd.read_csv(save_path, encoding="utf-8-sig")
+    except Exception as e:
+        save_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {e}")
+
+    dataset = Dataset(
+        name=original_filename.rsplit(".", 1)[0],
+        original_filename=original_filename,
+        path=unique_name,
+        file_type=ext,
+        sheet_name=sheet_name,
+        rows=len(df),
+        cols=len(df.columns),
+    )
+    db.add(dataset)
+    db.commit()
+    db.refresh(dataset)
+    return dataset
+
+
+# ── 预览 ──────────────────────────────────────────────────────────────────────
+
+def get_preview(dataset: Dataset, page: int, page_size: int) -> dict[str, Any]:
+    df = _load_df(dataset)
+    total = len(df)
+    start = (page - 1) * page_size
+    end = start + page_size
+    chunk = df.iloc[start:end]
+    # 替换 NaN 为 None 以便 JSON 序列化
+    records = chunk.where(pd.notnull(chunk), None).to_dict(orient="records")
+    return {
+        "columns": list(df.columns),
+        "data": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+# ── 统计 ──────────────────────────────────────────────────────────────────────
+
+def get_stats(dataset: Dataset) -> dict[str, Any]:
+    df = _load_df(dataset)
+    columns = []
+    for col in df.columns:
+        series = df[col]
+        non_null = int(series.notna().sum())
+        missing = int(series.isna().sum())
+        is_numeric = pd.api.types.is_numeric_dtype(series)
+        stat: dict[str, Any] = {
+            "name": col,
+            "dtype": str(series.dtype),
+            "non_null": non_null,
+            "missing": missing,
+            "missing_rate": round(missing / len(df), 4) if len(df) > 0 else 0,
+            "unique": int(series.nunique()),
+        }
+        if is_numeric:
+            desc = series.describe()
+            stat["mean"] = round(float(desc.get("mean", 0)), 4)
+            stat["median"] = round(float(series.median()), 4)
+            stat["std"] = round(float(desc.get("std", 0)), 4)
+            stat["min"] = round(float(desc.get("min", 0)), 4)
+            stat["max"] = round(float(desc.get("max", 0)), 4)
+        columns.append(stat)
+    return {"rows": len(df), "cols": len(df.columns), "columns": columns}
+
+
+# ── 分布 ──────────────────────────────────────────────────────────────────────
+
+def get_distribution(dataset: Dataset, column: str) -> dict[str, Any]:
+    df = _load_df(dataset)
+    if column not in df.columns:
+        raise HTTPException(status_code=404, detail=f"列不存在: {column}")
+    series = df[column].dropna()
+    if pd.api.types.is_numeric_dtype(series):
+        counts, bin_edges = np.histogram(series, bins=min(50, max(10, len(series) // 20)))
+        return {
+            "type": "histogram",
+            "bins": [round(float(b), 4) for b in bin_edges],
+            "counts": [int(c) for c in counts],
+        }
+    else:
+        vc = series.value_counts().head(30)
+        return {
+            "type": "bar",
+            "bins": list(vc.index.astype(str)),
+            "counts": [int(c) for c in vc.values],
+        }
+
+
+# ── 缺失值热力图 ──────────────────────────────────────────────────────────────
+
+def get_missing_pattern(dataset: Dataset) -> dict[str, Any]:
+    df = _load_df(dataset)
+    sample = df if len(df) <= 200 else df.sample(200, random_state=42)
+    matrix = sample.isna().astype(int).values.tolist()
+    return {"columns": list(df.columns), "matrix": matrix}
+
+
+# ── 处理缺失值 ────────────────────────────────────────────────────────────────
+
+def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dataset:
+    df = _load_df(dataset)
+    for col, cfg in config.items():
+        if col not in df.columns:
+            continue
+        strategy = cfg.get("strategy", "none")
+        fill_value = cfg.get("fill_value")
+        if strategy == "mean":
+            df[col] = df[col].fillna(df[col].mean())
+        elif strategy == "median":
+            df[col] = df[col].fillna(df[col].median())
+        elif strategy == "mode":
+            df[col] = df[col].fillna(df[col].mode().iloc[0] if not df[col].mode().empty else None)
+        elif strategy == "constant":
+            df[col] = df[col].fillna(fill_value)
+        elif strategy == "drop":
+            df = df.dropna(subset=[col])
+    new_filename = _save_df(df, dataset.path)
+    dataset.rows = len(df)
+    db.commit()
+    db.refresh(dataset)
+    return dataset
+
+
+# ── 异常值 ────────────────────────────────────────────────────────────────────
+
+def get_outliers(dataset: Dataset) -> list[dict[str, Any]]:
+    df = _load_df(dataset)
+    result = []
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        series = df[col].dropna()
+        if len(series) < 10:
+            continue
+        # 3σ
+        mu, sigma = series.mean(), series.std()
+        mask_sigma = (df[col] < mu - 3 * sigma) | (df[col] > mu + 3 * sigma)
+        # IQR
+        q1, q3 = series.quantile(0.25), series.quantile(0.75)
+        iqr = q3 - q1
+        mask_iqr = (df[col] < q1 - 1.5 * iqr) | (df[col] > q3 + 1.5 * iqr)
+        mask = mask_sigma | mask_iqr
+        for idx in df[mask].index:
+            result.append({
+                "row_index": int(idx),
+                "column": col,
+                "value": float(df.at[idx, col]),
+                "reason": "3σ" if mask_sigma.iloc[idx] else "IQR",
+            })
+    return result[:500]  # 最多返回 500 条
+
+
+def handle_outliers(dataset: Dataset, action: str, row_indices: list[int], db: Session) -> Dataset:
+    df = _load_df(dataset)
+    if action == "drop":
+        valid_indices = [i for i in row_indices if i < len(df)]
+        df = df.drop(index=valid_indices).reset_index(drop=True)
+    _save_df(df, dataset.path)
+    dataset.rows = len(df)
+    db.commit()
+    db.refresh(dataset)
+    return dataset
+
+
+# ── 重复行 ────────────────────────────────────────────────────────────────────
+
+def get_duplicates(dataset: Dataset) -> dict[str, Any]:
+    df = _load_df(dataset)
+    dup_mask = df.duplicated()
+    return {"count": int(dup_mask.sum()), "indices": df[dup_mask].index.tolist()}
+
+
+def drop_duplicates(dataset: Dataset, db: Session) -> Dataset:
+    df = _load_df(dataset)
+    df = df.drop_duplicates().reset_index(drop=True)
+    _save_df(df, dataset.path)
+    dataset.rows = len(df)
+    db.commit()
+    db.refresh(dataset)
+    return dataset
+
+
+# ── 质量评分 ──────────────────────────────────────────────────────────────────
+
+def get_quality_score(dataset: Dataset) -> dict[str, Any]:
+    df = _load_df(dataset)
+    missing_rate = float(df.isna().mean().mean())
+    dup_rate = float(df.duplicated().mean())
+    # 异常值率（简单估算）
+    numeric_df = df.select_dtypes(include=[np.number])
+    if not numeric_df.empty:
+        z_scores = ((numeric_df - numeric_df.mean()) / (numeric_df.std() + 1e-9)).abs()
+        outlier_rate = float((z_scores > 3).any(axis=1).mean())
+    else:
+        outlier_rate = 0.0
+
+    score = 100.0
+    score -= missing_rate * 40
+    score -= outlier_rate * 30
+    score -= dup_rate * 30
+    score = max(0.0, min(100.0, round(score, 1)))
+
+    suggestions = []
+    if missing_rate > 0.05:
+        suggestions.append(f"缺失率 {missing_rate:.1%}，建议处理缺失值")
+    if outlier_rate > 0.05:
+        suggestions.append(f"异常值率 {outlier_rate:.1%}，建议检查并处理异常值")
+    if dup_rate > 0.01:
+        suggestions.append(f"重复率 {dup_rate:.1%}，建议删除重复行")
+    if not suggestions:
+        suggestions.append("数据质量良好")
+
+    return {
+        "score": score,
+        "missing_rate": round(missing_rate, 4),
+        "outlier_rate": round(outlier_rate, 4),
+        "duplicate_rate": round(dup_rate, 4),
+        "suggestions": suggestions,
+    }
+
+
+# ── 数据集划分 ────────────────────────────────────────────────────────────────
+
+def split_dataset(
+    dataset: Dataset,
+    train_ratio: float,
+    random_seed: int,
+    stratify: bool,
+    target_column: str,
+    db: Session,
+) -> DatasetSplit:
+    from sklearn.model_selection import train_test_split  # type: ignore
+
+    df = _load_df(dataset)
+    if target_column not in df.columns:
+        raise HTTPException(status_code=400, detail=f"目标列不存在: {target_column}")
+
+    stratify_col = df[target_column] if stratify else None
+    try:
+        train_df, test_df = train_test_split(
+            df,
+            train_size=train_ratio,
+            random_state=random_seed,
+            stratify=stratify_col,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"数据划分失败: {e}")
+
+    base = dataset.path.rsplit(".", 1)[0]
+    train_filename = f"{base}_train_{uuid.uuid4().hex[:8]}.csv"
+    test_filename = f"{base}_test_{uuid.uuid4().hex[:8]}.csv"
+    _save_df(train_df, train_filename)
+    _save_df(test_df, test_filename)
+
+    # 更新数据集目标列
+    dataset.target_column = target_column
+    db.commit()
+
+    split = DatasetSplit(
+        dataset_id=dataset.id,
+        train_path=train_filename,
+        test_path=test_filename,
+        train_ratio=train_ratio,
+        random_seed=random_seed,
+        stratify=stratify,
+        train_rows=len(train_df),
+        test_rows=len(test_df),
+    )
+    db.add(split)
+    db.commit()
+    db.refresh(split)
+    return split
