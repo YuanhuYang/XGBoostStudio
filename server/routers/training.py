@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/training", tags=["training"])
 
 @router.post("/start")
 def start_training(body: TrainRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """创建训练任务，返回 task_id。"""
     task_id = create_task(
         split_id=body.split_id,
         params=body.params or {},
@@ -38,6 +39,7 @@ def start_training(body: TrainRequest, db: Session = Depends(get_db)) -> dict[st
 
 @router.get("/{task_id}/progress")
 def training_progress(task_id: str, db: Session = Depends(get_db)) -> StreamingResponse:
+    """返回 SSE 训练进度流。"""
     async def generator():
         async for chunk in training_stream(task_id, db):
             yield chunk
@@ -48,10 +50,12 @@ def training_progress(task_id: str, db: Session = Depends(get_db)) -> StreamingR
 
 @router.post("/{task_id}/stop")
 def stop_training(task_id: str, db: Session = Depends(get_db)) -> dict[str, str]:
+    """停止指定训练任务。"""
     stop_task(task_id, db)
     return {"status": "stopping"}
 
 
 @router.get("/{task_id}/result")
 def training_result(task_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """获取训练任务结果（指标、model_id 等）。"""
     return get_task_result(task_id, db)
