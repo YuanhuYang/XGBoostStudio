@@ -51,5 +51,6 @@ def get_db():
 
 def init_db():
     """初始化数据库，创建所有表"""
-    from db.models import Dataset, Model, TrainingTask, TuningTask, Report  # noqa: F401
+    import db.models  # 触发所有 ORM 模型的 mapper 注册（副作用导入）
+    _ = db.models
     Base.metadata.create_all(bind=engine)

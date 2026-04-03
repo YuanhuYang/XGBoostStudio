@@ -3,7 +3,7 @@ SQLAlchemy ORM 模型定义
 """
 from datetime import datetime
 from sqlalchemy import Integer, String, Text, DateTime, Float, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from db.database import Base
 
