@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { useAppStore } from '../store/appStore'
+import { formatApiErrorDetail } from '../utils/apiError'
 
 const BASE_URL = 'http://127.0.0.1:18899'
 
@@ -21,9 +22,11 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    const raw = error.response?.data?.detail ?? error.response?.data?.message
     const message =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
+      (raw !== undefined && raw !== null && raw !== ''
+        ? formatApiErrorDetail(raw)
+        : null) ||
       error.message ||
       '请求失败'
     // 将全局错误写入 store（只针对非 401/404 业务错误）

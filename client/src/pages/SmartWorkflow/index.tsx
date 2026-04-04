@@ -38,6 +38,34 @@ interface WizardHistoryEntry {
 const HISTORY_KEY = 'xgbs_wizard_history'
 const MAX_HISTORY = 10
 
+/** 需求文档：质量评分低于 70 时橙色警示及建议；Alert 使用 success / warning 分档 */
+function qualityScoreAlert(score: number): {
+  type: 'success' | 'warning'
+  message: string
+  description: string
+} {
+  if (score >= 80) {
+    return {
+      type: 'success',
+      message: `数据质量评分：${score}/100（良好）`,
+      description: '可进入下一步；若后续指标不佳，仍可在预处理中优化数据。',
+    }
+  }
+  if (score >= 70) {
+    return {
+      type: 'warning',
+      message: `数据质量评分：${score}/100（一般）`,
+      description: '建议进入下一步查看 AI 预处理建议，处理缺失值、重复行或异常值后再训练。',
+    }
+  }
+  return {
+    type: 'warning',
+    message: `数据质量评分：${score}/100（偏低，需关注）`,
+    description:
+      '按产品规范，评分低于 70 时应优先完成「数据分析与预处理」：检查缺失、异常值与类别不平衡，再划分数据集与训练，否则模型效果可能明显受限。',
+  }
+}
+
 // ── 核心参数（面向初学者展示）────────────────────────────────────────────────
 const CORE_PARAM_NAMES = ['n_estimators', 'max_depth', 'learning_rate', 'subsample', 'colsample_bytree']
 const ADVANCED_PARAM_NAMES = ['min_child_weight', 'reg_alpha', 'reg_lambda', 'gamma', 'scale_pos_weight']
@@ -660,15 +688,24 @@ const SmartWorkflow: React.FC = () => {
           {datasets.length === 0 && (
             <Alert type="info" message="您还没有上传数据集，请先前往「数据导入」页面上传数据。" />
           )}
-          {summary && (
-            <Alert
-              type={summary.quality_score >= 80 ? 'success' : 'warning'}
-              message={`数据质量评分：${summary.quality_score}/100`}
-              description={summary.task_hint}
-              showIcon
-              style={{ marginBottom: 8 }}
-            />
-          )}
+          {summary && (() => {
+            const qa = qualityScoreAlert(summary.quality_score)
+            return (
+              <Alert
+                type={qa.type}
+                message={qa.message}
+                description={
+                  <span>
+                    {summary.task_hint}
+                    <br />
+                    <Text type="secondary">{qa.description}</Text>
+                  </span>
+                }
+                showIcon
+                style={{ marginBottom: 8 }}
+              />
+            )
+          })()}
           <Button
             type="primary"
             disabled={!summary}
@@ -688,9 +725,35 @@ const SmartWorkflow: React.FC = () => {
           <Row gutter={24} style={{ marginBottom: 16 }}>
             <Col span={6}><Statistic title="样本数" value={summary.n_rows} /></Col>
             <Col span={6}><Statistic title="特征数" value={summary.n_cols} /></Col>
-            <Col span={6}><Statistic title="质量评分" value={`${summary.quality_score}/100`} /></Col>
+            <Col span={6}>
+              <Statistic
+                title="质量评分"
+                value={`${summary.quality_score}/100`}
+                valueStyle={
+                  summary.quality_score < 70
+                    ? { color: '#fa8c16' }
+                    : summary.quality_score < 80
+                      ? { color: '#d48806' }
+                      : undefined
+                }
+              />
+            </Col>
             <Col span={6}><Statistic title="缺失率" value={`${(summary.missing_rate * 100).toFixed(1)}%`} /></Col>
           </Row>
+
+          {(() => {
+            const qa = qualityScoreAlert(summary.quality_score)
+            if (summary.quality_score >= 80) return null
+            return (
+              <Alert
+                type={qa.type}
+                message={qa.message}
+                description={qa.description}
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+            )
+          })()}
 
           <Alert
             type={summary.task_type.includes('classification') ? 'info' : 'success'}
