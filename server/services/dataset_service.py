@@ -11,6 +11,8 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 from fastapi import HTTPException
+from sklearn.impute import KNNImputer  # type: ignore
+from sklearn.model_selection import train_test_split  # type: ignore
 from sqlalchemy.orm import Session
 
 from db.database import DATA_DIR
@@ -59,8 +61,13 @@ def _save_df(df: pd.DataFrame, filename: str) -> str:
 
 
 # ── 上传 ──────────────────────────────────────────────────────────────────────
-
-def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Optional[str], db: Session) -> Dataset:
+def save_upload_file(
+    file_bytes: bytes,
+    original_filename: str,
+    sheet_name: Optional[str],
+    db: Session,
+) -> Dataset:
+    """保存上传的数据文件并创建数据集记录。"""
     ext = original_filename.rsplit(".", 1)[-1].lower()
     if ext not in ("csv", "xlsx", "xls"):
         raise HTTPException(status_code=400, detail="仅支持 CSV / XLSX / XLS 格式，不支持其他文件类型")
@@ -68,7 +75,10 @@ def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Opti
     # 200MB 大小限制
     max_bytes = 200 * 1024 * 1024
     if len(file_bytes) > max_bytes:
-        raise HTTPException(status_code=413, detail=f"文件过大（{len(file_bytes)//1024//1024}MB），最大支持 200MB")
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大（{len(file_bytes)//1024//1024}MB），最大支持 200MB",
+        )
 
     unique_name = f"{uuid.uuid4().hex}.{ext}"
     save_path = DATA_DIR / unique_name
@@ -108,6 +118,7 @@ def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Opti
 # ── 预览 ──────────────────────────────────────────────────────────────────────
 
 def get_preview(dataset: Dataset, page: int, page_size: int) -> dict[str, Any]:
+    """返回数据集分页预览结果。"""
     df = _load_df(dataset)
     total = len(df)
     start = (page - 1) * page_size
@@ -127,6 +138,7 @@ def get_preview(dataset: Dataset, page: int, page_size: int) -> dict[str, Any]:
 # ── 统计 ──────────────────────────────────────────────────────────────────────
 
 def get_stats(dataset: Dataset) -> dict[str, Any]:
+    """返回数据集列统计信息。"""
     df = _load_df(dataset)
     columns = []
     for col in df.columns:
@@ -156,6 +168,7 @@ def get_stats(dataset: Dataset) -> dict[str, Any]:
 # ── 分布 ──────────────────────────────────────────────────────────────────────
 
 def get_distribution(dataset: Dataset, column: str) -> dict[str, Any]:
+    """返回指定列的分布数据（数值直方图或类别柱状图）。"""
     df = _load_df(dataset)
     if column not in df.columns:
         raise HTTPException(status_code=404, detail=f"列不存在: {column}")
@@ -167,18 +180,18 @@ def get_distribution(dataset: Dataset, column: str) -> dict[str, Any]:
             "bins": [round(float(b), 4) for b in bin_edges],
             "counts": [int(c) for c in counts],
         }
-    else:
-        vc = series.value_counts().head(30)
-        return {
-            "type": "bar",
-            "bins": list(vc.index.astype(str)),
-            "counts": [int(c) for c in vc.values],
-        }
+    vc = series.value_counts().head(30)
+    return {
+        "type": "bar",
+        "bins": list(vc.index.astype(str)),
+        "counts": [int(c) for c in vc.values],
+    }
 
 
 # ── 缺失值热力图 ──────────────────────────────────────────────────────────────
 
 def get_missing_pattern(dataset: Dataset) -> dict[str, Any]:
+    """返回缺失值模式矩阵（最多抽样 200 行）。"""
     df = _load_df(dataset)
     sample = df if len(df) <= 200 else df.sample(200, random_state=42)
     matrix = sample.isna().astype(int).values.tolist()
@@ -188,6 +201,7 @@ def get_missing_pattern(dataset: Dataset) -> dict[str, Any]:
 # ── 处理缺失值 ────────────────────────────────────────────────────────────────
 
 def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dataset:
+    """按列配置批量处理缺失值并持久化。"""
     df = _load_df(dataset)
     for col, cfg in config.items():
         if col not in df.columns:
@@ -207,13 +221,17 @@ def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dat
         elif strategy == "knn":
             # KNN 填充（仅对数值列有效）
             try:
-                from sklearn.impute import KNNImputer  # type: ignore
                 numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
                 if col in numeric_cols:
                     imputer = KNNImputer(n_neighbors=5)
                     df[numeric_cols] = imputer.fit_transform(df[numeric_cols])
-            except Exception:
-                df[col] = df[col].fillna(df[col].mean() if pd.api.types.is_numeric_dtype(df[col]) else df[col].mode().iloc[0] if not df[col].mode().empty else None)
+            except (ImportError, ValueError, TypeError):
+                fallback = (
+                    df[col].mean()
+                    if pd.api.types.is_numeric_dtype(df[col])
+                    else (df[col].mode().iloc[0] if not df[col].mode().empty else None)
+                )
+                df[col] = df[col].fillna(fallback)
     new_path = _save_df(df, dataset.path)
     dataset.path = new_path
     dataset.file_type = 'csv'
@@ -226,6 +244,7 @@ def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dat
 # ── 异常值 ────────────────────────────────────────────────────────────────────
 
 def get_outliers(dataset: Dataset) -> list[dict[str, Any]]:
+    """检测并返回数值列异常值（3σ + IQR，最多 500 条）。"""
     df = _load_df(dataset)
     result = []
     numeric_cols = df.select_dtypes(include=[np.number]).columns
@@ -252,6 +271,7 @@ def get_outliers(dataset: Dataset) -> list[dict[str, Any]]:
 
 
 def handle_outliers(dataset: Dataset, action: str, row_indices: list[int], db: Session) -> Dataset:
+    """按行索引处理异常值（当前支持删除行）。"""
     df = _load_df(dataset)
     if action == "drop":
         valid_indices = [i for i in row_indices if i < len(df)]
@@ -304,12 +324,14 @@ def handle_outliers_by_strategy(dataset: Dataset, strategy: str, db: Session) ->
 # ── 重复行 ────────────────────────────────────────────────────────────────────
 
 def get_duplicates(dataset: Dataset) -> dict[str, Any]:
+    """返回重复行数量及其索引。"""
     df = _load_df(dataset)
     dup_mask = df.duplicated()
     return {"count": int(dup_mask.sum()), "indices": df[dup_mask].index.tolist()}
 
 
 def drop_duplicates(dataset: Dataset, db: Session) -> Dataset:
+    """删除重复行并保存更新后的数据集。"""
     df = _load_df(dataset)
     df = df.drop_duplicates().reset_index(drop=True)
     new_path = _save_df(df, dataset.path)
@@ -324,6 +346,7 @@ def drop_duplicates(dataset: Dataset, db: Session) -> Dataset:
 # ── 质量评分 ──────────────────────────────────────────────────────────────────
 
 def get_quality_score(dataset: Dataset) -> dict[str, Any]:
+    """计算数据质量评分及改进建议。"""
     df = _load_df(dataset)
     missing_rate = float(df.isna().mean().mean())
     dup_rate = float(df.duplicated().mean())
@@ -370,7 +393,8 @@ def split_dataset(
     target_column: str,
     db: Session,
 ) -> DatasetSplit:
-    from sklearn.model_selection import train_test_split  # type: ignore
+    """按配置划分训练/测试集并落盘，返回划分记录。"""
+    # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
 
     df = _load_df(dataset)
     if target_column not in df.columns:
