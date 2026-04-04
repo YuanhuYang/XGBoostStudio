@@ -9,6 +9,7 @@ import {
   ExclamationCircleOutlined, CheckCircleOutlined,
 } from '@ant-design/icons'
 import apiClient from '../../api/client'
+import { getRequestErrorMessage } from '../../utils/apiError'
 import { useAppStore } from '../../store/appStore'
 import HelpButton from '../../components/HelpButton'
 import ReactECharts from 'echarts-for-react'
@@ -133,8 +134,7 @@ const ModelTrainingPage: React.FC = () => {
       }
       connectSSE()
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '启动失败，请确认 Split ID 是否正确')
+      message.error(getRequestErrorMessage(e, '启动失败，请确认 Split ID 是否正确'))
       setStatus('error')
     }
   }
@@ -146,7 +146,9 @@ const ModelTrainingPage: React.FC = () => {
       esRef.current?.close()
       setStatus('stopped')
       message.info('已发送停止指令')
-    } catch { message.error('停止失败') }
+    } catch (e: unknown) {
+      message.error(getRequestErrorMessage(e, '停止失败'))
+    }
   }
 
   useEffect(() => {

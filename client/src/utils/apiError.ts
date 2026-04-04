@@ -33,3 +33,19 @@ export function formatApiErrorDetail(detail: unknown): string {
     return String(detail)
   }
 }
+
+/**
+ * 与 `api/client` 拦截器配合：reject 多为 `Error(已格式化 message)`，此时无 `response`；
+ * 少数路径仍可能拿到原始 Axios 错误，则再解析 `detail`。
+ */
+export function getRequestErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  const ax = error as {
+    response?: { data?: { detail?: unknown; message?: unknown } }
+    message?: string
+  }
+  const raw = ax.response?.data?.detail ?? ax.response?.data?.message
+  if (raw !== undefined && raw !== null && raw !== '') return formatApiErrorDetail(raw)
+  if (typeof ax.message === 'string' && ax.message.trim()) return ax.message
+  return fallback
+}

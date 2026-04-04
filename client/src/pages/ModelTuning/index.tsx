@@ -6,6 +6,7 @@ import {
 import { RocketOutlined, StopOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
+import { getRequestErrorMessage } from '../../utils/apiError'
 import { useAppStore } from '../../store/appStore'
 import HelpButton from '../../components/HelpButton'
 
@@ -145,8 +146,7 @@ const ModelTuningPage: React.FC = () => {
       }
       connectSSE()
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '启动失败')
+      message.error(getRequestErrorMessage(e, '启动失败'))
       setStatus('error')
     }
   }
@@ -157,7 +157,9 @@ const ModelTuningPage: React.FC = () => {
       await apiClient.post(`/api/tuning/${taskId}/stop`)
       esRef.current?.close()
       setStatus('stopped')
-    } catch { message.error('停止失败') }
+    } catch (e: unknown) {
+      message.error(getRequestErrorMessage(e, '停止失败'))
+    }
   }
 
   const getResult = async () => {
@@ -168,7 +170,9 @@ const ModelTuningPage: React.FC = () => {
       setBestScore(r.data.best_score)
       setResultModelId(r.data.model_id)
       if (r.data.model_id) setActiveModelId(r.data.model_id)
-    } catch { message.error('获取结果失败') }
+    } catch (e: unknown) {
+      message.error(getRequestErrorMessage(e, '获取结果失败'))
+    }
   }
 
   const scoreHistory = trialHistory.map((t, i) => [i + 1, t.score || 0])

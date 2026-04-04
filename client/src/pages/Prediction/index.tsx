@@ -7,6 +7,7 @@ import { UploadOutlined, DownloadOutlined, ThunderboltOutlined } from '@ant-desi
 import type { UploadProps } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
+import { getRequestErrorMessage } from '../../utils/apiError'
 import HelpButton from '../../components/HelpButton'
 
 const { Title, Text } = Typography
@@ -89,8 +90,7 @@ const PredictionPage: React.FC = () => {
       const r = await apiClient.post('/api/prediction/single', { model_id: modelId, features })
       setSingleResult(r.data)
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '预测失败')
+      message.error(getRequestErrorMessage(e, '预测失败'))
     } finally {
       setSingleLoading(false)
     }
@@ -113,9 +113,8 @@ const PredictionPage: React.FC = () => {
         setPredictSummary(sr.data)
       } catch { /* 摘要可选 */ }
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '批量预测失败')
-      onError?.(new Error('失败'))
+      message.error(getRequestErrorMessage(e, '批量预测失败'))
+      onError?.(e instanceof Error ? e : new Error(getRequestErrorMessage(e, '批量预测失败')))
     } finally {
       setBatchLoading(false)
     }
@@ -128,7 +127,9 @@ const PredictionPage: React.FC = () => {
       const url = URL.createObjectURL(r.data)
       const a = document.createElement('a'); a.href = url; a.download = `prediction_${batchResult.task_id}.csv`; a.click()
       URL.revokeObjectURL(url)
-    } catch { message.error('下载失败') }
+    } catch (e: unknown) {
+      message.error(getRequestErrorMessage(e, '下载失败'))
+    }
   }
 
   const previewCols = batchResult?.preview?.[0]
