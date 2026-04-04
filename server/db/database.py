@@ -1,32 +1,53 @@
 """
-数据库连接配置
-SQLite 存储路径: APPDATA/XGBoostStudio/app.db
+数据库连接配置与数据目录管理
+
+支持跨平台数据存储：
+  - Windows: %APPDATA%/XGBoostStudio/ (通常 C:/Users/用户名/AppData/Roaming/XGBoostStudio/)
+  - macOS: ~/.xgbooststudio/ (通常 /Users/用户名/.xgbooststudio/)
+  - Linux: ~/.xgbooststudio/ (通常 /home/用户名/.xgbooststudio/)
+
+数据目录结构：
+  XGBoostStudio/
+  ├── app.db           — SQLite 数据库（记录数据集、模型、报告元数据）
+  ├── data/            — 上传的原始数据文件（CSV/Excel）
+  ├── models/          — 训练保存的 XGBoost 模型文件（.ubj 格式）
+  └── reports/         — 生成的 PDF 分析报告
 """
 import os
+import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-# 数据目录: %APPDATA%/XGBoostStudio/
-APP_DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "XGBoostStudio"
+# 数据目录（跨平台）
+# Windows: 优先使用 %APPDATA%；其他平台回退到 ~
+if sys.platform == "win32":
+    # Windows: %APPDATA%\XGBoostStudio\
+    APP_DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "XGBoostStudio"
+else:
+    # macOS / Linux: ~/.xgbooststudio/
+    APP_DATA_DIR = Path.home() / ".xgbooststudio"
+
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# 数据文件目录
+# 数据文件目录（已上传的 CSV/Excel）
 DATA_DIR = APP_DATA_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# 模型目录
+# 模型目录（已训练的 XGBoost 模型）
 MODELS_DIR = APP_DATA_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-# 报告目录
+# 报告目录（生成的 PDF 报告）
 REPORTS_DIR = APP_DATA_DIR / "reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
+# SQLite 数据库路径
 DB_PATH = APP_DATA_DIR / "app.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
+# SQLAlchemy 引擎配置
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},

@@ -1,0 +1,111 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e7]: XGBoost Studio
+      - menu [ref=e8]:
+        - menuitem "bulb 智能向导" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]:
+            - img "bulb" [ref=e11]:
+              - img [ref=e12]
+            - superscript [ref=e14]
+          - generic [ref=e15]: 智能向导
+        - separator [ref=e16]
+        - menuitem "database 数据导入" [ref=e17] [cursor=pointer]:
+          - img "database" [ref=e18]:
+            - img [ref=e19]
+          - generic [ref=e21]: 数据导入
+        - menuitem "bar-chart 特征分析" [ref=e22] [cursor=pointer]:
+          - img "bar-chart" [ref=e23]:
+            - img [ref=e24]
+          - generic [ref=e26]: 特征分析
+        - menuitem "tool 特征工程" [ref=e27] [cursor=pointer]:
+          - img "tool" [ref=e28]:
+            - img [ref=e29]
+          - generic [ref=e31]: 特征工程
+        - menuitem "setting 参数配置" [ref=e32] [cursor=pointer]:
+          - img "setting" [ref=e33]:
+            - img [ref=e34]
+          - generic [ref=e36]: 参数配置
+        - menuitem "play-circle 模型训练" [ref=e37] [cursor=pointer]:
+          - img "play-circle" [ref=e38]:
+            - img [ref=e39]
+          - generic [ref=e42]: 模型训练
+        - menuitem "line-chart 模型评估" [ref=e43] [cursor=pointer]:
+          - img "line-chart" [ref=e44]:
+            - img [ref=e45]
+          - generic [ref=e47]: 模型评估
+        - menuitem "thunderbolt 模型调优" [ref=e48] [cursor=pointer]:
+          - img "thunderbolt" [ref=e49]:
+            - img [ref=e50]
+          - generic [ref=e52]: 模型调优
+        - menuitem "appstore 模型管理" [ref=e53] [cursor=pointer]:
+          - img "appstore" [ref=e54]:
+            - img [ref=e55]
+          - generic [ref=e57]: 模型管理
+        - menuitem "file-text 分析报告" [ref=e58] [cursor=pointer]:
+          - img "file-text" [ref=e59]:
+            - img [ref=e60]
+          - generic [ref=e62]: 分析报告
+        - menuitem "rocket 交互预测" [ref=e63] [cursor=pointer]:
+          - img "rocket" [ref=e64]:
+            - img [ref=e65]
+          - generic [ref=e67]: 交互预测
+  - generic [ref=e68]:
+    - banner [ref=e69]:
+      - button "menu-fold" [ref=e70] [cursor=pointer]:
+        - img "menu-fold" [ref=e72]:
+          - img [ref=e73]
+      - generic [ref=e76]:
+        - button "question-circle 帮助" [ref=e78] [cursor=pointer]:
+          - img "question-circle" [ref=e80]:
+            - img [ref=e81]
+          - generic [ref=e84]: 帮助
+        - img "check-circle" [ref=e86]:
+          - img [ref=e87]
+        - generic [ref=e90] [cursor=pointer]:
+          - text: 📊 — 未设置 —
+          - img "edit" [ref=e91]:
+            - img [ref=e92]
+        - generic [ref=e95] [cursor=pointer]:
+          - text: ✂️ — 未设置 —
+          - img "edit" [ref=e96]:
+            - img [ref=e97]
+        - generic [ref=e100] [cursor=pointer]:
+          - text: 🤖 — 未设置 —
+          - img "edit" [ref=e101]:
+            - img [ref=e102]
+    - main [ref=e104]:
+      - generic [ref=e105]:
+        - generic [ref=e106]:
+          - heading "欢迎使用 XGBoost Studio" [level=2] [ref=e107]
+          - generic [ref=e108]: 面向业务人员的专业机器学习建模平台，无需代码即可完成数据到决策的全流程
+        - generic [ref=e109]:
+          - generic [ref=e112] [cursor=pointer]:
+            - img "rocket" [ref=e114]:
+              - img [ref=e115]
+            - generic [ref=e117]:
+              - generic [ref=e118]: 1. 导入数据
+              - generic [ref=e119]: 上传 CSV / Excel 数据集，配置目标列与特征列
+          - generic [ref=e122] [cursor=pointer]:
+            - img "experiment" [ref=e124]:
+              - img [ref=e125]
+            - generic [ref=e127]:
+              - generic [ref=e128]: 2. 训练模型
+              - generic [ref=e129]: 一键训练 XGBoost 模型，自动超参数搜索
+          - generic [ref=e132] [cursor=pointer]:
+            - img "bar-chart" [ref=e134]:
+              - img [ref=e135]
+            - generic [ref=e137]:
+              - generic [ref=e138]: 3. 评估模型
+              - generic [ref=e139]: 查看 ROC、混淆矩阵、SHAP 特征重要性等评估结果
+          - generic [ref=e142] [cursor=pointer]:
+            - img "file-text" [ref=e144]:
+              - img [ref=e145]
+            - generic [ref=e147]:
+              - generic [ref=e148]: 4. 导出报告
+              - generic [ref=e149]: 生成专业 PDF 报告，支持章节自定义和多模型对比
+        - generic [ref=e151]: 遇到问题？点击页面右下角的"帮助"按钮查看功能说明
+    - generic [ref=e152]:
+      - generic [ref=e153]: XGBoost Studio v0.1.0
+      - generic [ref=e154]: "|"
+      - generic [ref=e155]: ● 服务已连接

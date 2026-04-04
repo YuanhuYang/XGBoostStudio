@@ -55,9 +55,11 @@ app = FastAPI(
 )
 
 # CORS（仅允许本地 Electron/Vite 访问）
+# allow_origin_regex 覆盖任意 localhost 端口（Vite 端口可能自动递增）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "app://.", "file://"],
+    allow_origins=["app://.", "file://"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

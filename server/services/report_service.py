@@ -1,23 +1,29 @@
-﻿"""
+"""
 报告生成业务逻辑  使用 reportlab 生成专业 PDF 报告
+
+支持跨平台字体渲染：
+  - Windows: 系统字体目录（思源黑体、微软雅黑等）
+  - macOS: 系统字体库（STHeiti、文泉驿等）
+  - Linux: 系统字体库（文泉驿、思源黑体等）
+  - 回退: Helvetica（英文汉字略显不足，但可用）
 """
 from __future__ import annotations
+# pylint: disable=broad-exception-caught
 
 import json
+import sys
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 
 from db.database import REPORTS_DIR
 from db.models import Dataset, DatasetSplit, Model, Report
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
@@ -28,17 +34,65 @@ from reportlab.platypus import (
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# -- Font --
-_FONT_NAME = "MicrosoftYaHei"
+# -- Font Registration (跨平台支持) --
+_FONT_NAME = "ReportFont"
 
-def _register_cn_font():
-    for p in ["C:/Windows/Fonts/msyh.ttc","C:/Windows/Fonts/simhei.ttf","C:/Windows/Fonts/simsun.ttc"]:
-        if Path(p).exists():
-            try:
-                pdfmetrics.registerFont(TTFont(_FONT_NAME, p))
+def _register_cn_font() -> str:
+    """
+    注册中文字体，支持 Windows / macOS / Linux 跨平台。
+    
+    搜索顺序：
+    1. Windows: C:/Windows/Fonts/ 系统字体目录
+    2. macOS: /Library/Fonts/ 和 ~/Library/Fonts/
+    3. Linux: /usr/share/fonts/
+    4. 回退: 使用 Helvetica（仅英文）
+    
+    Returns:
+        成功注册的字体名称，或 "Helvetica" (回退)
+    """
+    font_paths = []
+    
+    if sys.platform == "win32":
+        # Windows: 微软雅黑、仓颉、思源黑体
+        font_paths = [
+            "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
+            "C:/Windows/Fonts/simhei.ttf",    # 黑体
+            "C:/Windows/Fonts/simsun.ttc",    # 宋体
+        ]
+    elif sys.platform == "darwin":
+        # macOS: 系统字体库
+        font_paths = [
+            "/Library/Fonts/STHeiti Light.ttc",  # 华文黑体（Light）
+            "/System/Library/Fonts/STHeiti.ttc",  # 华文黑体
+            "/Library/Fonts/Arial Unicode.ttf",   # Arial Unicode
+            Path.home() / "Library/Fonts/SourceHanSansCN-Regular.otf",  # 思源黑体
+        ]
+    else:
+        # Linux: 文泉驿、思源黑体、文泉驿微米黑
+        font_paths = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Noto Sans CJK
+            "/usr/share/fonts/opentype/sourcehansan/SourceHanSansCN-Regular.otf",  # 思源黑体
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",           # 文泉驿微米黑
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",          # 备选（可显示部分汉字）
+        ]
+    
+    # 尝试逐个注册字体
+    for font_path in font_paths:
+        font_path = Path(font_path) if isinstance(font_path, str) else font_path
+        try:
+            if font_path.exists():
+                pdfmetrics.registerFont(TTFont(_FONT_NAME, str(font_path)))
+                print(f"[报告] 字体已注册: {font_path}")
                 return _FONT_NAME
-            except Exception:
-                continue
+        except Exception:
+            # 继续尝试下一个字体
+            continue
+    
+    # 所有字体都失败，回退到 Helvetica
+    print(
+        f"[报告] 警告: 未找到中文字体 (平台: {sys.platform})，"
+        "将使用 Helvetica（仅英文，中文可能显示为方框）"
+    )
     return "Helvetica"
 
 _CN_FONT = _register_cn_font()

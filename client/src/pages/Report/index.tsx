@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react'
 import {
   Card, Table, Button, Space, Typography, Modal, Form, Input,
   InputNumber, message, Popconfirm, Tag, Row, Col, Empty,
-  Checkbox
+  Checkbox, Spin
 } from 'antd'
-import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import HelpButton from '../../components/HelpButton'
+import PDFViewer from '../../components/PDFViewer'
 
 const { Title, Text } = Typography
 
@@ -37,6 +38,12 @@ const ReportPage: React.FC = () => {
   const [genLoading, setGenLoading] = useState(false)
   const [selectedSections, setSelectedSections] = useState<string[]>(SECTION_OPTIONS.map(o => o.value))
   const [form] = Form.useForm()
+  
+  // PDF 预览相关状态
+  const [previewModal, setPreviewModal] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewFilename, setPreviewFilename] = useState<string>('')
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   const fetchReports = async () => {
     setLoading(true)
@@ -87,15 +94,18 @@ const ReportPage: React.FC = () => {
     } catch { message.error('下载失败') }
   }
 
-  const handlePreview = (id: number) => {
-    // Electron 内无内置 PDF 插件，使用系统默认 PDF 阅览器打开
-    const url = `http://127.0.0.1:18899/api/reports/${id}/preview`
-    const w = window as unknown as { electron?: { openExternal: (u: string) => void } }
-    if (w.electron?.openExternal) {
-      w.electron.openExternal(url)
-    } else {
-      // 非 Electron 环境（浏览器开发模式）
-      window.open(url, '_blank')
+  const handlePreview = async (id: number, name: string) => {
+    // 使用前端 PDFViewer 组件预览，而不是系统浏览器
+    try {
+      setPreviewLoading(true)
+      const pdfUrl = `http://127.0.0.1:18899/api/reports/${id}/download`
+      setPreviewUrl(pdfUrl)
+      setPreviewFilename(`${name}.pdf`)
+      setPreviewModal(true)
+    } catch (error) {
+      message.error('无法加载 PDF')
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -115,7 +125,7 @@ const ReportPage: React.FC = () => {
       title: '操作', key: 'action',
       render: (_, r) => (
         <Space>
-          <Button size="small" onClick={() => handlePreview(r.id)}>预览</Button>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => handlePreview(r.id, r.name)}>预览</Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(r.id, r.name)}>下载</Button>
           <Popconfirm title="确认删除此报告？" onConfirm={() => handleDelete(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -200,6 +210,38 @@ const ReportPage: React.FC = () => {
         </div>
       </Modal>
 
+      {/* PDF 预览模态框 */}
+      <Modal
+        title={`预览: ${previewFilename}`}
+        open={previewModal}
+        onCancel={() => {
+          setPreviewModal(false)
+          setPreviewUrl(null)
+        }}
+        footer={null}
+        width="90%"
+        style={{ top: 20 }}
+        bodyStyle={{ height: 'calc(100vh - 120px)', overflow: 'hidden' }}
+      >
+        {previewLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
+            <Spin tip="加载 PDF 中..." />
+          </div>
+        ) : previewUrl ? (
+          <PDFViewer
+            source={previewUrl}
+            filename={previewFilename}
+            showDownload={true}
+            showFullscreen={true}
+            onError={(error) => {
+              console.error('PDF 加载错误:', error)
+              message.error('PDF 加载失败')
+            }}
+          />
+        ) : (
+          <Empty description="未能加载 PDF" />
+        )}
+      </Modal>
 
     </div>
   )
