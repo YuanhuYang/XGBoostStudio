@@ -200,7 +200,9 @@ def encode_features(
         elif method == "target" and target_column and target_column in df.columns:
             means = df.groupby(col)[target_column].mean()
             df[col] = df[col].map(means)
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     dataset.cols = len(df.columns)
     db.commit()
     db.refresh(dataset)
@@ -223,7 +225,9 @@ def scale_features(dataset: Dataset, columns: Optional[list[str]], method: str, 
     scalers = {"standard": StandardScaler(), "minmax": MinMaxScaler(), "robust": RobustScaler()}
     scaler = scalers.get(method, StandardScaler())
     df[valid_cols] = scaler.fit_transform(df[valid_cols])
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     db.commit()
     db.refresh(dataset)
     return dataset
@@ -246,7 +250,9 @@ def box_cox_transform(dataset: Dataset, columns: list[str], db: Session) -> Data
             df.loc[series.index, col] = transformed
         except (ValueError, RuntimeError):
             pass
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     db.commit()
     db.refresh(dataset)
     return dataset
@@ -270,7 +276,9 @@ def pca_transform(dataset: Dataset, columns: Optional[list[str]], n_components: 
     pca_result = pca.fit_transform(df[valid_cols].fillna(0))
     pca_df = pd.DataFrame(pca_result, columns=[f"PC{i+1}" for i in range(n_components)], index=df.index)
     df = pd.concat([df.drop(columns=valid_cols), pca_df], axis=1)
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     dataset.cols = len(df.columns)
     db.commit()
     db.refresh(dataset)
@@ -318,7 +326,9 @@ def select_features(
     non_feature_cols = [c for c in df.columns if c not in feature_cols and c != target_column]
     final_cols = non_feature_cols + keep_cols
     df_selected = df[[c for c in final_cols if c in df.columns]]
-    _save_df(df_selected, dataset.path)
+    new_path = _save_df(df_selected, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     dataset.cols = len(df_selected.columns)
     db.commit()
     db.refresh(dataset)

@@ -4,7 +4,7 @@ import {
   InputNumber, message, Popconfirm, Tag, Row, Col, Statistic, Empty,
   Checkbox
 } from 'antd'
-import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined } from '@ant-design/icons'
+import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
@@ -36,6 +36,8 @@ const ReportPage: React.FC = () => {
   const [genModal, setGenModal] = useState(false)
   const [genLoading, setGenLoading] = useState(false)
   const [previewId, setPreviewId] = useState<number | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [selectedSections, setSelectedSections] = useState<string[]>(SECTION_OPTIONS.map(o => o.value))
   const [form] = Form.useForm()
 
@@ -88,15 +90,26 @@ const ReportPage: React.FC = () => {
     } catch { message.error('下载失败') }
   }
 
-  const handlePreview = (id: number) => {
-    const url = `http://127.0.0.1:18899/api/reports/${id}/download`
-    const win = window as unknown as { electron?: { openExternal?: (u: string) => void } }
-    if (win.electron?.openExternal) {
-      win.electron.openExternal(url)
-    } else {
-      window.open(url, '_blank')
-    }
+  const handlePreview = async (id: number) => {
     setPreviewId(id)
+    setPreviewLoading(true)
+    try {
+      const r = await apiClient.get(`/api/reports/${id}/preview`, { responseType: 'blob' })
+      // Electron 中 blob: URL 在 iframe 内渲染 PDF 存在限制，改用 data: URL
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(r.data)
+      })
+      setPreviewUrl(dataUrl)
+    } catch { message.error('PDF 预览加载失败') }
+    finally { setPreviewLoading(false) }
+  }
+
+  const handleClosePreview = () => {
+    setPreviewUrl(null)
+    setPreviewId(null)
   }
 
   const handleDelete = async (id: number) => {
@@ -202,21 +215,31 @@ const ReportPage: React.FC = () => {
       <Modal
         title="报告预览"
         open={previewId !== null}
-        onCancel={() => setPreviewId(null)}
+        onCancel={handleClosePreview}
         footer={[
-          <Button key="close" onClick={() => setPreviewId(null)}>关闭</Button>
+          <Button key="download" type="primary" icon={<DownloadOutlined />}
+            onClick={() => { const r = reports.find(x => x.id === previewId); if (r) handleDownload(r.id, r.name) }}>
+            下载 PDF
+          </Button>,
+          <Button key="close" onClick={handleClosePreview}>关闭</Button>
         ]}
-        width={600}
+        width="90vw"
+        style={{ top: 20 }}
+        styles={{ body: { padding: 0, height: '80vh' } }}
+        destroyOnClose
       >
-        <div style={{ textAlign: 'center', padding: '24px 0' }}>
-          <EyeOutlined style={{ fontSize: 48, color: '#60a5fa', marginBottom: 16, display: 'block' }} />
-          <Typography.Text style={{ color: '#e2e8f0', display: 'block', marginBottom: 8 }}>
-            PDF 已在系统默认查看器中打开
-          </Typography.Text>
-          <Typography.Text style={{ color: '#64748b', fontSize: 12 }}>
-            如没有自动打开，请点击下载按鈕手动下载
-          </Typography.Text>
-        </div>
+        {previewLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
+            正在加载 PDF...
+          </div>
+        )}
+        {!previewLoading && previewUrl && (
+          <embed
+            src={previewUrl}
+            type="application/pdf"
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+          />
+        )}
       </Modal>
     </div>
   )

@@ -179,8 +179,10 @@ const DataImportPage: React.FC = () => {
     },
     {
       title: '操作', key: 'action',
+      width: 180,
+      fixed: 'right' as const,
       render: (_, record) => (
-        <Space>
+        <Space wrap={false}>
           <Tooltip title="预览数据">
             <Button size="small" icon={<EyeOutlined />} onClick={() => handlePreview(record)} />
           </Tooltip>
@@ -271,6 +273,7 @@ const DataImportPage: React.FC = () => {
           loading={loading}
           rowKey="id"
           size="small"
+          scroll={{ x: 'max-content' }}
           pagination={{ pageSize: 10 }}
         />
       </Card>

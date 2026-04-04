@@ -21,6 +21,22 @@ import type { ParamSchema } from '../../components/ParamExplainCard'
 const { Title, Text, Paragraph } = Typography
 const { Option } = Select
 
+// ── 向导历史记录 ──────────────────────────────────────────────────────────────
+
+interface WizardHistoryEntry {
+  id: string
+  timestamp: string
+  datasetName: string
+  targetColumn: string
+  model_id: number
+  report_id: number | null
+  metrics: Record<string, unknown>
+  natural_summary: string
+}
+
+const HISTORY_KEY = 'xgbs_wizard_history'
+const MAX_HISTORY = 10
+
 // ── 核心参数（面向初学者展示）────────────────────────────────────────────────
 const CORE_PARAM_NAMES = ['n_estimators', 'max_depth', 'learning_rate', 'subsample', 'colsample_bytree']
 const ADVANCED_PARAM_NAMES = ['min_child_weight', 'reg_alpha', 'reg_lambda', 'gamma', 'scale_pos_weight']
@@ -30,6 +46,15 @@ const SmartWorkflow: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const workflowMode = useAppStore(s => s.workflowMode)
   const setWorkflowMode = useAppStore(s => s.setWorkflowMode)
+
+  // 历史记录
+  const [wizardHistory, setWizardHistory] = useState<WizardHistoryEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY)
+      return raw ? (JSON.parse(raw) as WizardHistoryEntry[]) : []
+    } catch { return [] }
+  })
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
   const setActiveDatasetId = useAppStore(s => s.setActiveDatasetId)
   const setActiveSplitId = useAppStore(s => s.setActiveSplitId)
   const setActiveModelId = useAppStore(s => s.setActiveModelId)
@@ -62,6 +87,7 @@ const SmartWorkflow: React.FC = () => {
   const [configNotes, setConfigNotes] = useState<string[]>([])
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [balancedParams, setBalancedParams] = useState<Record<string, number | string> | null>(null)
+  const [selectedPreset, setSelectedPreset] = useState<'quick' | 'balanced' | 'deep'>('balanced')
 
   // Step 4 - 训练流水线
   const [pipelineRunning, setPipelineRunning] = useState(false)
@@ -69,6 +95,8 @@ const SmartWorkflow: React.FC = () => {
   const [pipelineLogs, setPipelineLogs] = useState<string[]>([])
   const [pipelineResult, setPipelineResult] = useState<PipelineProgress | null>(null)
   const [nlStatus, setNlStatus] = useState<string>('')
+  const [optimizeCount, setOptimizeCount] = useState(0)
+  const [lastOptimizeSummary, setLastOptimizeSummary] = useState<string>('')
   const cancelPipelineRef = useRef<(() => void) | null>(null)
 
   const logsEndRef = useRef<HTMLDivElement | null>(null)
@@ -88,6 +116,49 @@ const SmartWorkflow: React.FC = () => {
   const cancelLabRef = useRef<(() => void) | null>(null)
 
   const isLearning = workflowMode === 'learning'
+
+  // ── sessionStorage 持久化：离开页面再回来时恢复训练状态 ───────────────────
+  const SESSION_KEY = 'xgbs_workflow_state'
+
+  // 组件初次挂载时从 localStorage 恢复
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SESSION_KEY)
+      if (saved) {
+        const s = JSON.parse(saved) as {
+          currentStep?: number
+          selectedDatasetId?: number | null
+          targetColumn?: string
+          selectedSplitId?: number | null
+          splitInfo?: { train_rows: number; test_rows: number } | null
+          pipelineResult?: PipelineProgress | null
+          pipelinePercent?: number
+        }
+        if (s.currentStep !== undefined) setCurrentStep(s.currentStep)
+        if (s.selectedDatasetId !== undefined) setSelectedDatasetId(s.selectedDatasetId)
+        if (s.targetColumn) setTargetColumn(s.targetColumn)
+        if (s.selectedSplitId !== undefined) setSelectedSplitId(s.selectedSplitId)
+        if (s.splitInfo !== undefined) setSplitInfo(s.splitInfo)
+        if (s.pipelineResult !== undefined) setPipelineResult(s.pipelineResult)
+        if (s.pipelinePercent !== undefined) setPipelinePercent(s.pipelinePercent)
+      }
+    } catch { /* 静默忽略反序列化错误 */ }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 关键状态变化时写入 localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        currentStep,
+        selectedDatasetId,
+        targetColumn,
+        selectedSplitId,
+        splitInfo,
+        pipelineResult,
+        pipelinePercent,
+      }))
+    } catch { /* 静默忽略 */ }
+  }, [currentStep, selectedDatasetId, targetColumn, selectedSplitId, splitInfo, pipelineResult, pipelinePercent])
 
   // ── 数据加载 ──────────────────────────────────────────────────────────────
 
@@ -255,8 +326,9 @@ const SmartWorkflow: React.FC = () => {
   // ── Step 4: 一键流水线 ────────────────────────────────────────────────────
 
 
-  const handleRunPipeline = () => {
+  const handleRunPipeline = (overrideParams?: Record<string, number | string>) => {
     if (!selectedSplitId) return
+    const activeParams = overrideParams ?? paramValues
     setPipelineRunning(true)
     setPipelinePercent(0)
     setPipelineLogs([])
@@ -266,7 +338,7 @@ const SmartWorkflow: React.FC = () => {
     const cancel = runPipeline(
       {
         split_id: selectedSplitId,
-        params: paramValues as Record<string, unknown>,
+        params: activeParams as Record<string, unknown>,
         report_title: `智能向导 - ${datasets.find(d => d.id === selectedDatasetId)?.name ?? '模型'}`,
       },
       (event) => {
@@ -285,6 +357,26 @@ const SmartWorkflow: React.FC = () => {
         setPipelineResult(result)
         setPipelineRunning(false)
         if (result.model_id) setActiveModelId(result.model_id)
+        // 写入历史记录
+        if (result.model_id) {
+          const now = new Date()
+          const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+          const entry: WizardHistoryEntry = {
+            id: now.toISOString(),
+            timestamp,
+            datasetName: datasets.find(d => d.id === selectedDatasetId)?.name ?? '未知数据集',
+            targetColumn: targetColumn,
+            model_id: result.model_id,
+            report_id: result.report_id ?? null,
+            metrics: result.metrics ?? {},
+            natural_summary: result.natural_summary ?? '',
+          }
+          setWizardHistory(prev => {
+            const next = [entry, ...prev].slice(0, MAX_HISTORY)
+            try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)) } catch { /* 忽略 */ }
+            return next
+          })
+        }
         setCurrentStep(5)
       },
       (err) => {
@@ -293,6 +385,54 @@ const SmartWorkflow: React.FC = () => {
       },
     )
     cancelPipelineRef.current = cancel
+  }
+
+  // ── 过拟合迭代优化 ──────────────────────────────────────────────────────────
+
+  const handleOptimizeAndRetrain = () => {
+    const adjusted = { ...paramValues }
+    const changes: string[] = []
+
+    const depth = Number(adjusted.max_depth)
+    if (depth > 2) {
+      const newDepth = depth - 1
+      adjusted.max_depth = newDepth
+      changes.push(`max_depth ${depth}→${newDepth}`)
+    }
+
+    const lambda = Number(adjusted.reg_lambda)
+    const newLambda = Math.min(10, parseFloat((lambda + 0.5).toFixed(1)))
+    if (newLambda !== lambda) {
+      adjusted.reg_lambda = newLambda
+      changes.push(`reg_lambda ${lambda}→${newLambda}`)
+    }
+
+    const alpha = Number(adjusted.reg_alpha)
+    const newAlpha = Math.min(5, parseFloat((alpha + 0.1).toFixed(2)))
+    if (newAlpha !== alpha) {
+      adjusted.reg_alpha = newAlpha
+      changes.push(`reg_alpha ${alpha}→${newAlpha}`)
+    }
+
+    const sub = Number(adjusted.subsample)
+    const newSub = Math.min(0.95, parseFloat((sub + 0.05).toFixed(2)))
+    if (newSub !== sub) {
+      adjusted.subsample = newSub
+      changes.push(`subsample ${sub}→${newSub}`)
+    }
+
+    const summary = changes.length > 0 ? changes.join('，') : '参数已达优化边界，建议检查数据或特征'
+    setParamValues(adjusted)
+    setLastOptimizeSummary(summary)
+    setOptimizeCount(c => c + 1)
+    message.open({
+      type: 'info',
+      icon: <ThunderboltOutlined style={{ color: '#fa8c16' }} />,
+      content: `第 ${optimizeCount + 1} 次迭代优化：${summary}`,
+      duration: 4,
+    })
+    setCurrentStep(4)
+    handleRunPipeline(adjusted)
   }
 
   // ── 参数值变更 ────────────────────────────────────────────────────────────
@@ -314,12 +454,15 @@ const SmartWorkflow: React.FC = () => {
     }
     if (preset === 'quick') {
       setParamValues(prev => ({ ...prev, ...quickPreset }))
+      setSelectedPreset('quick')
       message.success('已应用「快速验证」：50 棵树，约 30 秒出结果')
     } else if (preset === 'deep') {
       setParamValues(prev => ({ ...prev, ...deepPreset }))
+      setSelectedPreset('deep')
       message.success('已应用「深度训练」：500 棵树，追求最高精度')
     } else if (balancedParams) {
       setParamValues({ ...balancedParams })
+      setSelectedPreset('balanced')
       message.success('已恢复 AI 均衡推荐参数')
     }
   }
@@ -369,6 +512,53 @@ const SmartWorkflow: React.FC = () => {
           {isLearning && <Tag color="purple">参数学习卡已开启</Tag>}
         </Space>
       </Row>
+
+      {/* 历史记录选择 */}
+      {wizardHistory.length > 0 && (
+        <Row style={{ marginBottom: 16 }} align="middle" gutter={8}>
+          <Col flex="auto">
+            <Select
+              style={{ width: '100%' }}
+              placeholder="查看历史训练记录（点击可恢复上次结果）"
+              value={selectedHistoryId ?? undefined}
+              allowClear
+              onClear={() => setSelectedHistoryId(null)}
+              onChange={(val: string) => {
+                const entry = wizardHistory.find(h => h.id === val)
+                if (!entry) return
+                setSelectedHistoryId(val)
+                setPipelineResult({
+                  type: 'done',
+                  model_id: entry.model_id,
+                  report_id: entry.report_id,
+                  metrics: entry.metrics,
+                  natural_summary: entry.natural_summary,
+                })
+                setActiveModelId(entry.model_id)
+                setCurrentStep(5)
+              }}
+            >
+              {wizardHistory.map(h => {
+                const metrics = h.metrics
+                const auc = metrics.auc as number | undefined
+                const r2 = metrics.r2 as number | undefined
+                const key = auc ?? r2
+                let badge = ''
+                if (key !== undefined) {
+                  const metricName = auc !== undefined ? 'AUC' : 'R²'
+                  const levelLabel = key >= 0.9 ? '优秀' : key >= 0.8 ? '良好' : key >= 0.7 ? '尚可' : '待提升'
+                  badge = ` | ${metricName}: ${key.toFixed(4)} (${levelLabel})`
+                }
+                return (
+                  <Option key={h.id} value={h.id}>
+                    {`${h.datasetName} → ${h.targetColumn} | ${h.timestamp}${badge}`}
+                  </Option>
+                )
+              })}
+            </Select>
+          </Col>
+        </Row>
+      )}
 
       <Steps current={currentStep} items={steps} style={{ marginBottom: 32 }} />
 
@@ -654,36 +844,36 @@ const SmartWorkflow: React.FC = () => {
               <Col>
                 <Card
                   size="small" hoverable
-                  style={{ width: 186, cursor: 'pointer' }}
+                  style={{ width: 200, cursor: 'pointer', borderColor: selectedPreset === 'quick' ? '#1677ff' : undefined, background: selectedPreset === 'quick' ? '#1677ff18' : undefined }}
                   onClick={() => applyPreset('quick')}
                 >
                   <Typography.Text strong>🚀 快速验证</Typography.Text>
                   <br />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>约 30 秒出结果，适合验证思路</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>约 30 秒出结果，适合验证思路</Typography.Text>
                 </Card>
               </Col>
               <Col>
                 <Card
                   size="small" hoverable
-                  style={{ width: 186, cursor: 'pointer', borderColor: '#1677ff' }}
+                  style={{ width: 220, cursor: 'pointer', borderColor: selectedPreset === 'balanced' ? '#1677ff' : undefined, background: selectedPreset === 'balanced' ? '#1677ff18' : undefined }}
                   onClick={() => applyPreset('balanced')}
                 >
                   <Badge dot color="blue" offset={[4, 0]}>
                     <Typography.Text strong>⚖️ 均衡推荐</Typography.Text>
                   </Badge>
                   <br />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>AI 基于数据推荐，绝大多数场景首选</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>AI 基于数据推荐，绝大多数场景首选</Typography.Text>
                 </Card>
               </Col>
               <Col>
                 <Card
                   size="small" hoverable
-                  style={{ width: 186, cursor: 'pointer' }}
+                  style={{ width: 200, cursor: 'pointer', borderColor: selectedPreset === 'deep' ? '#1677ff' : undefined, background: selectedPreset === 'deep' ? '#1677ff18' : undefined }}
                   onClick={() => applyPreset('deep')}
                 >
                   <Typography.Text strong>🎯 深度训练</Typography.Text>
                   <br />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>最高精度，训练时间较长</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>最高精度，训练时间较长</Typography.Text>
                 </Card>
               </Col>
             </Row>
@@ -773,7 +963,7 @@ const SmartWorkflow: React.FC = () => {
               type="primary"
               size="large"
               icon={<RocketOutlined />}
-              onClick={handleRunPipeline}
+              onClick={() => handleRunPipeline()}
               style={{ marginBottom: 24 }}
             >
               一键启动
@@ -833,8 +1023,9 @@ const SmartWorkflow: React.FC = () => {
           else if (key >= 0.7) { level = '尚可'; levelColor = '#faad14' }
           else { level = '待提升'; levelColor = '#ff4d4f' }
         }
+        const overfittingLevel = metrics.overfitting_level as string | undefined
         const primaryEntries = Object.entries(metrics).filter(([k]) => ['auc', 'accuracy', 'f1', 'r2'].includes(k))
-        const secondaryEntries = Object.entries(metrics).filter(([k]) => !['auc', 'accuracy', 'f1', 'r2'].includes(k))
+        const secondaryEntries = Object.entries(metrics).filter(([k, v]) => !['auc', 'accuracy', 'f1', 'r2'].includes(k) && typeof v === 'number')
         return (
         <Card
           title={<Space><CheckCircleOutlined style={{ color: '#52c41a' }} /><span>训练完成</span></Space>}
@@ -857,6 +1048,29 @@ const SmartWorkflow: React.FC = () => {
             showIcon
             style={{ marginBottom: 24 }}
           />
+
+          {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
+            <Alert
+              type="warning"
+              showIcon
+              message={overfittingLevel === 'high' ? '检测到明显过拟合' : '检测到轻度过拟合'}
+              description={
+                <div>
+                  <p style={{ margin: '4px 0 6px' }}>
+                    {overfittingLevel === 'high'
+                      ? '训练集误差显著低于验证集误差，模型对训练数据记忆过度，泛化能力较差。'
+                      : '训练集与验证集误差存在一定差距，模型存在轻度过拟合风险。'}
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    建议：适当<strong>降低 max_depth</strong>（减少树的复杂度）、
+                    <strong>增大 reg_lambda / reg_alpha</strong>（加强正则化）、
+                    <strong>提高 subsample</strong>（增加随机采样比例），然后重新训练。
+                  </p>
+                </div>
+              }
+              style={{ marginBottom: 24 }}
+            />
+          )}
 
           {Object.keys(metrics).length > 0 && (
             <>
@@ -882,7 +1096,7 @@ const SmartWorkflow: React.FC = () => {
             </>
           )}
 
-          <Space wrap>
+          <Space wrap style={{ marginBottom: lastOptimizeSummary ? 8 : 0 }}>
             <Button
               type="primary"
               icon={<FileTextOutlined />}
@@ -901,19 +1115,39 @@ const SmartWorkflow: React.FC = () => {
             >
               查看评估详情
             </Button>
+            {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
+              <Button
+                icon={<ThunderboltOutlined />}
+                style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }}
+                onClick={handleOptimizeAndRetrain}
+                disabled={!selectedSplitId}
+              >
+                {optimizeCount === 0 ? '迭代优化' : `迭代优化（第 ${optimizeCount + 1} 轮）`}
+              </Button>
+            )}
             <Button
               onClick={() => {
+                localStorage.removeItem('xgbs_workflow_state')
                 setCurrentStep(0)
                 setPipelineResult(null)
                 setPipelineLogs([])
                 setPipelinePercent(0)
                 setSelectedDatasetId(null)
                 setSummary(null)
+                setOptimizeCount(0)
+                setLastOptimizeSummary('')
               }}
             >
               训练新模型
             </Button>
           </Space>
+          {lastOptimizeSummary && (
+            <div style={{ marginTop: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12, color: '#fa8c16' }}>
+                上次调整：{lastOptimizeSummary}
+              </Text>
+            </div>
+          )}
         </Card>
         )
       })()}

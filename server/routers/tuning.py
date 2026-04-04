@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from db.database import get_db
+from db.models import TuningTask
 from schemas.model import TuningRequest
 from services.tuning_service import (
     create_tuning_task,
@@ -23,6 +24,32 @@ from services.tuning_service import (
 )
 
 router = APIRouter(prefix="/api/tuning", tags=["tuning"])
+
+
+@router.get("/latest")
+def latest_tuning(
+    split_id: int = Query(..., description="数据集划分 ID"),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """返回指定 split 最近一次完成的调优任务结果，无则返回 task_id=null"""
+    import json as _json
+    task = (
+        db.query(TuningTask)
+        .filter(TuningTask.split_id == split_id, TuningTask.status == "completed")
+        .order_by(TuningTask.completed_at.desc())
+        .first()
+    )
+    if task is None:
+        return {"task_id": None}
+    return {
+        "task_id": task.id,
+        "best_score": task.best_score,
+        "best_params": _json.loads(task.best_params_json) if task.best_params_json else None,
+        "model_id": task.model_id,
+        "n_trials": task.n_trials,
+        "strategy": task.strategy,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+    }
 
 
 @router.post("/start")

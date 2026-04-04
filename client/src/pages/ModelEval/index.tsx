@@ -159,14 +159,26 @@ const ModelEvalPage: React.FC = () => {
   // 基线对比
   const baseline = evalData?.baseline as Record<string, unknown> | undefined
 
-  // SHAP 条形图
+  // SHAP 条形图 — 优先用 /evaluation 中的 shap_summary，否则从 shapData 计算均值(|SHAP|)
   const shapSummary = evalData?.shap_summary as { feature: string; importance: number }[] | undefined
-  const shapOption = shapSummary ? {
+  const shapDataTyped = shapData as { features: string[]; shap_values: number[][] } | null
+  const shapFromDetail: { feature: string; importance: number }[] | undefined = shapDataTyped
+    ? shapDataTyped.features
+        .map((feat, i) => ({
+          feature: feat,
+          importance:
+            shapDataTyped.shap_values.reduce((sum, row) => sum + Math.abs(row[i]), 0) /
+            shapDataTyped.shap_values.length,
+        }))
+        .sort((a, b) => b.importance - a.importance)
+    : undefined
+  const activeShapSummary = shapSummary ?? shapFromDetail
+  const shapOption = activeShapSummary ? {
     tooltip: {},
     grid: { left: 150 },
     xAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
-    yAxis: { type: 'category', data: shapSummary.slice(0, 20).map(d => d.feature), axisLabel: { color: '#94a3b8', fontSize: 11 } },
-    series: [{ type: 'bar', data: shapSummary.slice(0, 20).map(d => d.importance), itemStyle: { color: '#a78bfa' } }]
+    yAxis: { type: 'category', data: activeShapSummary.slice(0, 20).map(d => d.feature), axisLabel: { color: '#94a3b8', fontSize: 11 } },
+    series: [{ type: 'bar', data: activeShapSummary.slice(0, 20).map(d => d.importance), itemStyle: { color: '#a78bfa' } }]
   } : null
 
   const metrics = evalData?.metrics as Record<string, number> | undefined

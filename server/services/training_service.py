@@ -116,6 +116,31 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
         # 提取早停参数（不传入 XGBoost sklearn API）
         early_stopping_rounds = int(merged_params.pop("early_stopping_rounds", 0))
 
+        # ── 参数一致性修正：防止 recommend_params 将回归目标误判为多分类 ──────
+        _classification_objectives = {"binary:logistic", "multi:softmax", "multi:softprob"}
+        _regression_objectives = {"reg:squarederror", "reg:absoluteerror", "reg:logistic"}
+        if task_type == "regression":
+            # 回归任务：清除分类专用参数，确保 objective 为回归类型
+            merged_params.pop("num_class", None)
+            if merged_params.get("objective") in _classification_objectives:
+                merged_params["objective"] = "reg:squarederror"
+                merged_params["eval_metric"] = "rmse"
+        elif task_type == "classification":
+            n_unique_classes = int(y_train.nunique())
+            if n_unique_classes > 2:
+                # 多分类：确保 objective 和 num_class 正确
+                if merged_params.get("objective") not in ("multi:softmax", "multi:softprob"):
+                    merged_params["objective"] = "multi:softprob"
+                    merged_params["eval_metric"] = "mlogloss"
+                if not merged_params.get("num_class") or int(merged_params.get("num_class", 0)) < 2:
+                    merged_params["num_class"] = n_unique_classes
+            else:
+                # 二分类：清除多分类参数
+                merged_params.pop("num_class", None)
+                if merged_params.get("objective") in ("multi:softmax", "multi:softprob"):
+                    merged_params["objective"] = "binary:logistic"
+                    merged_params["eval_metric"] = "logloss"
+
         model = xgb.XGBClassifier(**merged_params) if task_type == "classification" else xgb.XGBRegressor(**merged_params)
 
         start_time = time.time()

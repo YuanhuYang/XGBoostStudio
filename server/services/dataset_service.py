@@ -22,6 +22,19 @@ def _dataset_path(filename: str) -> Path:
     return DATA_DIR / filename
 
 
+def _detect_encoding(path: Path) -> str:
+    """尝试多种编码，依次回退，返回可成功读取文件头的编码"""
+    candidates = ["utf-8-sig", "utf-8", "gbk", "gb18030", "gb2312", "latin-1"]
+    for enc in candidates:
+        try:
+            with open(path, encoding=enc, errors="strict") as f:
+                f.read(4096)  # 只读前 4KB 用于探测
+            return enc
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    return "latin-1"  # 最终回退，latin-1 不会抛出解码错误
+
+
 def _load_df(dataset: Dataset) -> pd.DataFrame:
     """从磁盘加载数据集"""
     path = DATA_DIR / dataset.path
@@ -29,14 +42,19 @@ def _load_df(dataset: Dataset) -> pd.DataFrame:
         raise HTTPException(status_code=404, detail=f"数据文件不存在: {dataset.path}")
     if dataset.file_type in ("xlsx", "xls"):
         return pd.read_excel(path, sheet_name=dataset.sheet_name or 0)
-    return pd.read_csv(path, encoding="utf-8-sig")
+    enc = _detect_encoding(path)
+    return pd.read_csv(path, encoding=enc, on_bad_lines='skip')
 
 
 def _save_df(df: pd.DataFrame, filename: str) -> str:
-    """保存 DataFrame 到 CSV，返回相对路径"""
-    path = DATA_DIR / filename
+    """保存 DataFrame 到 CSV，返回相对路径。
+    xlsx/xls 自动转为同名 .csv，避免将 CSV 内容写入 xlsx 路径
+    导致后续 pd.read_excel() 解析失败（特征工程 Network Error 根因）。"""
+    stem = Path(filename).stem
+    csv_filename = f"{stem}.csv"
+    path = DATA_DIR / csv_filename
     df.to_csv(path, index=False, encoding="utf-8-sig")
-    return filename
+    return csv_filename
 
 
 # ── 上传 ──────────────────────────────────────────────────────────────────────
@@ -60,7 +78,8 @@ def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Opti
         if ext in ("xlsx", "xls"):
             df = pd.read_excel(save_path, sheet_name=sheet_name or 0)
         else:
-            df = pd.read_csv(save_path, encoding="utf-8-sig")
+            enc = _detect_encoding(save_path)
+            df = pd.read_csv(save_path, encoding=enc, on_bad_lines='skip')
     except Exception as e:
         save_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"文件解析失败，请确认文件格式正确且首行为标题行: {e}") from e
@@ -194,7 +213,9 @@ def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dat
                     df[numeric_cols] = imputer.fit_transform(df[numeric_cols])
             except Exception:
                 df[col] = df[col].fillna(df[col].mean() if pd.api.types.is_numeric_dtype(df[col]) else df[col].mode().iloc[0] if not df[col].mode().empty else None)
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     dataset.rows = len(df)
     db.commit()
     db.refresh(dataset)
@@ -234,7 +255,9 @@ def handle_outliers(dataset: Dataset, action: str, row_indices: list[int], db: S
     if action == "drop":
         valid_indices = [i for i in row_indices if i < len(df)]
         df = df.drop(index=valid_indices).reset_index(drop=True)
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     dataset.rows = len(df)
     db.commit()
     db.refresh(dataset)
@@ -268,7 +291,9 @@ def handle_outliers_by_strategy(dataset: Dataset, strategy: str, db: Session) ->
             iqr = q3 - q1
             mask = (df[col] < q1 - 1.5 * iqr) | (df[col] > q3 + 1.5 * iqr)
             df.loc[mask, col] = df[col].mean()
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     dataset.rows = len(df)
     db.commit()
     db.refresh(dataset)
@@ -286,7 +311,9 @@ def get_duplicates(dataset: Dataset) -> dict[str, Any]:
 def drop_duplicates(dataset: Dataset, db: Session) -> Dataset:
     df = _load_df(dataset)
     df = df.drop_duplicates().reset_index(drop=True)
-    _save_df(df, dataset.path)
+    new_path = _save_df(df, dataset.path)
+    dataset.path = new_path
+    dataset.file_type = 'csv'
     dataset.rows = len(df)
     db.commit()
     db.refresh(dataset)

@@ -20,6 +20,7 @@ from db.database import DATA_DIR
 from db.models import Dataset
 from services.params_service import recommend_params as _recommend_params
 from services import training_service, eval_service, report_service
+from services.dataset_service import _load_df
 
 
 # ── 1. 数据集摘要 ──────────────────────────────────────────────────────────────
@@ -30,8 +31,10 @@ def dataset_summary(dataset_id: int, db: Session) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="数据集不存在")
 
     try:
-        df = pd.read_csv(DATA_DIR / dataset.path, encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError) as e:
+        df = _load_df(dataset)
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"无法读取数据集文件: {e}") from e
 
     n_rows, n_cols = df.shape
@@ -92,18 +95,58 @@ def dataset_summary(dataset_id: int, db: Session) -> dict[str, Any]:
     if quality_score >= 90:
         recommendations.append("数据质量良好，可以直接进行模型训练")
 
-    # 目标列候选推荐
-    _target_keywords = {
-        'target', 'label', 'y', 'result', 'outcome', 'class', 'category',
-        'survived', 'price', 'sales', 'revenue', 'churn', 'status', 'flag',
+    # 目标列候选推荐 ── 多维度评分，综合排名
+    _kw_primary = {
+        'target', 'label', 'result', 'outcome', 'class', 'category',
+        'survived', 'churn', 'status', 'flag',
     }
+    _kw_primary_exact = {'y'}  # 单字符关键词只做精确匹配，避免误判 quantity/scrapqty 等
+    _kw_price = {'price', 'sales', 'revenue', 'cost', 'amount', 'wage', 'salary'}
+    # 表示"最终/人工"语义的前缀/后缀，优先级更高
+    _prefix_boost = {'manual', 'final', 'actual', 'real', 'true', 'total', 'net', 'gross'}
+
+    n_cols_total = len(df.columns)
     candidate_targets: list[dict[str, Any]] = []
     for _i, _col in enumerate(df.columns):
         _col_lower = _col.lower()
-        if any(_kw in _col_lower for _kw in _target_keywords):
-            candidate_targets.append({"col": _col, "confidence": 0.9, "reason": "列名包含常见目标列关键词"})
-        elif _i == len(df.columns) - 1 and not any(d["col"] == _col for d in candidate_targets):
-            candidate_targets.append({"col": _col, "confidence": 0.6, "reason": "位于最后一列（通常约定目标列在最后）"})
+        score = 0.0
+        reasons: list[str] = []
+
+        # 主关键词命中 → 高分（单字符关键词精确匹配，防止 quantity/scrapqty 误判）
+        if _col_lower in _kw_primary_exact or any(_kw in _col_lower for _kw in _kw_primary):
+            score += 0.60
+            reasons.append("列名含常见目标列关键词")
+
+        # 价格/金额类关键词 → 中分
+        if any(_kw in _col_lower for _kw in _kw_price):
+            score += 0.30
+            reasons.append("列名含价格/金额关键词")
+
+        # "最终/人工"语义前缀加权
+        if any(_col_lower.startswith(_p) or _col_lower.endswith(_p) for _p in _prefix_boost):
+            score += 0.15
+            reasons.append("含最终/人工语义前缀，通常为目标值")
+
+        # 最后一列奖励
+        if _i == n_cols_total - 1:
+            score += 0.10
+            reasons.append("位于最后一列")
+
+        # 数值型且方差充足（回归目标特征）
+        if pd.api.types.is_numeric_dtype(df[_col]) and not df[_col].isnull().all():
+            _std = float(df[_col].std())
+            _mean = abs(float(df[_col].mean())) if float(df[_col].mean()) != 0 else 1e-9
+            if _std / _mean > 0.1:
+                score += 0.05
+                reasons.append("数值型且具有一定方差")
+
+        if score > 0:
+            candidate_targets.append({
+                "col": _col,
+                "confidence": round(min(score, 0.99), 2),
+                "reason": "；".join(reasons),
+            })
+
     candidate_targets.sort(key=lambda x: -x["confidence"])
 
     # 特征互信息评分（Top-10，需已设置目标列）
@@ -156,8 +199,10 @@ def preprocess_suggestions(dataset_id: int, db: Session) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="数据集不存在")
 
     try:
-        df = pd.read_csv(DATA_DIR / dataset.path, encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError) as e:
+        df = _load_df(dataset)
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"无法读取数据集文件: {e}") from e
 
     suggestions: list[dict[str, Any]] = []

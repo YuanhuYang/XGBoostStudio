@@ -208,8 +208,15 @@ def recommend_params(split_id: int, db: Session) -> dict[str, Any]:
     if target_col and target_col in train_df.columns:
         y = train_df[target_col]
         n_classes = y.nunique()
+        # 判断是否为回归任务：浮点型或唯一值超 20 视为回归
+        _is_regression = (
+            pd.api.types.is_float_dtype(y)
+            or n_classes > 20
+            or y.dtype not in (int, "int64", "int32", object)
+        )
     else:
         n_classes = 2
+        _is_regression = False
 
     # 规则推荐
     params: dict[str, Any] = {}
@@ -233,16 +240,17 @@ def recommend_params(split_id: int, db: Session) -> dict[str, Any]:
         params["colsample_bytree"] = 0.7
         notes.append("高维特征：colsample_bytree=0.7")
 
-    # 类不平衡
-    if n_classes == 2:
-        pos_rate = float((y == y.unique()[1]).mean()) if target_col and target_col in train_df.columns else 0.5
-        if pos_rate < 0.15 or pos_rate > 0.85:
-            ratio = round((1 - pos_rate) / pos_rate, 2) if pos_rate > 0 else 1.0
-            params["scale_pos_weight"] = ratio
-            notes.append(f"类不平衡：scale_pos_weight={ratio}")
-    elif n_classes > 2:
-        params["objective"] = "multi:softprob"
-        params["num_class"] = int(n_classes)
+    # 类不平衡 / 多分类：仅在分类任务时设置
+    if not _is_regression:
+        if n_classes == 2:
+            pos_rate = float((y == y.unique()[1]).mean()) if target_col and target_col in train_df.columns else 0.5
+            if pos_rate < 0.15 or pos_rate > 0.85:
+                ratio = round((1 - pos_rate) / pos_rate, 2) if pos_rate > 0 else 1.0
+                params["scale_pos_weight"] = ratio
+                notes.append(f"类不平衡：scale_pos_weight={ratio}")
+        elif n_classes > 2:
+            params["objective"] = "multi:softprob"
+            params["num_class"] = int(n_classes)
 
     params.setdefault("learning_rate", 0.1)
     params.setdefault("subsample", 0.8)

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  Card, Row, Col, Button, Typography, Space, InputNumber,
-  Slider, Select, Tag, Alert, message, Statistic, Progress, Form, Popconfirm
+  Card, Row, Col, Button, Typography, Space,
+  Slider, Select, Alert, message, Statistic, Progress, Form, Popconfirm
 } from 'antd'
-import { RocketOutlined, StopOutlined, TrophyOutlined } from '@ant-design/icons'
+import { RocketOutlined, StopOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
@@ -17,14 +17,23 @@ interface TrialEvent {
   error?: string; stopped?: boolean
 }
 
+interface SplitItem {
+  id: number
+  dataset_id: number
+  dataset_name: string
+  train_rows: number | null
+  test_rows: number | null
+  created_at: string | null
+}
+
 const ModelTuningPage: React.FC = () => {
   const activeSplitId = useAppStore(s => s.activeSplitId)
   const setActiveModelId = useAppStore(s => s.setActiveModelId)
-  const [splitId, setSplitId] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (activeSplitId !== null && splitId === null) setSplitId(activeSplitId)
-  }, [activeSplitId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ── 状态声明（所有 useState/useRef 必须在 useEffect 之前） ──────────────────
+  const [splitId, setSplitId] = useState<number | null>(null)
+  const [splitList, setSplitList] = useState<SplitItem[]>([])
+  const [lastResultAt, setLastResultAt] = useState<string | null>(null)
   const [nTrials, setNTrials] = useState(30)
   const [strategy, setStrategy] = useState('tpe')
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -38,7 +47,47 @@ const ModelTuningPage: React.FC = () => {
   const MAX_SSE_RETRIES = 3
   const PORT = 18899
 
-  // SSE 清理（测试专家：防止组件卸载后连接泄漏）
+  // ── Effects ──────────────────────────────────────────────────────────────────
+
+  // 加载所有可用 split 列表
+  useEffect(() => {
+    apiClient.get('/api/datasets/splits/list').then(r => {
+      setSplitList(r.data)
+    }).catch(() => { /* 静默失败 */ })
+  }, [])
+
+  // 有 activeSplitId 时预选
+  useEffect(() => {
+    if (activeSplitId !== null && splitId === null) setSplitId(activeSplitId)
+  }, [activeSplitId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // splitId 变化时加载上次调优结果
+  useEffect(() => {
+    if (!splitId) return
+    apiClient.get(`/api/tuning/latest?split_id=${splitId}`).then(r => {
+      const d = r.data
+      if (d.task_id) {
+        setTaskId(d.task_id)
+        setBestScore(d.best_score ?? null)
+        setBestParams(d.best_params ?? null)
+        setResultModelId(d.model_id ?? null)
+        if (d.model_id) setActiveModelId(d.model_id)
+        setStatus('completed')
+        setLastResultAt(d.completed_at ?? null)
+        if (d.n_trials) setNTrials(d.n_trials)
+        if (d.strategy) setStrategy(d.strategy)
+      } else {
+        setTaskId(null)
+        setBestScore(null)
+        setBestParams(null)
+        setResultModelId(null)
+        setStatus('idle')
+        setLastResultAt(null)
+      }
+    }).catch(() => { /* 静默失败 */ })
+  }, [splitId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // SSE 清理
   useEffect(() => {
     return () => { esRef.current?.close() }
   }, [])
@@ -147,8 +196,17 @@ const ModelTuningPage: React.FC = () => {
         <Col span={7}>
           <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
             <Form layout="vertical">
-              <Form.Item label={<Text style={{ color: '#94a3b8' }}>Split ID</Text>}>
-                <InputNumber min={1} value={splitId || undefined} onChange={v => setSplitId(v)} style={{ width: '100%' }} />
+              <Form.Item label={<Text style={{ color: '#94a3b8' }}>选择数据集划分</Text>}>
+                <Select
+                  value={splitId ?? undefined}
+                  onChange={(v: number) => setSplitId(v)}
+                  placeholder="选择划分"
+                  style={{ width: '100%' }}
+                  options={splitList.map(s => ({
+                    value: s.id,
+                    label: `${s.dataset_name}  / Split #${s.id}（训练 ${s.train_rows ?? '?'} 行）`,
+                  }))}
+                />
               </Form.Item>
               <Form.Item label={<Text style={{ color: '#94a3b8' }}>搜索策略</Text>}>
                 <Select value={strategy} onChange={setStrategy} style={{ width: '100%' }}
@@ -184,6 +242,14 @@ const ModelTuningPage: React.FC = () => {
           {bestScore !== null && (
             <Card title={<Text style={{ color: '#e2e8f0' }}>最优结果</Text>}
               style={{ background: '#1e293b', border: '1px solid #334155' }}>
+              {lastResultAt && status === 'completed' && trialHistory.length === 0 && (
+                <Alert
+                  type="info"
+                  message={`上次调优结果（${new Date(lastResultAt).toLocaleString('zh-CN')}）`}
+                  style={{ marginBottom: 10, fontSize: 12 }}
+                  showIcon
+                />
+              )}
               <Statistic title="最优得分" value={bestScore.toFixed(4)} valueStyle={{ color: '#34d399', fontSize: 28 }} />
               {resultModelId && <Alert type="success" message={`模型已保存 ID: ${resultModelId}`} style={{ marginTop: 8 }} />}
               {bestParams && (

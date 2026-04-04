@@ -254,7 +254,13 @@ const MainLayout: React.FC = () => {
                   </Tag>
                 </Tooltip>
               ) : (
-                <Tag color="default" style={{ color: '#475569' }}>📊 — 未设置 —</Tag>
+                <Tooltip title="点击前往数据导入">
+                  <Tag
+                    color="default"
+                    style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setCurrentPage('data-import')}
+                  >📊 — 未设置 —</Tag>
+                </Tooltip>
               )}
               {activeSplitId ? (
                 <Tooltip title="点击跳转至特征工程">
@@ -267,7 +273,13 @@ const MainLayout: React.FC = () => {
                   </Tag>
                 </Tooltip>
               ) : (
-                <Tag color="default" style={{ color: '#475569' }}>✂️ — 未设置 —</Tag>
+                <Tooltip title="点击前往特征工程划分数据">
+                  <Tag
+                    color="default"
+                    style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setCurrentPage('feature-engineering')}
+                  >✂️ — 未设置 —</Tag>
+                </Tooltip>
               )}
               {activeModelId ? (
                 <Tooltip title="点击跳转至模型评估">
@@ -280,7 +292,13 @@ const MainLayout: React.FC = () => {
                   </Tag>
                 </Tooltip>
               ) : (
-                <Tag color="default" style={{ color: '#475569' }}>🤖 — 未设置 —</Tag>
+                <Tooltip title="点击前往模型训练">
+                  <Tag
+                    color="default"
+                    style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setCurrentPage('model-training')}
+                  >🤖 — 未设置 —</Tag>
+                </Tooltip>
               )}
             </Space>
           </div>

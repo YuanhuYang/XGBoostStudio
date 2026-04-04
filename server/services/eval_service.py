@@ -325,6 +325,15 @@ def get_learning_curve(model_id: int, db: Session) -> dict[str, Any]:
     clean_params = {k: v for k, v in params.items() if k not in _SKIP}
 
     task_type = model_rec.task_type
+    # 按任务类型清理参数，防止跨类型参数导致训练静默失败
+    if task_type == "regression":
+        clean_params.pop("num_class", None)
+        if str(clean_params.get("objective", "")).startswith(("multi:", "softmax", "softprob")):
+            clean_params.pop("objective", None)
+    elif task_type == "classification":
+        n_classes = int(y_full.nunique())
+        if n_classes > 2 and "num_class" not in clean_params:
+            clean_params["num_class"] = n_classes
     train_sizes = [0.2, 0.4, 0.6, 0.8, 1.0]
     train_scores: list[float] = []
     val_scores: list[float] = []

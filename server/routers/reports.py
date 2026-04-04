@@ -82,6 +82,15 @@ def download_report(report_id: int, db: Session = Depends(get_db)) -> FileRespon
     )
 
 
+@router.get("/{report_id}/preview")
+def preview_report(report_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    """内联预览（不带 Content-Disposition: attachment，供 iframe 内嵌使用）"""
+    path = get_report_path(report_id, db)
+    ext = path.suffix.lower()
+    media_type = "application/pdf" if ext == ".pdf" else "text/html"
+    return FileResponse(path=str(path), media_type=media_type)
+
+
 @router.delete("/{report_id}")
 def delete_report(report_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
     from db.database import REPORTS_DIR

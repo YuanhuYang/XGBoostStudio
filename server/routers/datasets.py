@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy.orm import Session
 
 from db.database import get_db
-from db.models import Dataset
+from db.models import Dataset, DatasetSplit
 from schemas.dataset import (
     DatasetResponse, DatasetStatsResponse, PreviewResponse,
     QualityScoreResponse, SplitResponse,
@@ -73,6 +73,30 @@ def delete_dataset(dataset_id: int, db: Session = Depends(get_db)):
     db.delete(ds)
     db.commit()
     return {"message": "已删除"}
+
+
+# ── 划分列表（供调优页下拉选择） ──────────────────────────────────────────────
+
+@router.get("/splits/list")
+def list_splits(db: Session = Depends(get_db)):
+    rows = (
+        db.query(DatasetSplit, Dataset.name)
+        .join(Dataset, DatasetSplit.dataset_id == Dataset.id)
+        .order_by(DatasetSplit.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": sp.id,
+            "dataset_id": sp.dataset_id,
+            "dataset_name": name,
+            "train_rows": sp.train_rows,
+            "test_rows": sp.test_rows,
+            "train_ratio": sp.train_ratio,
+            "created_at": sp.created_at.isoformat() if sp.created_at else None,
+        }
+        for sp, name in rows
+    ]
 
 
 # ── 预览 / 统计 ───────────────────────────────────────────────────────────────

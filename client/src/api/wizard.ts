@@ -73,7 +73,7 @@ export interface PipelineProgress {
   message?: string
   model_id?: number
   report_id?: number | null
-  metrics?: Record<string, number>
+  metrics?: Record<string, unknown>
   natural_summary?: string
 }
 
