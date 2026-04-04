@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import {
   Card, Table, Button, Space, Typography, Modal, Form, Input,
-  InputNumber, message, Popconfirm, Tag, Row, Col, Statistic, Empty,
+  InputNumber, message, Popconfirm, Tag, Row, Col, Empty,
   Checkbox
 } from 'antd'
 import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
@@ -35,9 +35,6 @@ const ReportPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [genModal, setGenModal] = useState(false)
   const [genLoading, setGenLoading] = useState(false)
-  const [previewId, setPreviewId] = useState<number | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [selectedSections, setSelectedSections] = useState<string[]>(SECTION_OPTIONS.map(o => o.value))
   const [form] = Form.useForm()
 
@@ -90,26 +87,16 @@ const ReportPage: React.FC = () => {
     } catch { message.error('下载失败') }
   }
 
-  const handlePreview = async (id: number) => {
-    setPreviewId(id)
-    setPreviewLoading(true)
-    try {
-      const r = await apiClient.get(`/api/reports/${id}/preview`, { responseType: 'blob' })
-      // Electron 中 blob: URL 在 iframe 内渲染 PDF 存在限制，改用 data: URL
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(r.data)
-      })
-      setPreviewUrl(dataUrl)
-    } catch { message.error('PDF 预览加载失败') }
-    finally { setPreviewLoading(false) }
-  }
-
-  const handleClosePreview = () => {
-    setPreviewUrl(null)
-    setPreviewId(null)
+  const handlePreview = (id: number) => {
+    // Electron 内无内置 PDF 插件，使用系统默认 PDF 阅览器打开
+    const url = `http://127.0.0.1:18899/api/reports/${id}/preview`
+    const w = window as unknown as { electron?: { openExternal: (u: string) => void } }
+    if (w.electron?.openExternal) {
+      w.electron.openExternal(url)
+    } else {
+      // 非 Electron 环境（浏览器开发模式）
+      window.open(url, '_blank')
+    }
   }
 
   const handleDelete = async (id: number) => {
@@ -149,13 +136,14 @@ const ReportPage: React.FC = () => {
         { title: '如何预览 PDF？', content: '点击操作列的「预览」按鈕，将在弹框中内嵌展示 PDF。' },
       ]} />
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
-            <Statistic title="报告总数" value={reports.length} valueStyle={{ color: '#60a5fa' }} />
-          </Card>
+      <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
+        <Col>
+          <Space align="center" style={{ marginRight: 16 }}>
+            <Text style={{ color: '#94a3b8', fontSize: 14 }}>报告总数：</Text>
+            <Text style={{ color: '#60a5fa', fontSize: 22, fontWeight: 700, lineHeight: '1' }}>{reports.length}</Text>
+          </Space>
         </Col>
-        <Col span={18} style={{ display: 'flex', alignItems: 'center' }}>
+        <Col>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setGenModal(true)} size="large">
             生成新报告
           </Button>
@@ -212,35 +200,7 @@ const ReportPage: React.FC = () => {
         </div>
       </Modal>
 
-      <Modal
-        title="报告预览"
-        open={previewId !== null}
-        onCancel={handleClosePreview}
-        footer={[
-          <Button key="download" type="primary" icon={<DownloadOutlined />}
-            onClick={() => { const r = reports.find(x => x.id === previewId); if (r) handleDownload(r.id, r.name) }}>
-            下载 PDF
-          </Button>,
-          <Button key="close" onClick={handleClosePreview}>关闭</Button>
-        ]}
-        width="90vw"
-        style={{ top: 20 }}
-        styles={{ body: { padding: 0, height: '80vh' } }}
-        destroyOnClose
-      >
-        {previewLoading && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
-            正在加载 PDF...
-          </div>
-        )}
-        {!previewLoading && previewUrl && (
-          <embed
-            src={previewUrl}
-            type="application/pdf"
-            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-          />
-        )}
-      </Modal>
+
     </div>
   )
 }

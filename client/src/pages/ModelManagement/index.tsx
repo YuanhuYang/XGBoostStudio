@@ -7,6 +7,7 @@ import { AppstoreOutlined, DeleteOutlined, EditOutlined, DownloadOutlined, DiffO
 import type { ColumnsType } from 'antd/es/table'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
+import HelpButton from '../../components/HelpButton'
 
 const { Title, Text } = Typography
 
@@ -21,14 +22,16 @@ const LOWER_IS_BETTER = new Set(['rmse', 'mse', 'mae', 'log_loss', 'logloss'])
 interface ModelRecord {
   id: number; name: string; task_type: string
   metrics: Record<string, number>; params: Record<string, unknown>
-  dataset_id: number | null; created_at: string
+  dataset_id: number | null; created_at: string; notes?: string
 }
+
+const { TextArea } = Input
 
 const ModelManagementPage: React.FC = () => {
   const [models, setModels] = useState<ModelRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [searchText, setSearchText] = useState('')
-  const [renameModal, setRenameModal] = useState<{ open: boolean; id: number | null; name: string }>({ open: false, id: null, name: '' })
+  const [renameModal, setRenameModal] = useState<{ open: boolean; id: number | null; name: string; notes: string }>({ open: false, id: null, name: '', notes: '' })
   const [compareIds, setCompareIds] = useState<number[]>([])
   const [compareData, setCompareData] = useState<ModelRecord[]>([])
   const [compareVisible, setCompareVisible] = useState(false)
@@ -60,11 +63,11 @@ const ModelManagementPage: React.FC = () => {
   const handleRename = async () => {
     const values = await form.validateFields()
     try {
-      await apiClient.put(`/api/models/${renameModal.id}/rename`, { name: values.name })
-      message.success('重命名成功')
-      setRenameModal({ open: false, id: null, name: '' })
+      await apiClient.patch(`/api/models/${renameModal.id}`, { name: values.name, notes: values.notes ?? '' })
+      message.success('保存成功')
+      setRenameModal({ open: false, id: null, name: '', notes: '' })
       fetchModels()
-    } catch { message.error('重命名失败') }
+    } catch { message.error('保存失败') }
   }
 
   const handleExport = async (id: number, name: string) => {
@@ -91,8 +94,23 @@ const ModelManagementPage: React.FC = () => {
     {
       title: '主要指标', key: 'metrics', render: (_, r) => {
         const m = r.metrics || {}
-        const key = Object.keys(m)[0]
-        return key ? <span><Tag color="purple">{key}: {m[key]?.toFixed(4)}</Tag></span> : '-'
+        const PREFER = ['auc', 'accuracy', 'r2', 'f1']
+        const mainKey = PREFER.find(k => k in m) || Object.keys(m).find(k => !INTERNAL_METRIC_KEYS.has(k))
+        if (!mainKey) return <span>-</span>
+        const val = Number(m[mainKey])
+        const lowerBetter = LOWER_IS_BETTER.has(mainKey.toLowerCase())
+        let level = '待提升', levelColor: 'default' | 'success' | 'processing' | 'warning' | 'error' = 'error'
+        if (!lowerBetter) {
+          if (val >= 0.9) { level = '优秀'; levelColor = 'success' }
+          else if (val >= 0.75) { level = '良好'; levelColor = 'processing' }
+          else if (val >= 0.6) { level = '尚可'; levelColor = 'warning' }
+        }
+        return (
+          <Space size={4}>
+            <Tag color="purple">{mainKey.toUpperCase()}: {val.toFixed(4)}</Tag>
+            {!lowerBetter && <Tag color={levelColor}>{level}</Tag>}
+          </Space>
+        )
       }
     },
     {
@@ -113,7 +131,7 @@ const ModelManagementPage: React.FC = () => {
       fixed: 'right' as const,
       render: (_, r) => (
         <Space wrap={false}>
-          <Tooltip title="重命名"><Button size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue({ name: r.name }); setRenameModal({ open: true, id: r.id, name: r.name }) }} /></Tooltip>
+          <Tooltip title="编辑名称/备注"><Button size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue({ name: r.name, notes: r.notes || '' }); setRenameModal({ open: true, id: r.id, name: r.name, notes: r.notes || '' }) }} /></Tooltip>
           <Tooltip title="导出模型"><Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(r.id, r.name)} /></Tooltip>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -184,6 +202,11 @@ const ModelManagementPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <AppstoreOutlined /> 模型管理
       </Title>
+      <HelpButton pageTitle="模型管理" items={[
+        { title: '如何对比多个模型？', content: '勾选模型行右侧复选框（至少2个），点击「对比已选」即可查看雷达图和柱状图。' },
+        { title: '如何导出模型文件？', content: '点击操作列的下载图标，可下载 .ubj 格式的模型文件供其他系统使用。' },
+        { title: '性能标签（优秀/良好）含义？', content: '以 AUC/Accuracy/R² 为准：≥0.9 优秀，≥0.75 良好，≥0.6 尚可，<0.6 待提升。' },
+      ]} />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card style={{ background: '#1e293b', border: '1px solid #334155' }}><Statistic title="模型总数" value={models.length} valueStyle={{ color: '#60a5fa' }} /></Card></Col>
@@ -214,10 +237,13 @@ const ModelManagementPage: React.FC = () => {
         <Table columns={columns} dataSource={filteredModels} loading={loading} rowKey="id" size="small" scroll={{ x: 'max-content' }} />
       </Card>
 
-      <Modal title="重命名模型" open={renameModal.open} onOk={handleRename} onCancel={() => setRenameModal({ open: false, id: null, name: '' })}>
+      <Modal title="编辑模型" open={renameModal.open} onOk={handleRename} onCancel={() => setRenameModal({ open: false, id: null, name: '', notes: '' })}>
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="新名称" rules={[{ required: true }]}>
+          <Form.Item name="name" label="模型名称" rules={[{ required: true }]}>
             <Input />
+          </Form.Item>
+          <Form.Item name="notes" label="备注（可选）">
+            <TextArea rows={3} placeholder="添加模型备注，如训练目的、数据版本等" />
           </Form.Item>
         </Form>
       </Modal>

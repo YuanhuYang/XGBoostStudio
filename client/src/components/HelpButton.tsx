@@ -4,7 +4,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons'
 
 const { Title, Paragraph, Text } = Typography
 
-interface HelpItem {
+export interface HelpItem {
   title: string
   content: string
 }
@@ -12,6 +12,7 @@ interface HelpItem {
 interface HelpButtonProps {
   pageTitle?: string
   items?: HelpItem[]
+  inHeader?: boolean
 }
 
 const defaultItems: HelpItem[] = [
@@ -20,9 +21,12 @@ const defaultItems: HelpItem[] = [
   { title: '报告无法生成？', content: '确保模型已完成训练且评估指标已保存，若仍失败请重启后端服务。' },
 ]
 
-const HelpButton: React.FC<HelpButtonProps> = ({ pageTitle, items }) => {
+const HelpButton: React.FC<HelpButtonProps> = ({ pageTitle, items, inHeader = false }) => {
   const [open, setOpen] = useState(false)
   const helpItems = items ?? defaultItems
+
+  // 全局顶部模式启用后，仅在 Header 中渲染帮助入口
+  if (!inHeader) return null
 
   return (
     <>
@@ -31,15 +35,12 @@ const HelpButton: React.FC<HelpButtonProps> = ({ pageTitle, items }) => {
         icon={<QuestionCircleOutlined />}
         onClick={() => setOpen(true)}
         style={{
-          position: 'fixed',
-          right: 24,
-          bottom: 40,
-          zIndex: 999,
           color: '#94a3b8',
           background: '#1e293b',
           border: '1px solid #334155',
           borderRadius: 20,
-          padding: '4px 14px',
+          padding: '2px 12px',
+          height: 28,
         }}
       >
         帮助

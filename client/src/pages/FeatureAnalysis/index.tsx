@@ -8,6 +8,7 @@ import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import { useDatasetColumns } from '../../hooks/useDatasetColumns'
+import HelpButton from '../../components/HelpButton'
 
 const { Title, Text } = Typography
 
@@ -125,6 +126,11 @@ const FeatureAnalysisPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <BarChartOutlined /> 特征分析
       </Title>
+      <HelpButton pageTitle="特征分析" items={[
+        { title: '如何分析特征分布？', content: '在「分布统计」 Tab 选择列名，查看直方图、缺失率、分位数等统计信息。' },
+        { title: '相关性分析有个使用建议？', content: '相关系数 |r| > 0.7 考虑删除其中一个;相关系数 > 0.5 且与目标列相关的特征通常更重要。' },
+        { title: 'SHAP 与特征重要性有何区别？', content: 'SHAP 基于模型预测计算特征贡献，相比统计相关性更准确地反映模型真实依赖。' },
+      ]} />
       {!activeDatasetId && <Alert message="请先在「数据导入」页面选择并设置目标列的数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
       <Tabs

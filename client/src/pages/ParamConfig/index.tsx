@@ -8,6 +8,7 @@ import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, Do
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import ParamExplainCard from '../../components/ParamExplainCard'
+import HelpButton from '../../components/HelpButton'
 import type { ParamSchema } from '../../components/ParamExplainCard'
 
 const { Title, Text } = Typography
@@ -112,6 +113,11 @@ const ParamConfigPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <SettingOutlined /> 超参数配置
       </Title>
+      <HelpButton pageTitle="超参数配置" items={[
+        { title: '应该用哪个预设？', content: '分类任务推荐「均衡推荐」；回归任务推荐「快速训练」；数据量大（>1万行）用「大数据」。' },
+        { title: '最重要的参数是哪些？', content: 'n_estimators（迭代次数）、max_depth（树深）、learning_rate（学习率）是最关键的三个参数。' },
+        { title: '参数配置好后如何使用？', content: '点击「下载 JSON」保存当前配置，其内容可直接粘贴到「模型训练」页面的参数输入框。' },
+      ]} />
 
       {/* 预设方案快捷入口 */}
       <Row gutter={12} style={{ marginBottom: 20 }}>
@@ -120,16 +126,31 @@ const ParamConfigPage: React.FC = () => {
             <Card
               onClick={() => handlePresetSelect(preset)}
               style={{
-                background: selectedPreset === preset.key ? `${preset.color}22` : '#1e293b',
-                border: `2px solid ${selectedPreset === preset.key ? preset.color : '#334155'}`,
+                background: selectedPreset === preset.key ? `${preset.color}14` : '#1e293b',
+                border: '1px solid #334155',
                 cursor: 'pointer',
                 transition: 'all 0.2s',
-                boxShadow: selectedPreset === preset.key ? `0 0 0 1px ${preset.color}` : 'none',
+                boxShadow: 'none',
               }}
               styles={{ body: { padding: '12px 16px' } }}
             >
               <Space>
-                <span style={{ fontSize: 20, color: preset.color }}>{preset.icon}</span>
+                <span
+                  style={{
+                    width: 30,
+                    height: 30,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 999,
+                    fontSize: 18,
+                    color: preset.color,
+                    border: `1px solid ${selectedPreset === preset.key ? preset.color : '#334155'}`,
+                    background: selectedPreset === preset.key ? `${preset.color}1f` : 'transparent',
+                  }}
+                >
+                  {preset.icon}
+                </span>
                 <div>
                   <Text strong style={{ color: preset.color, display: 'block' }}>{preset.label}</Text>
                   <Text style={{ color: '#64748b', fontSize: 12 }}>{preset.desc}</Text>

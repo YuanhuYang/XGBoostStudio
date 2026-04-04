@@ -34,7 +34,7 @@ const DataImportPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [previewVisible, setPreviewVisible] = useState(false)
-  const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null)
+  const [previewData, setPreviewData] = useState<{ columns: string[]; data: Record<string, unknown>[]; total: number } | null>(null)
   const [targetModal, setTargetModal] = useState<{ open: boolean; datasetId: number | null }>({ open: false, datasetId: null })
   const [selectedDataset, setSelectedDataset] = useState<DatasetRow | null>(null)
   const [columnOptions, setColumnOptions] = useState<string[]>([])
@@ -294,7 +294,7 @@ const DataImportPage: React.FC = () => {
         )}
         <Table
           columns={previewColumns}
-          dataSource={previewData?.rows?.map((r, i) => ({ ...r, _key: i })) || []}
+          dataSource={previewData?.data?.map((r, i) => ({ ...r, _key: i })) || []}
           rowKey="_key"
           size="small"
           scroll={{ x: true }}

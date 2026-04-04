@@ -17,8 +17,10 @@ import {
   BulbOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
+  EditOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
+import HelpButton, { type HelpItem } from './HelpButton'
 
 // 页面懒加载
 import DataImportPage from '../pages/DataImport'
@@ -123,6 +125,84 @@ const pageMap: Record<PageKey, React.ReactNode> = {
   'model-management': <ModelManagementPage />,
   report: <ReportPage />,
   prediction: <PredictionPage />,
+}
+
+const pageTitles: Record<PageKey, string> = {
+  welcome: '欢迎页',
+  'smart-workflow': '智能工作流',
+  'data-import': '数据导入',
+  'feature-analysis': '特征分析',
+  'feature-engineering': '特征工程',
+  'param-config': '超参数配置',
+  'model-training': '模型训练',
+  'model-eval': '模型评估',
+  'model-tuning': '超参数调优',
+  'model-management': '模型管理',
+  report: '分析报告',
+  prediction: '交互预测',
+}
+
+const pageHelpMap: Record<PageKey, HelpItem[]> = {
+  welcome: [
+    { title: '如何开始？', content: '建议先完成数据导入，再按特征工程、模型训练、模型评估、报告导出的顺序推进。' },
+    { title: '必须按流程吗？', content: '不强制，你可以从左侧菜单直接跳转到任意模块。' },
+    { title: '看不到数据怎么办？', content: '请先在数据导入中激活数据集，顶部上下文标签会显示当前状态。' },
+  ],
+  'smart-workflow': [
+    { title: '模式如何选择？', content: '导向模式适合快速完成流程；学习模式会显示更多参数解释。' },
+    { title: '推荐流程顺序', content: '选择数据集 → 自动预处理 → 快速配置 → 训练模型 → 查看评估 → 导出报告。' },
+    { title: '实验模式用途', content: '可并行对比多组参数，快速找到更优配置。' },
+  ],
+  'data-import': [
+    { title: '支持哪些文件？', content: '支持 CSV/XLSX，建议优先使用 UTF-8 编码。' },
+    { title: '导入后下一步？', content: '先在特征分析查看数据质量，再进入特征工程处理。' },
+    { title: '数据过大怎么办？', content: '先抽样验证流程，再用完整数据训练。' },
+  ],
+  'feature-analysis': [
+    { title: '先看哪几个指标？', content: '优先看缺失率、分布偏度、与目标列相关性。' },
+    { title: '相关性怎么用？', content: '高度相关特征可考虑删一保一，减少冗余。' },
+    { title: '统计结果用于什么？', content: '用于指导缺失值处理、编码与缩放策略。' },
+  ],
+  'feature-engineering': [
+    { title: '标签页建议顺序', content: '缺失值处理 → 异常值处理 → 编码 → 缩放 → PCA（可选）→ 数据划分。' },
+    { title: '分层采样何时使用？', content: '分类任务建议开启；回归任务会自动禁用。' },
+    { title: '划分完成后做什么？', content: '记录 Split ID，并在模型训练/智能工作流中使用。' },
+  ],
+  'param-config': [
+    { title: '预设怎么选？', content: '默认推荐均衡推荐；快速验证适合试跑；深度训练适合追求极致指标。' },
+    { title: '关键参数有哪些？', content: 'n_estimators、max_depth、learning_rate 是最核心三项。' },
+    { title: '如何复用参数？', content: '可复制当前 JSON 到模型训练页直接使用。' },
+  ],
+  'model-training': [
+    { title: '训练前置条件', content: '需先有有效 Split ID。' },
+    { title: '训练慢怎么调？', content: '先降低 n_estimators 和 max_depth 做快速试验。' },
+    { title: '训练后去哪看结果？', content: '进入模型评估查看 AUC、混淆矩阵、SHAP 等。' },
+  ],
+  'model-eval': [
+    { title: '先看哪项指标？', content: '分类任务优先 AUC/F1，回归任务优先 R2/RMSE。' },
+    { title: '如何判断过拟合？', content: '训练集与测试集指标差距过大通常表示过拟合。' },
+    { title: '评估后下一步？', content: '可回到调参页优化，或直接生成报告。' },
+  ],
+  'model-tuning': [
+    { title: 'Trials 设多少？', content: '建议从 30-100 开始，先快速收敛再扩大搜索。' },
+    { title: '调参目标怎么选？', content: '分类建议 AUC/F1，回归建议 R2 或 RMSE。' },
+    { title: '最优参数如何落地？', content: '直接应用最优参数并重新训练最终模型。' },
+  ],
+  'model-management': [
+    { title: '主要指标色块含义', content: '优秀/良好/尚可/待提升用于快速判断模型可用性。' },
+    { title: '如何添加备注？', content: '点击编辑按钮可修改模型名称和备注。' },
+    { title: '对比功能怎么用？', content: '勾选多个模型后点击对比，查看指标与统计检验差异。' },
+  ],
+  report: [
+    { title: '报告内容如何选择？', content: '可按需勾选章节，生成定制 PDF。' },
+    { title: '报告失败如何排查？', content: '先确认模型评估数据完整，再重新生成。' },
+    { title: '报告用于什么？', content: '可直接用于项目汇报与结果留档。' },
+  ],
+  prediction: [
+    { title: '支持批量预测吗？', content: '支持 CSV/XLSX 批量预测并导出结果。' },
+    { title: '能看概率吗？', content: '分类任务可输出每个类别的概率列。' },
+    { title: '结果异常怎么办？', content: '先核对输入字段与训练时特征是否一致。' },
+  ],
 }
 
 const MainLayout: React.FC = () => {
@@ -237,6 +317,11 @@ const MainLayout: React.FC = () => {
           {/* 右侧上下文状态栏 */}
           <div style={{ marginLeft: 'auto' }}>
             <Space size={4}>
+              <HelpButton
+                inHeader
+                pageTitle={pageTitles[currentPage]}
+                items={pageHelpMap[currentPage]}
+              />
               {/* 后端连接状态 */}
               <Tooltip title={serverReady ? '后端服务已连接' : '后端服务未连接'}>
                 {serverReady && !isOffline
@@ -254,12 +339,12 @@ const MainLayout: React.FC = () => {
                   </Tag>
                 </Tooltip>
               ) : (
-                <Tooltip title="点击前往数据导入">
+                <Tooltip title="点击前往「数据导入」选择并激活数据集">
                   <Tag
                     color="default"
                     style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => setCurrentPage('data-import')}
-                  >📊 — 未设置 —</Tag>
+                  >📊 — 未设置 — <EditOutlined style={{ fontSize: 10 }} /></Tag>
                 </Tooltip>
               )}
               {activeSplitId ? (
@@ -273,12 +358,12 @@ const MainLayout: React.FC = () => {
                   </Tag>
                 </Tooltip>
               ) : (
-                <Tooltip title="点击前往特征工程划分数据">
+                <Tooltip title="点击前往「特征工程」完成数据划分">
                   <Tag
                     color="default"
                     style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => setCurrentPage('feature-engineering')}
-                  >✂️ — 未设置 —</Tag>
+                  >✂️ — 未设置 — <EditOutlined style={{ fontSize: 10 }} /></Tag>
                 </Tooltip>
               )}
               {activeModelId ? (
@@ -292,12 +377,12 @@ const MainLayout: React.FC = () => {
                   </Tag>
                 </Tooltip>
               ) : (
-                <Tooltip title="点击前往模型训练">
+                <Tooltip title="点击前往「模型训练」完成训练后激活模型">
                   <Tag
                     color="default"
                     style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => setCurrentPage('model-training')}
-                  >🤖 — 未设置 —</Tag>
+                  >🤖 — 未设置 — <EditOutlined style={{ fontSize: 10 }} /></Tag>
                 </Tooltip>
               )}
             </Space>

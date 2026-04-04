@@ -11,6 +11,7 @@ interface UseDatasetColumnsResult {
   allColumns: string[]
   numericColumns: string[]
   loading: boolean
+  refresh: () => void
 }
 
 /**
@@ -22,6 +23,7 @@ export function useDatasetColumns(datasetId: number | null): UseDatasetColumnsRe
   const [allColumns, setAllColumns] = useState<string[]>([])
   const [numericColumns, setNumericColumns] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!datasetId) {
@@ -46,7 +48,12 @@ export function useDatasetColumns(datasetId: number | null): UseDatasetColumnsRe
         setNumericColumns([])
       })
       .finally(() => setLoading(false))
-  }, [datasetId])
+  }, [datasetId, reloadKey])
 
-  return { allColumns, numericColumns, loading }
+  return {
+    allColumns,
+    numericColumns,
+    loading,
+    refresh: () => setReloadKey(k => k + 1),
+  }
 }

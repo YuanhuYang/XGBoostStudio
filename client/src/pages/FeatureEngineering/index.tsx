@@ -1,12 +1,13 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Card, Select, Button, Tabs, Typography,
-  Checkbox, Slider, InputNumber, message, Alert, Form
+  Checkbox, Slider, InputNumber, message, Alert, Form, Tooltip
 } from 'antd'
 import { ToolOutlined } from '@ant-design/icons'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import { useDatasetColumns } from '../../hooks/useDatasetColumns'
+import HelpButton from '../../components/HelpButton'
 
 const { Title, Text } = Typography
 
@@ -14,7 +15,7 @@ const FeatureEngineeringPage: React.FC = () => {
   const activeDatasetId = useAppStore(s => s.activeDatasetId)
   const activeDatasetName = useAppStore(s => s.activeDatasetName)
   const setActiveSplitId = useAppStore(s => s.setActiveSplitId)
-  const { allColumns, numericColumns } = useDatasetColumns(activeDatasetId)
+  const { allColumns, numericColumns, refresh: refreshColumns } = useDatasetColumns(activeDatasetId)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
 
@@ -41,6 +42,17 @@ const FeatureEngineeringPage: React.FC = () => {
   const [randomSeed, setRandomSeed] = useState(42)
   const [stratify, setStratify] = useState(true)
   const [targetCol, setTargetCol] = useState('')
+  // 目标列为数值型（回归）时，分层采样不适用，自动取消勾选
+  const isNumericTarget = targetCol !== '' && numericColumns.includes(targetCol)
+  useEffect(() => {
+    if (isNumericTarget) setStratify(false)
+  }, [isNumericTarget])
+  useEffect(() => {
+    // 处理后列结构可能变化（如 PCA），及时清空已失效的目标列
+    if (targetCol && !allColumns.includes(targetCol)) {
+      setTargetCol('')
+    }
+  }, [allColumns, targetCol])
   const [splitResult, setSplitResult] = useState<{ split_id: number; train_rows: number; test_rows: number } | null>(null)
 
   const exec = async (type: string, payload: unknown) => {
@@ -55,12 +67,13 @@ const FeatureEngineeringPage: React.FC = () => {
       else if (type === 'scale') url = `/api/datasets/${activeDatasetId}/feature-engineering/scale`
       else if (type === 'pca') url = `/api/datasets/${activeDatasetId}/feature-engineering/pca`
       else if (type === 'dedup') url = `/api/datasets/${activeDatasetId}/drop-duplicates`
-      const r = await apiClient.post(url, payload)
+      const r = await apiClient.post(url, payload, { timeout: 120000 })
       setResult(JSON.stringify(r.data, null, 2))
+      refreshColumns()
       message.success('操作成功')
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '操作失败')
+      const err = e as { response?: { data?: { detail?: string } }; message?: string }
+      message.error(err.response?.data?.detail || err.message || '操作失败')
     } finally {
       setLoading(false)
     }
@@ -78,8 +91,8 @@ const FeatureEngineeringPage: React.FC = () => {
       setActiveSplitId(r.data.split_id)
       message.success(`划分成功！训练集: ${r.data.train_rows} 行，测试集: ${r.data.test_rows} 行`)
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '划分失败')
+      const err = e as { response?: { data?: { detail?: string } }; message?: string }
+      message.error(err.response?.data?.detail || err.message || '划分失败')
     } finally {
       setLoading(false)
     }
@@ -90,6 +103,11 @@ const FeatureEngineeringPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <ToolOutlined /> 特征工程
       </Title>
+      <HelpButton pageTitle="特征工程" items={[
+        { title: '标签页应该按什么顺序使用？', content: '建议顺序：缺失值处理 → 异常值处理 → 编码 → 特征缩放 →（可选）PCA降维 → 数据集划分。' },
+        { title: '什么时候用分层采样？', content: '分类任务建议勾选分层采样；当目标列是连续数值（回归）时系统会自动禁用分层采样。' },
+        { title: '划分成功后下一步做什么？', content: '完成数据划分后会生成 Split ID，后续在「模型训练」和「智能工作流」中直接使用该 ID。' },
+      ]} />
       {!activeDatasetId && <Alert message="请先在「数据导入」页面选择数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
       <Tabs
@@ -259,9 +277,15 @@ const FeatureEngineeringPage: React.FC = () => {
                     <InputNumber value={randomSeed} onChange={v => setRandomSeed(v || 42)} />
                   </Form.Item>
                   <Form.Item>
-                    <Checkbox checked={stratify} onChange={e => setStratify(e.target.checked)}>
-                      <Text style={{ color: '#94a3b8' }}>分层采样（分类任务推荐）</Text>
-                    </Checkbox>
+                    <Tooltip title={isNumericTarget ? '目标列为数值型（回归任务），不支持分层采样' : ''}>
+                      <Checkbox
+                        checked={stratify}
+                        disabled={isNumericTarget}
+                        onChange={e => setStratify(e.target.checked)}
+                      >
+                        <Text style={{ color: isNumericTarget ? '#475569' : '#94a3b8' }}>分层采样（分类任务推荐）</Text>
+                      </Checkbox>
+                    </Tooltip>
                   </Form.Item>
                   <Button type="primary" loading={loading} onClick={execSplit}>划分数据集</Button>
                   {splitResult && (

@@ -7,6 +7,7 @@ import { RocketOutlined, StopOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
+import HelpButton from '../../components/HelpButton'
 
 const { Title, Text } = Typography
 
@@ -191,6 +192,11 @@ const ModelTuningPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <RocketOutlined /> 超参数调优
       </Title>
+      <HelpButton pageTitle="超参数调优" items={[
+        { title: 'TPE 策略与随机搜索何受？', content: 'TPE（Tree Parzen）是智能调优，会从历史 trial 學习并聚焦在好区域，通常 50 轮内收敛。' },
+        { title: '调优Trials设置多少合适？', content: '建议 30-100；超过 200 收益递减明显，同时训练时间把控在 10 分钟内。' },
+        { title: '调优完成后如何使用最优参数？', content: '点击「应用最优参数＋训练」，系统自动用最优参数训练最终模型。' },
+      ]} />
 
       <Row gutter={16}>
         <Col span={7}>

@@ -264,12 +264,15 @@ def pca_transform(dataset: Dataset, columns: Optional[list[str]], n_components: 
     from sklearn.decomposition import PCA  # type: ignore
 
     df = _load_df(dataset)
+    target_col = dataset.target_column
     if columns:
         valid_cols = [c for c in columns if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
     else:
         valid_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if target_col and target_col in valid_cols:
+        valid_cols = [c for c in valid_cols if c != target_col]
     if len(valid_cols) < 2:
-        raise HTTPException(status_code=400, detail="PCA 需要至少 2 个数值列")
+        raise HTTPException(status_code=400, detail="PCA 需要至少 2 个数值特征列（已自动排除目标列）")
 
     n_components = min(n_components, len(valid_cols))
     pca = PCA(n_components=n_components, random_state=42)

@@ -8,6 +8,7 @@ import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { getLearningCurve } from '../../api/models'
 import { useAppStore } from '../../store/appStore'
+import HelpButton from '../../components/HelpButton'
 
 const { Title, Text } = Typography
 
@@ -19,6 +20,18 @@ const ModelEvalPage: React.FC = () => {
   useEffect(() => {
     if (activeModelId !== null && modelId === null) setModelId(activeModelId)
   }, [activeModelId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // modelId 变化时自动加载评估（从向导/训练页跳转后无需手动点「加载评估」）
+  useEffect(() => {
+    if (modelId !== null) {
+      setEvalData(null)
+      setShapData(null)
+      setLcData(null)
+      // 延迟一帧，避免与模型列表请求并发竞争（fetchEval 依赖 modelId 已被 setState 更新）
+      setTimeout(() => fetchEval(), 0)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId])
 
   // 加载模型列表
   useEffect(() => {
@@ -210,6 +223,11 @@ const ModelEvalPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <ExperimentOutlined /> 模型评估
       </Title>
+      <HelpButton pageTitle="模型评估" items={[
+        { title: 'AUC 越高越好吗？', content: 'AUC 越接近 1 越好；> 0.9 为优秀，> 0.75 为良好，< 0.5 表示模型不如随机猜测。' },
+        { title: '混淆矩阵如何读？', content: '对角线为正确预测数量，非对角线为误分类。希望对角线数大、非对角线数小。' },
+        { title: '过拟合如何判断？', content: '训练集指标明显高于测试集（差距>0.1）则可能过拟合，建议增大 reg_lambda 或降低 max_depth。' },
+      ]} />
 
       <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
         <Space>

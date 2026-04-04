@@ -7,6 +7,7 @@ import {
   RocketOutlined, CheckCircleOutlined, BookOutlined,
   FileTextOutlined, ThunderboltOutlined, BarChartOutlined, ExperimentOutlined,
 } from '@ant-design/icons'
+import HelpButton from '../../components/HelpButton'
 import ReactECharts from 'echarts-for-react'
 import { useAppStore } from '../../store/appStore'
 import { listDatasets } from '../../api/datasets'
@@ -133,6 +134,7 @@ const SmartWorkflow: React.FC = () => {
           splitInfo?: { train_rows: number; test_rows: number } | null
           pipelineResult?: PipelineProgress | null
           pipelinePercent?: number
+          paramValues?: Record<string, number | string>
         }
         if (s.currentStep !== undefined) setCurrentStep(s.currentStep)
         if (s.selectedDatasetId !== undefined) setSelectedDatasetId(s.selectedDatasetId)
@@ -141,6 +143,7 @@ const SmartWorkflow: React.FC = () => {
         if (s.splitInfo !== undefined) setSplitInfo(s.splitInfo)
         if (s.pipelineResult !== undefined) setPipelineResult(s.pipelineResult)
         if (s.pipelinePercent !== undefined) setPipelinePercent(s.pipelinePercent)
+        if (s.paramValues && Object.keys(s.paramValues).length > 0) setParamValues(s.paramValues)
       }
     } catch { /* 静默忽略反序列化错误 */ }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -156,15 +159,41 @@ const SmartWorkflow: React.FC = () => {
         splitInfo,
         pipelineResult,
         pipelinePercent,
+        paramValues: Object.keys(paramValues).length > 0 ? paramValues : undefined,
       }))
     } catch { /* 静默忽略 */ }
-  }, [currentStep, selectedDatasetId, targetColumn, selectedSplitId, splitInfo, pipelineResult, pipelinePercent])
+  }, [currentStep, selectedDatasetId, targetColumn, selectedSplitId, splitInfo, pipelineResult, pipelinePercent, paramValues])
 
   // ── 数据加载 ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     listDatasets().then(d => setDatasets(d)).catch(() => {})
   }, [])
+
+  // 页面返回时：若 localStorage 已恢复 selectedDatasetId 但 summary 未加载，自动补充加载
+  useEffect(() => {
+    if (!selectedDatasetId || summary !== null || datasets.length === 0) return
+    const ds = datasets.find(d => d.id === selectedDatasetId)
+    if (!ds) return
+    setActiveDatasetId(selectedDatasetId)
+    setActiveDatasetName(ds.name)
+    setPreprocessLoading(true)
+    Promise.all([
+      getDatasetSummary(selectedDatasetId),
+      getPreprocessSuggestions(selectedDatasetId),
+    ]).then(([s, ps]) => {
+      setSummary(s)
+      setPreprocessSuggestions(ps.suggestions ?? [])
+      if (!targetColumn) {
+        const rec = s.target_column || (s.candidate_targets?.[0]?.col ?? '')
+        setTargetColumn(rec)
+      }
+    }).catch(() => {
+      message.error('恢复数据集状态失败，请重新选择数据集')
+    }).finally(() => {
+      setPreprocessLoading(false)
+    })
+  }, [selectedDatasetId, datasets.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (logsEndRef.current) {
@@ -435,6 +464,47 @@ const SmartWorkflow: React.FC = () => {
     handleRunPipeline(adjusted)
   }
 
+  // ── 追求精度优化 ──────────────────────────────────────────────────────────
+
+  const handleOptimizeForAccuracy = () => {
+    const adjusted = { ...paramValues }
+    const changes: string[] = []
+
+    const estimators = Number(adjusted.n_estimators)
+    const newEstimators = Math.min(1000, Math.round(estimators * 1.5))
+    if (newEstimators !== estimators) {
+      adjusted.n_estimators = newEstimators
+      changes.push(`n_estimators ${estimators}→${newEstimators}`)
+    }
+
+    const lr = Number(adjusted.learning_rate)
+    const newLr = Math.max(0.01, parseFloat((lr * 0.7).toFixed(4)))
+    if (newLr !== lr) {
+      adjusted.learning_rate = newLr
+      changes.push(`learning_rate ${lr}→${newLr}`)
+    }
+
+    const depth = Number(adjusted.max_depth)
+    const newDepth = Math.min(10, depth + 1)
+    if (newDepth !== depth) {
+      adjusted.max_depth = newDepth
+      changes.push(`max_depth ${depth}→${newDepth}`)
+    }
+
+    const accuracySummary = changes.length > 0 ? changes.join('，') : '参数已达优化边界'
+    setParamValues(adjusted)
+    setLastOptimizeSummary(`[增强精度] ${accuracySummary}`)
+    setOptimizeCount(c => c + 1)
+    message.open({
+      type: 'info',
+      icon: <RocketOutlined style={{ color: '#7c3aed' }} />,
+      content: `追求精度优化：${accuracySummary}`,
+      duration: 4,
+    })
+    setCurrentStep(4)
+    handleRunPipeline(adjusted)
+  }
+
   // ── 参数值变更 ────────────────────────────────────────────────────────────
 
   const handleParamChange = (name: string, v: number | string) => {
@@ -499,6 +569,11 @@ const SmartWorkflow: React.FC = () => {
 
   return (
     <div style={{ padding: '24px', maxWidth: 960, margin: '0 auto' }}>
+      <HelpButton pageTitle="智能工作流" items={[
+        { title: '导向模式与学习模式有何区别？', content: '导向模式逐步引导完成建模全流程；学习模式额外显示参数说明卡片，适合初学者理解各参数含义。' },
+        { title: '推荐流程是什么顺序？', content: '1.选择数据集 → 2.自动预处理 → 3.快速配置 → 4.训练模型 → 5.查看评估结果 → 6.导出报告。' },
+        { title: '实验室模式有什么用？', content: '实验室模式支持多参数组合对比，自动运行多次训练并汇总结果，适合快速探索最优参数组合。' },
+      ]} />
       {/* 模式切换 */}
       <Row justify="end" style={{ marginBottom: 16 }}>
         <Space>
@@ -855,14 +930,14 @@ const SmartWorkflow: React.FC = () => {
               <Col>
                 <Card
                   size="small" hoverable
-                  style={{ width: 220, cursor: 'pointer', borderColor: selectedPreset === 'balanced' ? '#1677ff' : undefined, background: selectedPreset === 'balanced' ? '#1677ff18' : undefined }}
+                  style={{ width: 280, cursor: 'pointer', borderColor: selectedPreset === 'balanced' ? '#1677ff' : undefined, background: selectedPreset === 'balanced' ? '#1677ff18' : undefined }}
                   onClick={() => applyPreset('balanced')}
                 >
                   <Badge dot color="blue" offset={[4, 0]}>
                     <Typography.Text strong>⚖️ 均衡推荐</Typography.Text>
                   </Badge>
                   <br />
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>AI 基于数据推荐，绝大多数场景首选</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap' }}>AI 基于数据推荐，绝大多数场景首选</Typography.Text>
                 </Card>
               </Col>
               <Col>
@@ -1116,14 +1191,24 @@ const SmartWorkflow: React.FC = () => {
               查看评估详情
             </Button>
             {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
-              <Button
-                icon={<ThunderboltOutlined />}
-                style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }}
-                onClick={handleOptimizeAndRetrain}
-                disabled={!selectedSplitId}
-              >
-                {optimizeCount === 0 ? '迭代优化' : `迭代优化（第 ${optimizeCount + 1} 轮）`}
-              </Button>
+              <>
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }}
+                  onClick={handleOptimizeAndRetrain}
+                  disabled={!selectedSplitId}
+                >
+                  🛡️ 减少过拟合
+                </Button>
+                <Button
+                  icon={<RocketOutlined />}
+                  style={{ background: '#7c3aed', borderColor: '#7c3aed', color: '#fff' }}
+                  onClick={handleOptimizeForAccuracy}
+                  disabled={!selectedSplitId}
+                >
+                  📈 追求精度
+                </Button>
+              </>
             )}
             <Button
               onClick={() => {

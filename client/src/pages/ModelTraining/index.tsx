@@ -8,9 +8,10 @@ import {
   PlayCircleOutlined, StopOutlined, ThunderboltOutlined,
   ExclamationCircleOutlined, CheckCircleOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
+import HelpButton from '../../components/HelpButton'
+import ReactECharts from 'echarts-for-react'
 
 const { Title, Text } = Typography
 
@@ -191,6 +192,11 @@ const ModelTrainingPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <ThunderboltOutlined /> 模型训练
       </Title>
+      <HelpButton pageTitle="模型训练" items={[
+        { title: '训练前需要什么？', content: '必须先完成「特征工程」页面的数据划分，获取 Split ID 后填入左侧输入框。' },
+        { title: '训练很慢怎么办？', content: '尝试将 n_estimators 降低至 100，或在参数配置页选右测快速预设。' },
+        { title: '训练完成后如何查睟效果？', content: '点击左产「查看详细」跳转到「模型评估」页面，可查看 ROC 曲线、混淆矩阵、SHAP 等。' },
+      ]} />
 
       <Row gutter={16}>
         <Col span={8}>

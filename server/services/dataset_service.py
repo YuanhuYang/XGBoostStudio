@@ -376,6 +376,12 @@ def split_dataset(
         raise HTTPException(status_code=400, detail=f"目标列不存在: {target_column}")
 
     stratify_col = df[target_column] if stratify else None
+    # 若目标列为连续型（浮点或高基数整数），自动降级为非分层划分
+    if stratify_col is not None:
+        if pd.api.types.is_float_dtype(stratify_col) or (
+            pd.api.types.is_integer_dtype(stratify_col) and stratify_col.nunique() > 20
+        ):
+            stratify_col = None
     try:
         train_df, test_df = train_test_split(
             df,
