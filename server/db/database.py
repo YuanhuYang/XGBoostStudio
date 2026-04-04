@@ -21,8 +21,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 # 数据目录（跨平台）
-# Windows: 优先使用 %APPDATA%；其他平台回退到 ~
-if sys.platform == "win32":
+# 测试/CI：设置 XGBOOST_STUDIO_DATA_DIR 可隔离到临时目录，避免污染本机 AppData。
+_override_data = os.environ.get("XGBOOST_STUDIO_DATA_DIR")
+if _override_data:
+    APP_DATA_DIR = Path(_override_data)
+elif sys.platform == "win32":
     # Windows: %APPDATA%\XGBoostStudio\
     APP_DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "XGBoostStudio"
 else:

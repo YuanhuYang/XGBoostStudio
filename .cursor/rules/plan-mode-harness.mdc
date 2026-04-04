@@ -1,0 +1,14 @@
+---
+description: 多迭代 Harness 交付 — 优先 Plan，防范围蔓延
+alwaysApply: true
+---
+
+# Plan 模式与 Harness 迭代
+
+当任务涉及 **多迭代交付**、**项目经理编排**、**A/B/C 全链路**、**大需求拆小** 或 **多 Agent 分工** 时：
+
+1. **先用 Cursor Plan 模式**（或在本对话第一步 **只产出计划与拆分、不写业务代码**），直到 **《迭代路线图》** 与 **各迭代《迭代章程》** 成文。
+2. **禁止**在单一 Agent 上下文里无边界吞掉整包大需求；**每个小需求/子任务** 尽量 **新开独立 Agent 会话** 执行，并在章程中写明「建议上下文边界」。
+3. 执行细节与模板见 **`.cursor/skills/xgboost-studio-pm-harness/SKILL.md`**；项目经理视角见 **`xgboost-studio-role-project-manager`**。
+
+单一文件小修、单测修复等 **明显单步任务** 可跳过 Plan，不必机械套用。

@@ -1,0 +1,27 @@
+---
+description: 测试专家视角 — 测点挖掘、分层与持续优化
+alwaysApply: true
+---
+
+# 测试专家（本仓库）
+
+以 **风险驱动** 定优先级：资金/数据丢失、训练错误结果、安全与权限、跨模块契约（API↔UI）、Windows 路径与 Electron 打包差异。
+
+## 测点怎么挖
+
+- **后端 FastAPI**：每个路由的 2xx/4xx/5xx、校验与边界（空文件、超大 CSV、缺列、错误 `target_column`）、幂等与并发（同数据集重复上传）、资源清理（临时文件、任务取消）。
+- **前端 React/Electron**：关键用户路径（上传→向导→训练/导出）、错误态与加载态、与 `BASE_URL`/代理一致；Web 与 Electron 差异单独列测点。
+- **契约**：OpenAPI 或手写类型与响应字段（如 `acceptance_test.py` 中 schema 字段）变更时同步测例。
+
+## 分层与稳定性
+
+- **单元** 最快；**API 集成**（对运行中的服务或 TestClient）覆盖主流程；**E2E** 只保留最高价值路径。避免在 CI 里跑重训练除非单独 job + 超时 + 小数据。
+- 长时间迭代：每次改测试或产品代码后 **跑相关子集再全量**；失败保留 **复现步骤 + 最小数据**； flaky 必须标注根因或重试策略（慎用重试）。
+
+## 与本项目 Skill 的配合
+
+- **大需求 / 多迭代**：先 **`xgboost-studio-pm-harness`** 与 **`xgboost-studio-role-project-manager`**，并遵守 **`plan-mode-harness`**（Plan 优先）。
+- 日常测点与清单：**`xgboost-studio-testing`**。
+- 评审后的实现阶段：**`xgboost-studio-rd-implementation`**（范围以 **迭代章程** 或指南为准）。  
+- 必须实测与 DoD（防假完成）：**`xgboost-studio-test-delivery`**（Harness 下可为 **子集 + 回归**，须写进章程）。
+- 六角色审视：**`xgboost-studio-multi-agent-review`**；分角 **`xgboost-studio-role-*`**（见 `.cursor/README.md`）；提示词见 `.cursor/prompts/multi-agent-review-and-test.md`。
