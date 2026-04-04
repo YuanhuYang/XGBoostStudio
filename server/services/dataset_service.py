@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -85,9 +86,9 @@ def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Opti
         raise HTTPException(status_code=400, detail=f"文件解析失败，请确认文件格式正确且首行为标题行: {e}") from e
 
     # 清理列名：特殊字符和空格替换为下划线
-    import re as _re
-    df.columns = [_re.sub(r'[^\w]+', '_', str(c)).strip('_') for c in df.columns]
-    df.to_csv(save_path, index=False, encoding='utf-8-sig') if ext == 'csv' else None
+    df.columns = [re.sub(r'[^\w]+', '_', str(c)).strip('_') for c in df.columns]
+    if ext == 'csv':
+        df.to_csv(save_path, index=False, encoding='utf-8-sig')
 
     dataset = Dataset(
         name=original_filename.rsplit(".", 1)[0],
