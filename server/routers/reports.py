@@ -31,6 +31,7 @@ def generate(body: ReportGenerateRequest, db: Session = Depends(get_db)) -> dict
         notes=body.notes or "",
         db=db,
         include_sections=body.include_sections,
+        narrative_depth=body.narrative_depth or "standard",
     )
 
 

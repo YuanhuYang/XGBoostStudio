@@ -11,6 +11,7 @@ from __future__ import annotations
 # pylint: disable=broad-exception-caught
 
 import json
+import logging
 import sys
 from datetime import datetime
 from io import BytesIO
@@ -21,6 +22,8 @@ from fastapi import HTTPException
 
 from db.database import REPORTS_DIR
 from db.models import Dataset, DatasetSplit, Model, Report
+
+logger = logging.getLogger(__name__)
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
@@ -161,6 +164,159 @@ def _img(img_bytes, width=13*cm):
     img.drawWidth = width; img.drawHeight = width * aspect
     return img
 
+
+def _cn_section_num(i: int) -> str:
+    c = (
+        "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+        "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+    )
+    return c[i - 1] if 1 <= i <= len(c) else str(i)
+
+
+def _esc_xml(s: str) -> str:
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _h1_pair(sec_counter: list, title: str) -> list:
+    sec_counter[0] += 1
+    n = _cn_section_num(sec_counter[0])
+    return [
+        Paragraph(f"{n}、{title}", ST["h1"]),
+        HRFlowable(width="100%", thickness=1, color=BRAND_BLUE, spaceAfter=10),
+    ]
+
+
+def _data_relations_flowables(nar, pdf_assets: dict | None) -> list:
+    """G2-R1 / G2-R1b：由 DataNarrativeResponse 生成 platypus 流（不含一级标题）。"""
+    assets = pdf_assets or {}
+    heatmap_png = assets.get("corr_heatmap_png")
+    spearman_png = assets.get("spearman_heatmap_png")
+    boxplots = assets.get("boxplots") or []
+
+    out: list = []
+    m = nar.meta
+    intro = (
+        f"本节基于训练集共 <b>{m.row_count_profiled}</b> 行进行自动统计（深度：{m.depth.value}）。"
+    )
+    if m.sample_note:
+        intro += " " + _esc_xml(m.sample_note)
+    out.append(Paragraph(intro, ST["body_j"]))
+    out.append(Spacer(1, 0.25 * cm))
+
+    out.append(Paragraph("2.1 变量目录", ST["h2"]))
+    vrows = [[Paragraph(x, ST["small"]) for x in ("列名", "类型", "缺失率", "唯一值", "是否目标")]]
+    for v in nar.variables:
+        vrows.append([
+            Paragraph(_esc_xml(v.name), ST["small"]),
+            Paragraph(_esc_xml(v.role.value), ST["small"]),
+            Paragraph(f"{v.missing_rate * 100:.1f}%", ST["small"]),
+            Paragraph(str(v.n_unique if v.n_unique is not None else "-"), ST["small"]),
+            Paragraph("是" if v.is_target else "否", ST["small"]),
+        ])
+    vt = Table(vrows, colWidths=[3.2 * cm, 2.2 * cm, 2 * cm, 2 * cm, 2 * cm])
+    vt.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BRAND_BLUE),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), _CN_FONT),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_LIGHT]),
+        ("GRID", (0, 0), (-1, -1), 0.5, GRAY_LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    out += [vt, Spacer(1, 0.3 * cm)]
+
+    out.append(Paragraph("2.2 数值列 Pearson 相关", ST["h2"]))
+    im = _img(heatmap_png, 12 * cm) if heatmap_png else None
+    if im:
+        out += [im, Paragraph("图：数值特征 Pearson 相关热力图", ST["caption"])]
+    pear = [p for p in nar.correlation_pairs if p.method.value == "pearson"]
+    for p in pear[:12]:
+        out.append(Paragraph(f"• {_esc_xml(p.narrative_hint)}", ST["body_j"]))
+    if not pear and not im:
+        out.append(Paragraph("数值列不足或 Pearson 相关较弱，未列出高相关对。", ST["body"]))
+    out.append(Spacer(1, 0.25 * cm))
+
+    out.append(Paragraph("2.3 数值列 Spearman 秩相关", ST["h2"]))
+    sim = _img(spearman_png, 12 * cm) if spearman_png else None
+    if sim:
+        out += [sim, Paragraph("图：数值特征 Spearman 秩相关热力图", ST["caption"])]
+    spe = [p for p in nar.correlation_pairs if p.method.value == "spearman"]
+    for p in spe[:12]:
+        out.append(Paragraph(f"• {_esc_xml(p.narrative_hint)}", ST["body_j"]))
+    if not spe and not sim:
+        out.append(Paragraph("未启用详细深度或秩相关对较少，本节从略。", ST["body"]))
+    out.append(Spacer(1, 0.25 * cm))
+
+    out.append(Paragraph("2.4 低基数类别列关联（Cramér's V）", ST["h2"]))
+    if nar.categorical_associations:
+        for ca in nar.categorical_associations[:15]:
+            out.append(Paragraph(f"• {_esc_xml(ca.narrative_hint)}", ST["body_j"]))
+    else:
+        out.append(Paragraph("可分析的类别列对不足或关联较弱。", ST["body"]))
+    out.append(Spacer(1, 0.2 * cm))
+
+    out.append(Paragraph("2.5 数值 × 类别分布（箱线图）", ST["h2"]))
+    if boxplots:
+        for png, cap in boxplots[:6]:
+            img = _img(png, 12 * cm)
+            if img:
+                out += [img, Paragraph(f"图：{_esc_xml(cap)}", ST["caption"])]
+    else:
+        out.append(Paragraph("未生成箱线图（数值列或低基数类别列不足）。", ST["body"]))
+    out.append(Spacer(1, 0.2 * cm))
+
+    out.append(Paragraph("2.6 与目标的关系", ST["h2"]))
+    if nar.target_relations:
+        trows = [[Paragraph(x, ST["small"]) for x in ("特征", "指标", "值", "排名", "解读")]]
+        for t in nar.target_relations[:12]:
+            trows.append([
+                Paragraph(_esc_xml(t.feature), ST["small"]),
+                Paragraph(t.metric.value, ST["small"]),
+                Paragraph(f"{t.value:.4f}", ST["small"]),
+                Paragraph(str(t.rank), ST["small"]),
+                Paragraph(_esc_xml(t.narrative_hint[:80] + ("…" if len(t.narrative_hint) > 80 else "")), ST["small"]),
+            ])
+        tt = Table(trows, colWidths=[2.5 * cm, 2 * cm, 2 * cm, 1.2 * cm, 6.3 * cm])
+        tt.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), BRAND_BLUE),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, -1), _CN_FONT),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_LIGHT]),
+            ("GRID", (0, 0), (-1, -1), 0.5, GRAY_LINE),
+        ]))
+        out += [tt, Spacer(1, 0.2 * cm)]
+    else:
+        out.append(Paragraph("未配置目标列或无法计算与目标的关系。", ST["body"]))
+    out.append(Spacer(1, 0.2 * cm))
+
+    out.append(Paragraph("2.7 冗余与多重共线性（含 VIF）", ST["h2"]))
+    if nar.multicollinearity:
+        for mc in nar.multicollinearity:
+            out.append(Paragraph(f"• {_esc_xml(mc.note)}", ST["body_j"]))
+    else:
+        out.append(Paragraph("未检测到明显多重共线性信号，或数值列不足以估计 VIF。", ST["body"]))
+    out.append(Spacer(1, 0.2 * cm))
+
+    out.append(Paragraph("2.8 缺失与目标的统计关联", ST["h2"]))
+    if nar.missing_vs_target:
+        for mv in nar.missing_vs_target[:12]:
+            out.append(Paragraph(f"• {_esc_xml(mv.narrative_hint)}", ST["body_j"]))
+    else:
+        out.append(Paragraph("未发现缺失与目标在常规显著性水平下的显著关联，或各列无缺失。", ST["body"]))
+    out.append(Spacer(1, 0.2 * cm))
+
+    out.append(Paragraph("2.9 数据侧关键发现", ST["h2"]))
+    for line in nar.bullets.findings:
+        out.append(Paragraph(f"• {_esc_xml(line)}", ST["body_j"]))
+    out.append(Spacer(1, 0.2 * cm))
+
+    out.append(Paragraph("2.10 使用局限", ST["h2"]))
+    for line in nar.bullets.caveats:
+        out.append(Paragraph(f"• {_esc_xml(line)}", ST["body_j"]))
+    out.append(Spacer(1, 0.3 * cm))
+    return out
+
 def _kv_table(data):
     rows = [[Paragraph(str(k), ST["kv_key"]), Paragraph(str(v), ST["kv_val"])] for k,v in data.items()]
     t = Table(rows, colWidths=[5*cm, 11*cm])
@@ -250,9 +406,27 @@ def _business_advice(metrics, task_type):
     advice.append("📌 免责声明：本报告由机器学习模型自动生成，预测结果仅供参考，最终决策应结合领域专家判断。")
     return advice
 
-ALL_SECTIONS = ["executive_summary","data_overview","model_params","evaluation","shap","learning_curve","overfitting","baseline","business_advice"]
+ALL_SECTIONS = [
+    "executive_summary",
+    "data_relations",
+    "data_overview",
+    "model_params",
+    "evaluation",
+    "shap",
+    "learning_curve",
+    "overfitting",
+    "baseline",
+    "business_advice",
+]
 
-def generate_report(model_id, title, notes, db, include_sections=None):
+def generate_report(
+    model_id,
+    title,
+    notes,
+    db,
+    include_sections=None,
+    narrative_depth: str = "standard",
+):
     from services import chart_service
     from services.eval_service import get_evaluation, get_learning_curve
 
@@ -272,6 +446,7 @@ def generate_report(model_id, title, notes, db, include_sections=None):
     except Exception: pass
 
     story = []
+    sn = [0]
     # -- Cover --
     story += [Spacer(1,6*cm),
               Paragraph("XGBoost Studio", ST["cover_title"]),
@@ -287,16 +462,53 @@ def generate_report(model_id, title, notes, db, include_sections=None):
 
     # -- 执行摘要 --
     if "executive_summary" in sections:
-        story += [Paragraph("一、执行摘要", ST["h1"]),
-                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        story += _h1_pair(sn, "执行摘要")
         for p in _executive_summary(metrics, record.task_type, ds_name, record.name):
             story.append(Paragraph(p, ST["body_j"]))
         story.append(Spacer(1,0.3*cm))
 
+    # -- 数据与变量关系（G2-R1）--
+    if "data_relations" in sections:
+        story += _h1_pair(sn, "数据与变量关系（自动分析）")
+        if dataset and split and record.split_id:
+            try:
+                from schemas.narrative import NarrativeDepth
+                from services.dataset_narrative_service import build_data_narrative
+
+                nd = (
+                    NarrativeDepth.detailed
+                    if (narrative_depth or "standard").lower() == "detailed"
+                    else NarrativeDepth.standard
+                )
+                pdf_assets: dict = {}
+                nar = build_data_narrative(
+                    db,
+                    dataset.id,
+                    record.split_id,
+                    nd,
+                    record.id,
+                    _pdf_assets=pdf_assets,
+                )
+                story.extend(_data_relations_flowables(nar, pdf_assets))
+            except Exception as ex:
+                logger.warning("data_relations 章节生成失败: %s", ex, exc_info=True)
+                story.append(
+                    Paragraph(
+                        "本章节生成时出现异常，已跳过详细内容。请确认训练集文件可用且划分有效。",
+                        ST["warn_text"],
+                    )
+                )
+        else:
+            story.append(
+                Paragraph(
+                    "当前模型未关联数据集或划分，无法生成数据关系叙事。",
+                    ST["body"],
+                )
+            )
+
     # -- 数据集概览 --
     if "data_overview" in sections:
-        story += [Paragraph("二、数据集概览", ST["h1"]),
-                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        story += _h1_pair(sn, "数据集概览")
         if dataset:
             dinfo = {"数据集名称": dataset.name,"总行数": f"{dataset.rows:,}" if dataset.rows else "-",
                      "总列数": str(dataset.cols) if dataset.cols else "-","目标列": dataset.target_column or "-",
@@ -323,8 +535,7 @@ def generate_report(model_id, title, notes, db, include_sections=None):
 
     # -- 模型参数 --
     if "model_params" in sections:
-        story += [Paragraph("三、模型训练参数", ST["h1"]),
-                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        story += _h1_pair(sn, "模型训练参数")
         minfo = {"模型名称": record.name,"任务类型": "分类" if record.task_type=="classification" else "回归",
                  "训练耗时": f"{record.training_time_s:.1f} 秒" if record.training_time_s else "-",
                  "创建时间": str(record.created_at)[:19]}
@@ -335,8 +546,7 @@ def generate_report(model_id, title, notes, db, include_sections=None):
 
     # -- 评估指标 --
     if "evaluation" in sections:
-        story += [Paragraph("四、模型评估结果", ST["h1"]),
-                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        story += _h1_pair(sn, "模型评估结果")
         mt = _metrics_table(metrics)
         if mt: story += [mt, Spacer(1,0.3*cm)]
         if record.task_type=="classification":
@@ -378,9 +588,8 @@ def generate_report(model_id, title, notes, db, include_sections=None):
     if "shap" in sections:
         shap_data = eval_result.get("shap_summary",[])
         if shap_data:
-            story += [Paragraph("五、特征重要性分析（SHAP）", ST["h1"]),
-                      HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
-                      Paragraph("SHAP值量化每个特征对预测的平均贡献，绝对值越大影响越显著。", ST["body_j"])]
+            story += _h1_pair(sn, "特征重要性分析（SHAP）")
+            story.append(Paragraph("SHAP值量化每个特征对预测的平均贡献，绝对值越大影响越显著。", ST["body_j"]))
             try:
                 feats=[d["feature"] for d in shap_data[:10]]; imps=[d["importance"] for d in shap_data[:10]]
                 cb = chart_service.shap_bar_chart(feats, imps)
@@ -407,9 +616,8 @@ def generate_report(model_id, title, notes, db, include_sections=None):
         try:
             lc = get_learning_curve(model_id, db)
             if lc and lc.get("sample_counts"):
-                story += [Paragraph("六、学习曲线分析", ST["h1"]),
-                          HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
-                          Paragraph("学习曲线展示模型随训练样本量增加的性能变化。两曲线趋于收敛说明模型已充分学习；持续差距较大提示过拟合。", ST["body_j"])]
+                story += _h1_pair(sn, "学习曲线分析")
+                story.append(Paragraph("学习曲线展示模型随训练样本量增加的性能变化。两曲线趋于收敛说明模型已充分学习；持续差距较大提示过拟合。", ST["body_j"]))
                 cb = chart_service.learning_curve_chart(lc["sample_counts"],lc["train_scores"],lc["val_scores"],lc.get("metric","Score"),record.task_type)
                 im = _img(cb, 13*cm)
                 if im: story += [im, Paragraph("图7：学习曲线", ST["caption"])]
@@ -419,8 +627,7 @@ def generate_report(model_id, title, notes, db, include_sections=None):
     if "overfitting" in sections:
         ov = eval_result.get("overfitting_diagnosis")
         if ov:
-            story += [Paragraph("七、过拟合诊断", ST["h1"]),
-                      HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+            story += _h1_pair(sn, "过拟合诊断")
             lv=ov.get("level","low")
             sk={"high":"danger_text","medium":"warn_text"}.get(lv,"success_text")
             story.append(Paragraph(ov.get("message",""), ST[sk]))
@@ -431,9 +638,8 @@ def generate_report(model_id, title, notes, db, include_sections=None):
     if "baseline" in sections:
         baseline = eval_result.get("baseline")
         if baseline:
-            story += [Paragraph("八、与随机基线对比", ST["h1"]),
-                      HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
-                      Paragraph(f"与策略\"{baseline.get('strategy','均值/多数类预测')}\"相比，本模型的提升如下：", ST["body"])]
+            story += _h1_pair(sn, "与随机基线对比")
+            story.append(Paragraph(f"与策略\"{baseline.get('strategy','均值/多数类预测')}\"相比，本模型的提升如下：", ST["body"]))
             try:
                 cb = chart_service.baseline_compare_chart(metrics, baseline, record.task_type)
                 im = _img(cb, 12*cm)
@@ -442,16 +648,14 @@ def generate_report(model_id, title, notes, db, include_sections=None):
 
     # -- 业务建议 --
     if "business_advice" in sections:
-        story += [Paragraph("九、业务建议", ST["h1"]),
-                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        story += _h1_pair(sn, "业务建议")
         for line in _business_advice(metrics, record.task_type):
             story.append(Paragraph(line, ST["body"]))
 
     # -- 备注 --
     if notes:
-        story += [Paragraph("十、备注", ST["h1"]),
-                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
-                  Paragraph(notes, ST["body_j"])]
+        story += _h1_pair(sn, "备注")
+        story.append(Paragraph(notes, ST["body_j"]))
 
     # -- 数据来源 --
     story += [Spacer(1,1*cm), HRFlowable(width="100%",thickness=0.5,color=GRAY_LINE,spaceAfter=6),

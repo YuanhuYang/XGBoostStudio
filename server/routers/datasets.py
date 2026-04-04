@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from db.database import get_db
 from db.models import Dataset, DatasetSplit
+from schemas.narrative import DataNarrativeResponse, NarrativeDepth
 from schemas.dataset import (
     DatasetResponse, DatasetStatsResponse, PreviewResponse,
     QualityScoreResponse, SplitResponse,
@@ -116,6 +117,21 @@ def preview_dataset(
 def get_stats(dataset_id: int, db: Session = Depends(get_db)):
     ds = _get_dataset(dataset_id, db)
     return svc.get_stats(ds)
+
+
+@router.get("/{dataset_id}/data-narrative", response_model=DataNarrativeResponse)
+def get_data_narrative(
+    dataset_id: int,
+    split_id: Optional[int] = Query(None),
+    depth: NarrativeDepth = Query(NarrativeDepth.standard),
+    model_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """G2-R1：训练集上的本地统计叙事（JSON）；无 split_id 时返回元数据降级结果。"""
+    from services.dataset_narrative_service import build_data_narrative
+
+    _get_dataset(dataset_id, db)
+    return build_data_narrative(db, dataset_id, split_id, depth, model_id)
 
 
 # ── 分布 ──────────────────────────────────────────────────────────────────────

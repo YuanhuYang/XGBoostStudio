@@ -301,6 +301,81 @@ def baseline_compare_chart(
     return _fig_to_base64(fig)
 
 
+def correlation_heatmap_bytes(
+    corr_matrix: np.ndarray,
+    labels: list[str],
+    *,
+    plot_title: str = "数值特征 Pearson 相关矩阵",
+) -> bytes:
+    """数值相关矩阵热力图（Pearson / Spearman 等，由 plot_title 区分）。"""
+    n = len(labels)
+    if n < 2 or corr_matrix.shape != (n, n):
+        return b""
+
+    fig, ax = plt.subplots(figsize=(max(5, n * 0.55), max(4, n * 0.5)))
+    im = ax.imshow(corr_matrix, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_title(plot_title, fontsize=12, fontweight="bold", color=TEXT_COLOR)
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.ax.tick_params(labelsize=8)
+    for i in range(n):
+        for j in range(n):
+            v = corr_matrix[i, j]
+            if not np.isnan(v):
+                ax.text(
+                    j, i, f"{v:.2f}",
+                    ha="center", va="center", fontsize=7,
+                    color="white" if abs(v) > 0.55 else TEXT_COLOR,
+                )
+    fig.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def numeric_boxplot_by_category_bytes(
+    values: list[float],
+    categories: list[str],
+    numeric_col: str,
+    category_col: str,
+) -> bytes:
+    """按类别分组的数值箱线图（G2-R1b：数值×低基数类别）。"""
+    if len(values) != len(categories) or len(values) < 4:
+        return b""
+    # 聚合为按类别分组的值列表
+    from collections import defaultdict
+
+    groups: dict[str, list[float]] = defaultdict(list)
+    for v, c in zip(values, categories, strict=True):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            continue
+        g = str(c) if c is not None else "__NA__"
+        try:
+            groups[g].append(float(v))
+        except (TypeError, ValueError):
+            continue
+    labels = sorted(groups.keys(), key=lambda x: (x == "__NA__", x))
+    data = [groups[k] for k in labels if len(groups[k]) > 0]
+    labels = [k for k in labels if len(groups[k]) > 0]
+    if len(data) < 2 or not any(len(d) >= 1 for d in data):
+        return b""
+
+    fig, ax = plt.subplots(figsize=(max(5, len(labels) * 0.9), 4.2))
+    bp = ax.boxplot(data, patch_artist=True)
+    ax.set_xticks(np.arange(1, len(labels) + 1))
+    ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=9)
+    for patch in bp["boxes"]:
+        patch.set_facecolor(BRAND_LIGHT)
+        patch.set_edgecolor(BRAND_BLUE)
+    ax.set_xlabel(category_col, fontsize=10)
+    ax.set_ylabel(numeric_col, fontsize=10)
+    ax.set_title(f"{numeric_col} 按 {category_col} 分组分布", fontsize=12, fontweight="bold", color=TEXT_COLOR)
+    ax.grid(True, axis="y", alpha=0.5)
+    fig.tight_layout()
+    return _fig_to_base64(fig)
+
+
 def multi_model_compare_chart(
     model_names: list[str],
     metrics_list: list[dict[str, float]],

@@ -1,0 +1,68 @@
+# 验收执行记录 · G2-R1-C（数据叙事 API + PDF 章节）
+
+**日期**：2026-04-05  
+**范围**：[`设计-G2-R1-数据叙事API与PDF线框.md`](设计-G2-R1-数据叙事API与PDF线框.md) 与 [`验收标准文档.md`](验收标准文档.md) **AC-9-11～AC-9-15** 的 **C 实现** 与 **自动化证据**。
+
+## 1. 自动化验收（pytest）
+
+工作目录 `server/`：
+
+| 命令 | 结果 |
+|------|------|
+| `uv run pytest -q` | **26 passed**（含 `test_data_narrative`、`test_models_api`、`test_api_robustness` 等；以仓库当前 CI 为准） |
+
+| 用例文件 | 覆盖 AC |
+|----------|---------|
+| `test_data_narrative.py::test_data_narrative_titanic_ac911` | AC-9-11 |
+| `test_data_narrative_no_split_degraded_ac914` | AC-9-14 |
+| `test_data_narrative_wrong_split_404` | AC-9-11/14 异常路径 |
+| `test_data_narrative_depth_standard_vs_detailed_ac913` | AC-9-13 |
+| `test_report_pdf_contains_data_relations_ac912` | AC-9-12（PDF 元数据含验收标题锚点 `XG2R1DATAREL`） |
+| `test_openapi_has_data_narrative_ac915` | AC-9-15 |
+| `test_g2r1b_caveats_multicompare_and_enrichment` | G2-R1b 缺口表 001～003 |
+| `test_g2r1b_detailed_includes_spearman_chart` | G2-R1b-004 Spearman |
+| `test_g2r1b_report_generate_accepts_narrative_depth` | G2-R1b-004 报告 depth |
+| `test_openapi_report_generate_has_narrative_depth` | OpenAPI 契约 |
+
+**说明**：PDF 正文中文在内容流中非 UTF-8 明文，AC-9-12 采用 **报告标题字段** 写入可检索 ASCII 锚点；人工打开 PDF 仍应核对章节 **「数据与变量关系（自动分析）」** 与 **2.1～2.10** 子块（G2-R1b 扩展后）。
+
+## 2. 实现摘要（研发）
+
+| 项 | 位置 |
+|----|------|
+| 叙事服务 | [`server/services/dataset_narrative_service.py`](../server/services/dataset_narrative_service.py) |
+| 相关热力图 / 箱线图 | [`server/services/chart_service.py`](../server/services/chart_service.py) `correlation_heatmap_bytes`、`numeric_boxplot_by_category_bytes` |
+| API | `GET /api/datasets/{dataset_id}/data-narrative` — [`server/routers/datasets.py`](../server/routers/datasets.py) |
+| 契约 | [`server/schemas/narrative.py`](../server/schemas/narrative.py) |
+| PDF | [`server/services/report_service.py`](../server/services/report_service.py)：`data_relations` + 章节动态序号 |
+| 前端 | [`client/src/pages/Report/index.tsx`](../client/src/pages/Report/index.tsx) `data_relations` + **数据关系分析深度**（`narrative_depth`） |
+| 报告生成体 | [`server/schemas/model.py`](../server/schemas/model.py) `ReportGenerateRequest.narrative_depth` |
+
+**训练集防泄漏**：叙事与热力图仅使用 `split.train_path`，与设计一致。
+
+## 3. 六角色核对（D 前置 · 项目经理拉通）
+
+> 各角色在发布评审前勾选；**C 与 G2-R1b（迭代计划缺口表四项）已交付**；更大章程 §4 余项（如全部分组箱线矩阵、更复杂缺失机制模型等）仍可按新迭代排期。
+
+| 角色 | C + G2-R1b 已对齐 | 后续可增强 |
+|------|-------------------|------------|
+| 数据分析 | Pearson/Spearman、Cramér's V、VIF、缺失×目标、箱线图 Top-N、多重比较话术 | 大表策略、更细缺失机制模型 |
+| 模型训练 | 任务类型与互信息/检验一致 | 时序泄漏检测文案联动 |
+| AI 学生 | bullets 与免责可见 | 术语简化、帮助互链 |
+| 产品设计 | 数据关系章节 + **深度下拉** | 异步生成进度提示 |
+| 架构 | OpenAPI `narrative_depth`、`_pdf_assets` 箱线图列表 | 叙事缓存（可选） |
+| 测试顾问 | 21 passed pytest + 本记录 | PDF 版式人工抽检 |
+
+## 4. 客户端与 CI
+
+- `cd client && npm run typecheck`：**通过**（与本次改动一并记录时可再跑）。
+
+---
+
+## 5. G2-R1b（迭代计划缺口表闭环）
+
+**日期**：2026-04-05  
+**范围**：GAP-G2R1B-001～004（类别×类别、VIF、缺失×目标+多重比较、depth/Spearman/客户端）。  
+**证据**：[`迭代计划.md`](迭代计划.md) 缺口表状态列；`uv run pytest -q` **21 passed**。
+
+*更大颗粒的章程 §4 能力可按 G2-R2 等迭代继续切片。*

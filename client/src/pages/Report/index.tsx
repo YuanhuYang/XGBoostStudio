@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Card, Table, Button, Space, Typography, Modal, Form, Input,
   InputNumber, message, Popconfirm, Tag, Row, Col, Empty,
-  Checkbox, Spin
+  Checkbox, Spin, Select
 } from 'antd'
 import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -10,21 +10,11 @@ import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import HelpButton from '../../components/HelpButton'
 import PDFViewer from '../../components/PDFViewer'
+import { REPORT_SECTION_OPTIONS } from '../../constants/reportSections'
 
 const { Title, Text } = Typography
 
-const SECTION_OPTIONS = [
-  { label: '执行摘要', value: 'executive_summary' },
-  { label: '数据概览', value: 'data_overview' },
-  { label: '模型参数', value: 'model_params' },
-  { label: '评估指标', value: 'evaluation' },
-  { label: 'SHAP 特征重要性', value: 'shap' },
-  { label: '学习曲线', value: 'learning_curve' },
-  { label: '过拟合分析', value: 'overfitting' },
-  { label: '基线对比', value: 'baseline' },
-  { label: '业务建议', value: 'business_advice' },
-  { label: '数据来源', value: 'data_source' },
-]
+const SECTION_OPTIONS = REPORT_SECTION_OPTIONS
 
 interface ReportRecord {
   id: number; name: string; model_id: number | null; path: string; created_at: string
@@ -72,6 +62,7 @@ const ReportPage: React.FC = () => {
         title: values.title || `模型${values.model_id}报告`,
         notes: values.notes || '',
         include_sections: selectedSections.length < SECTION_OPTIONS.length ? selectedSections : undefined,
+        narrative_depth: values.narrative_depth || 'standard',
       })
       message.success('报告生成成功')
       setGenModal(false)
@@ -189,6 +180,19 @@ const ReportPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="notes" label="备注说明">
             <Input.TextArea rows={2} placeholder="可输入模型说明、实验背景等" />
+          </Form.Item>
+          <Form.Item
+            name="narrative_depth"
+            label="数据关系分析深度"
+            tooltip="仅影响「数据与变量关系」章节：详细档含 Spearman 热力图与更多类别/箱线图。"
+            initialValue="standard"
+          >
+            <Select
+              options={[
+                { value: 'standard', label: '标准（较快）' },
+                { value: 'detailed', label: '详细（Spearman、更多图表）' },
+              ]}
+            />
           </Form.Item>
         </Form>
         <div style={{ marginTop: 8 }}>

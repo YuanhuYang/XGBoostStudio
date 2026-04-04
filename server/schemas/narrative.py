@@ -78,6 +78,25 @@ class MulticollinearityFlag(BaseModel):
     note: str
 
 
+class CategoricalAssociationItem(BaseModel):
+    """低基数类别列两两关联（χ² + Cramér's V）。"""
+
+    col_a: str
+    col_b: str
+    cramers_v: float = Field(..., ge=0, le=1)
+    chi2_pvalue: Optional[float] = Field(None, description="样本不足或期望频数过小时可能为 None")
+    narrative_hint: str
+
+
+class MissingVsTargetItem(BaseModel):
+    """缺失指示与目标是否统计相关（非随机缺失提示）。"""
+
+    feature: str
+    test_name: str = Field(..., description="chi2_missing_vs_target 或 ttest_missing_vs_target")
+    pvalue: Optional[float] = None
+    narrative_hint: str
+
+
 # ── 与目标的关系 ─────────────────────────────────────────────────────────────
 
 
@@ -134,6 +153,14 @@ class DataNarrativeResponse(BaseModel):
         description="高相关或对目标敏感对；上限由 depth 控制",
     )
     multicollinearity: list[MulticollinearityFlag] = Field(default_factory=list)
+    categorical_associations: list[CategoricalAssociationItem] = Field(
+        default_factory=list,
+        description="低基数类别×类别；Cramér's V 与 p 值供解读",
+    )
+    missing_vs_target: list[MissingVsTargetItem] = Field(
+        default_factory=list,
+        description="缺失与目标分布/均值差异的简要检验结论",
+    )
     target_relations: list[TargetRelationItem] = Field(default_factory=list)
     charts: list[ChartSpec] = Field(default_factory=list)
     bullets: DataNarrativeBullets = Field(default_factory=DataNarrativeBullets)
