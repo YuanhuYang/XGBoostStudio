@@ -105,7 +105,7 @@ async def system_version():
         with open(pyproject, "rb") as f:
             data = tomllib.load(f)
         return {"version": data.get("project", {}).get("version", "0.1.0")}
-    except Exception:
+    except (OSError, KeyError, ValueError):
         return {"version": "0.1.0"}
 
 
@@ -121,7 +121,7 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
     )
 
 
-@app.exception_handler(Exception)  # pylint: disable=broad-exception-caught
+@app.exception_handler(Exception)  # pylint: disable=broad-exception-caught  # noqa: BLE001
 async def global_exception_handler(_request: Request, exc: Exception):
     logger.exception("未处理的服务器错误: %s", exc)
     return JSONResponse(

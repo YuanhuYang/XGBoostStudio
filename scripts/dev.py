@@ -56,6 +56,7 @@ def start_server(root_dir: Path) -> None:
     subprocess.run(
         ["uv", "run", "python", "main.py"],
         cwd=server_dir,
+        check=False,
     )
 
 
@@ -76,6 +77,7 @@ def start_client(root_dir: Path) -> None:
     subprocess.run(
         _client_npm_cmd(),
         cwd=client_dir,
+        check=False,
     )
 
 
