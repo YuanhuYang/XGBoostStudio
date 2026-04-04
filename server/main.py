@@ -112,7 +112,7 @@ async def system_version():
 # ── 全局异常处理 ──────────────────────────────────────────────────────────────
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
     errors = exc.errors()
     msgs = [f"{'.'.join(str(l) for l in e['loc'][1:])}: {e['msg']}" for e in errors]
     return JSONResponse(
@@ -121,8 +121,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+@app.exception_handler(Exception)  # pylint: disable=broad-exception-caught
+async def global_exception_handler(_request: Request, exc: Exception):
     logger.exception("未处理的服务器错误: %s", exc)
     return JSONResponse(
         status_code=500,

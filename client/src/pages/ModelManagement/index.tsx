@@ -3,7 +3,7 @@ import {
   Card, Table, Button, Space, Tag, Typography, Popconfirm,
   Modal, Form, Input, Row, Col, Statistic, message, Tooltip, Empty, Tabs
 } from 'antd'
-import { AppstoreOutlined, DeleteOutlined, EditOutlined, DownloadOutlined, DiffOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, DeleteOutlined, EditOutlined, DownloadOutlined, DiffOutlined, FilePdfOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
@@ -35,6 +35,7 @@ const ModelManagementPage: React.FC = () => {
   const [compareIds, setCompareIds] = useState<number[]>([])
   const [compareData, setCompareData] = useState<ModelRecord[]>([])
   const [compareVisible, setCompareVisible] = useState(false)
+  const [compareReportLoading, setCompareReportLoading] = useState(false)
   const [form] = Form.useForm()
 
   const filteredModels = models.filter(m =>
@@ -86,6 +87,32 @@ const ModelManagementPage: React.FC = () => {
       setCompareData(r.data)
       setCompareVisible(true)
     } catch { message.error('对比失败') }
+  }
+
+  const handleCompareReport = async () => {
+    if (compareIds.length < 2) { message.warning('请至少选择2个模型'); return }
+    setCompareReportLoading(true)
+    try {
+      const names = compareData.map(m => m.name).join(' vs ')
+      const resp = await apiClient.post('/api/reports/compare', {
+        model_ids: compareIds,
+        title: `多模型对比报告 — ${names}`,
+      })
+      message.success(`对比报告已生成（ID: ${resp.data.id}）`)
+      // 直接触发下载
+      const r = await apiClient.get(`/api/reports/${resp.data.id}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(r.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `compare_report_${compareIds.join('_')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '生成对比报告失败')
+    } finally {
+      setCompareReportLoading(false)
+    }
   }
 
   const columns: ColumnsType<ModelRecord> = [
@@ -290,8 +317,19 @@ const ModelManagementPage: React.FC = () => {
             },
           ]}
         />
-        <div style={{ marginTop: 8, fontSize: 12, color: '#475569' }}>
-          ↑ 越大越好 &nbsp;|&nbsp; ↓ 越小越好（雷达图中已反向映射，外圈 = 更优）
+        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: '#475569' }}>
+            ↑ 越大越好 &nbsp;|&nbsp; ↓ 越小越好（雷达图中已反向映射，外圈 = 更优）
+          </span>
+          <Button
+            type="primary"
+            icon={<FilePdfOutlined />}
+            loading={compareReportLoading}
+            onClick={handleCompareReport}
+            disabled={compareIds.length < 2}
+          >
+            导出对比报告 PDF
+          </Button>
         </div>
       </Modal>
     </div>
