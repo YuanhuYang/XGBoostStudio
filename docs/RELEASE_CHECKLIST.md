@@ -30,7 +30,7 @@
 
 | 步骤 | 环境 | 结果摘要 |
 |------|------|----------|
-| `uv sync --all-groups --frozen` + `uv run pytest -q` | Windows 10, Python 3.12（uv 管理） | 10 passed |
+| `uv sync --all-groups --frozen` + `uv run pytest -q` | Windows 10, Python 3.12（uv 管理） | 11 passed（含 Titanic→PDF 全链） |
 | `npm run typecheck` | Windows 10, Node 20 | 通过（无输出错误） |
 | `python tests/check_wizard.py` | 同上 | 退出码 0，PARAM_SCHEMA 14 params |
 
@@ -39,6 +39,7 @@
 ## 5. 商业验收抽样记录（Harness D2）
 
 - 详见 [`docs/验收执行记录-20260405.md`](验收执行记录-20260405.md)（文档对齐 + API 自动化证据；**全链路 UI 需在客户端人工补跑**）。
+- F3 分模块抽样表：[`docs/验收抽样-F3-分模块.md`](验收抽样-F3-分模块.md)。
 
 ## 6. 打包验证（Harness M2）
 
