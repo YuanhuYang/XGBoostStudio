@@ -1,0 +1,109 @@
+# G2-R1 · B 设计定稿：数据叙事 API 契约 + PDF 线框
+
+> **状态**：设计完成，待 **C 实现**。  
+> **关联**：[`迭代章程-G2-报告数据关系与叙事（无LLM优先）.md`](迭代章程-G2-报告数据关系与叙事（无LLM优先）.md)  
+> **Pydantic**：[`server/schemas/narrative.py`](../server/schemas/narrative.py)（OpenAPI 自动生成）
+
+---
+
+## 1. API 设计
+
+### 1.1 获取数据叙事（JSON）
+
+| 项 | 说明 |
+|----|------|
+| **方法 / 路径** | `GET /api/datasets/{dataset_id}/data-narrative` |
+| **Query** | `split_id`（可选 int）、`depth`（可选，`standard` \| `detailed`，默认 `standard`）、`model_id`（可选 int，仅用于 `meta` 追溯，不参与计算） |
+| **成功响应** | `200` + **`DataNarrativeResponse`**（见 `schemas/narrative.py`） |
+| **错误** | `404` 数据集或 split 不存在；`422` 参数非法；大表超时可 `504` 或 `200` + `sample_note`（实现阶段二选一并在 AC 固定） |
+
+**语义**：
+
+- **profile 范围（C 实现必须写明）**：默认在 **训练集文件**（`split.train_path`）上统计，避免测试集信息泄漏进「数据探索」叙事；若无 `split_id`，仅返回基于 **`Dataset` 元数据** 的降级叙事（列数/行数/目标列名等），`correlation_pairs` 等可为空。
+- **depth**：`standard` = 限制相关矩阵维度、Top-N 对数量；`detailed` = 放宽上限、可多一张图（实现阶段具体数字写入 `RELEASE`/代码常量）。
+
+**与现有报告链路兼容**：
+
+- `POST /api/reports/generate` 的 `include_sections` 增加可选令牌 **`data_relations`**（与现有 `data_overview`、`shap` 等并列）。
+- 当 `data_relations` ∈ `include_sections` 时，`generate_report` 内部调用叙事服务（或直接读缓存），将 JSON 渲染为 PDF 新章节（见 §3）。
+
+### 1.2 不新增「仅叙事」POST
+
+第一期不单独 `POST` 生成叙事文件；叙事 **嵌入报告** 或 **调试用 GET**。后续若需缓存可再加 `POST .../data-narrative/refresh`。
+
+---
+
+## 2. JSON 契约摘要（权威以 Pydantic 为准）
+
+| 字段 | 含义 |
+|------|------|
+| `meta` | 数据集、split、目标列、任务类型、depth、时间、profile 行数、采样说明 |
+| `variables` | 变量目录：类型、缺失率、唯一值、概要统计、`is_target` |
+| `correlation_pairs` | 高相关列对 + 模板生成的一句话 |
+| `multicollinearity` | VIF 或替代规则的文字提示 |
+| `target_relations` | 与目标的排序关系 + 一句话 |
+| `charts` | 嵌入 PDF 的图清单（id、标题、尺寸）；二进制在实现层注入 `payload_ref` 或并行传递 |
+| `bullets.findings` / `caveats` | 数据侧执行摘要条目与合规提示 |
+
+---
+
+## 3. PDF 线框（新章节 `data_relations`）
+
+**章节标题（中文）**：`二、数据与变量关系（自动分析）`  
+**实现阶段编号**：在 [`report_service.py`](../server/services/report_service.py) 中于「执行摘要」之后插入本章节，并将原「二、数据集概览」及后续章节 **序号顺延**（三、四…）。
+
+### 3.1 块结构
+
+1. **导语段**（固定模板 + 填充 `meta.row_count_profiled`、`sample_note`）  
+2. **2.1 变量目录**：表格 — 列名 \| 类型 \| 缺失率 \| 唯一值 \| 是否目标  
+3. **2.2 列间相关结构**：嵌入 `charts` 中 `corr_heatmap_numeric`（若有）；下接 `correlation_pairs` Top-N 项目符号列表  
+4. **2.3 与目标的关系**：`target_relations` 表（特征、指标、值、排名）+ 各条 `narrative_hint` 汇总段落  
+5. **2.4 冗余与多重共线性**：`multicollinearity` 列表（可无）  
+6. **2.5 数据侧关键发现**：`bullets.findings`  
+7. **2.6 使用局限**：`bullets.caveats`（**须含「相关不代表因果」类表述**）
+
+### 3.2 与「数据集概览」边界
+
+| 章节 key | 内容侧重 |
+|----------|----------|
+| `data_overview`（现有） | 元数据 KV、目标分布图等 **简报** |
+| `data_relations`（新） | **列级 profile、关系、目标关联、规则叙事** |
+
+两者可同时出现在报告中；叙事章节 **不替代** 模型评估章节。
+
+---
+
+## 4. `include_sections` 扩展
+
+| 令牌 | 说明 |
+|------|------|
+| `data_relations` | 生成 §3 整块；依赖 `dataset_id` + `split_id`（来自 model） |
+
+**默认全集（C 实现时是否默认打开）**：由产品经理定；**B 设计建议**默认 **打开** `data_relations`，以体现 G2-R1 价值；若页数敏感可通过客户端「标准/详细」映射 `depth` 并在 UI 披露。
+
+---
+
+## 5. 大模型扩展位（仅设计，本迭代不实现）
+
+- 设置项 **`llm.enabled` 默认 false** 不在 B 设计写库表；C 以后在 `DataNarrativeResponse` 可增加可选字段 `llm_enhanced_paragraph: Optional[str]`，**仅当**本地配置开启且 **不出域** 或 **用户显式同意出域** 时填充。  
+- **B 阶段不修改** 客户端设置页。
+
+---
+
+## 6. 验收映射
+
+见 [`验收标准文档.md`](验收标准文档.md) **AC-9-11～AC-9-15**（草案）。
+
+---
+
+## 7. C 实现检查清单（供下一迭代使用）
+
+- [ ] 注册路由 `GET /api/datasets/{dataset_id}/data-narrative`  
+- [ ] 实现 `services/dataset_narrative_service.py`（或等价模块）  
+- [ ] `report_service.generate_report`：`data_relations` + 章节重编号  
+- [ ] `pytest`：Titanic + split 返回 JSON schema 快照或关键字段断言  
+- [ ] 更新客户端报告生成（若有 `include_sections` 传参）  
+
+---
+
+*文档版本：B 定稿 v1.0*

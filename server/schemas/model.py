@@ -99,6 +99,7 @@ class ReportGenerateRequest(BaseModel):
             "shap", "tuning_history"
         ]
     )
+    # 与 report_service.ALL_SECTIONS 及 G2-R1 设计对齐；可选令牌示例：data_relations（见 docs/设计-G2-R1-数据叙事API与PDF线框.md）
     include_sections: Optional[list[str]] = None  # 按需生成章节，None=全部
 
 
