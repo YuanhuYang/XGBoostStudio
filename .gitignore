@@ -59,6 +59,9 @@ desktop.ini
 # electron-builder 缓存
 client/.electron-builder-cache/
 
+# E2E 脚本落盘 PDF（本地验证产物，勿提交）
+server/tests/e2e_test_report.pdf
+
 # Playwright MCP 工具运行时产物
 .playwright-mcp/
 

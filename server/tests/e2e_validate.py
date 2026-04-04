@@ -13,6 +13,14 @@
 import requests
 import sys
 
+# Windows 默认控制台常为 GBK，直接 print Unicode 会触发 UnicodeEncodeError
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 BASE = "http://127.0.0.1:18899"
 
 # 1. 列出模型
