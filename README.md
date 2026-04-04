@@ -58,17 +58,50 @@
 |------|------|------|
 | [Git](https://git-scm.com/) | 版本控制 | 系统包管理器或官网 |
 | [uv](https://docs.astral.sh/uv/) | Python 版本 + 依赖管理 | 见下方命令 |
-| [Node.js 18+](https://nodejs.org/) | 前端运行时 | 官网 LTS 版 |
+| [Node.js 18+](https://nodejs.org/) | 前端运行时 | 见下方说明 |
+
+**安装 uv**
 
 ```bash
-# 安装 uv（Windows PowerShell）
+# Windows PowerShell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# 安装 uv（macOS / Linux）
+# macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+**安装 Node.js**
+
+```bash
+# Windows：从 https://nodejs.org 下载 LTS 安装包
+
+# macOS（推荐 Homebrew，自动适配 Intel / Apple Silicon）
+brew install node
+
+# Apple Silicon (M1/M2/M3/M4) 用户说明：
+# Homebrew 在 Apple Silicon 上默认安装 arm64 原生版本，请确保使用
+# /opt/homebrew/bin/brew 而非 /usr/local/bin/brew（遗留 Intel 版本）
+
+# Linux
+# Ubuntu/Debian: sudo apt install nodejs npm
+# 或使用 nvm: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+```
+
 > **uv 会自动下载并隔离管理 Python 3.12，无需手动安装 Python。**
+
+**🇨🇳 国内开发者：配置镜像加速（推荐，仅需一次）**
+
+```bash
+# npm 配置淘宝镜像（全平台）
+npm config set registry https://registry.npmmirror.com
+
+# uv 配置清华 PyPI 镜像
+# macOS / Linux — 加入 ~/.zshrc 或 ~/.bashrc：
+export UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+
+# Windows PowerShell — 加入 $PROFILE 或直接运行：
+$Env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple"
+```
 
 **克隆并安装依赖**
 

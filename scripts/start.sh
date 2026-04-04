@@ -15,6 +15,19 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVER_DIR="$ROOT_DIR/server"
 CLIENT_DIR="$ROOT_DIR/client"
 
+# 检测平台与架构
+OS=$(uname -s)
+ARCH=$(uname -m)
+if [[ "$OS" == "Darwin" ]]; then
+    if [[ "$ARCH" == "arm64" ]]; then
+        PLATFORM_INFO="macOS Apple Silicon (arm64)"
+    else
+        PLATFORM_INFO="macOS Intel (x86_64)"
+    fi
+else
+    PLATFORM_INFO="Linux ($ARCH)"
+fi
+
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -32,8 +45,8 @@ XGBoost Studio 启动脚本 - macOS / Linux
     bash scripts/start.sh --help        # 显示此帮助
 
 环境要求:
-    - Python 3.8+ 和 uv (后端)
-    - Node.js 16+ 和 npm (前端)
+    - uv（自动管理 Python 3.12，无需手动安装）
+    - Node.js 18+（macOS 推荐 brew install node）
 
 示例:
     # 终端 1：启动后端
@@ -51,6 +64,7 @@ start_server() {
     echo -e "${GREEN}================================${NC}"
     echo -e "${GREEN}启动后端服务 (FastAPI)${NC}"
     echo -e "${GREEN}================================${NC}"
+    echo -e "${YELLOW}平台: $PLATFORM_INFO${NC}"
     echo -e "${YELLOW}地址: http://127.0.0.1:18899${NC}"
     echo "按 Ctrl+C 停止"
     echo ""
@@ -63,15 +77,17 @@ start_client() {
     echo -e "${GREEN}================================${NC}"
     echo -e "${GREEN}启动前端开发服务 (Vite)${NC}"
     echo -e "${GREEN}================================${NC}"
+    echo -e "${YELLOW}平台: $PLATFORM_INFO${NC}"
     echo -e "${YELLOW}地址: http://localhost:5173${NC}"
     echo "按 Ctrl+C 停止"
     echo ""
 
     cd "$CLIENT_DIR"
-    if [[ "$(uname -s)" == "Linux" ]]; then
+    if [[ "$OS" == "Linux" ]]; then
         echo -e "${YELLOW}Linux 检测到：使用 Web 模式（浏览器访问，无需 Electron）${NC}"
         npm run dev:web
     else
+        # macOS（Intel / Apple Silicon 行为相同）
         npm run dev
     fi
 }
@@ -100,7 +116,7 @@ start_all() {
 
     # 启动前端（前台，Linux 使用 Web 模式）
     cd "$CLIENT_DIR"
-    if [[ "$(uname -s)" == "Linux" ]]; then
+    if [[ "$OS" == "Linux" ]]; then
         echo -e "${YELLOW}Linux 检测到：前端使用 Web 模式${NC}"
         npm run dev:web
     else

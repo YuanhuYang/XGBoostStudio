@@ -14,9 +14,22 @@
 """
 
 import argparse
+import platform
 import subprocess
 import sys
 from pathlib import Path
+
+
+def get_platform_info() -> str:
+    """返回当前平台与架构的可读描述"""
+    system = platform.system()
+    machine = platform.machine()
+    if system == "Darwin":
+        chip = "Apple Silicon (arm64)" if machine == "arm64" else "Intel (x86_64)"
+        return f"macOS {chip}"
+    if system == "Windows":
+        return f"Windows ({machine})"
+    return f"Linux ({machine})"
 
 
 def get_root_dir() -> Path:
@@ -34,6 +47,7 @@ def _client_npm_cmd() -> list[str]:
 def start_server(root_dir: Path) -> None:
     """启动后端服务"""
     print("\n" + "="*60)
+    print(f"平台: {get_platform_info()}")
     print("启动后端服务（FastAPI on http://127.0.0.1:18899）")
     print("="*60)
     print("按 Ctrl+C 停止服务\n")
@@ -47,11 +61,13 @@ def start_server(root_dir: Path) -> None:
 
 def start_client(root_dir: Path) -> None:
     """启动前端开发服务"""
+    platform_info = get_platform_info()
     if sys.platform.startswith("linux"):
         mode = "Web 浏览器模式（http://localhost:5173）"
     else:
         mode = "Electron 窗口模式"
     print("\n" + "="*60)
+    print(f"平台: {platform_info}")
     print(f"启动前端开发服务 — {mode}")
     print("="*60)
     print("按 Ctrl+C 停止服务\n")
@@ -66,6 +82,7 @@ def start_client(root_dir: Path) -> None:
 def start_all(root_dir: Path) -> None:
     """同时启动后端和前端"""
     print("\n" + "="*60)
+    print(f"平台: {get_platform_info()}")
     print("启动完整开发环境...")
     print("="*60)
     print("""
