@@ -30,9 +30,11 @@
   - 安装 **含开发组** 依赖（含 `pytest`、`httpx` 等，见 [`server/pyproject.toml`](server/pyproject.toml) 的 `[dependency-groups] dev`）：`uv sync --all-groups`（推荐）或等价方式安装 dev 组。
   - **API 自动化回归（无需先起服务）**：`uv run pytest`（默认不收集 `tests/acceptance_test.py`，见 `tests/conftest.py` 中 `collect_ignore`）。
   - **端到端验收**：需 **API 已监听**（端口以项目配置为准，验收脚本当前为 `18899`）：`python tests/acceptance_test.py`。
+  - **有模型时的报告 PDF 快验**（可选）：`python tests/e2e_validate.py`（无模型时跳过报告步骤，见脚本文档字符串与 [`docs/验收追踪.md`](docs/验收追踪.md)）。
 - **客户端**：`cd client && npm install && npm run typecheck`（单元/E2E 接入后在此补充 `npm test` 等）
 - **协作资产**：本仓库包含 [`.cursor/`](.cursor/)（规则、Skill、提示词索引），与本文一并克隆后即可在 Cursor 中共享同一套编排与测试上下文。
 - **里程碑 / 发版检查**：[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)（产品级全量命令与实测摘录模板）。
+- **迭代计划 ↔ 验收映射**：[`docs/验收追踪.md`](docs/验收追踪.md)。
 
 ## 长时间稳定执行的习惯
 

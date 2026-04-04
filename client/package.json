@@ -57,11 +57,11 @@
     "extraResources": [
       {
         "from": "resources/xgboost-server.exe",
-        "to": "xgboost-server.exe",
-        "onlyFn": "(file, appOutDir) => process.platform === 'win32'"
+        "to": "xgboost-server.exe"
       }
     ],
     "win": {
+      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",

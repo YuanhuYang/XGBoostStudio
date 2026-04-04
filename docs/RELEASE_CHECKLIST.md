@@ -24,14 +24,25 @@
 
 ## 3. 非 PR 必跑（按需）
 
-- [ ] Electron 安装包：`cd client && npm run build`（耗时长，环境敏感，里程碑或发版前再跑）。
+- [ ] Electron 安装包：在仓库根目录执行 `.\scripts\build-server.ps1` 后 `.\scripts\build-client.ps1`（`build-client` 会将 `server\dist\xgboost-server.exe` 复制到 `client\resources\` 再打包含 NSIS）。耗时长，环境敏感（若 `rcedit` 报 *Unable to commit changes*，见 `client/package.json` 中 `win.signAndEditExecutable`）。
 
 ## 4. 最近一次实测摘录（维护者更新）
 
 | 步骤 | 环境 | 结果摘要 |
 |------|------|----------|
-| `uv sync --all-groups --frozen` + `uv run pytest -q` | Windows 10, Python 3.12（uv 管理） | 7 passed |
+| `uv sync --all-groups --frozen` + `uv run pytest -q` | Windows 10, Python 3.12（uv 管理） | 10 passed |
 | `npm run typecheck` | Windows 10, Node 20 | 通过（无输出错误） |
 | `python tests/check_wizard.py` | 同上 | 退出码 0，PARAM_SCHEMA 14 params |
 
 端到端 `acceptance_test.py` 未在本表代跑（需独立起服务）；发版前请补一行结果。
+
+## 5. 商业验收抽样记录（Harness D2）
+
+- 详见 [`docs/验收执行记录-20260405.md`](验收执行记录-20260405.md)（文档对齐 + API 自动化证据；**全链路 UI 需在客户端人工补跑**）。
+
+## 6. 打包验证（Harness M2）
+
+| 步骤 | 环境 | 结果摘要 |
+|------|------|----------|
+| `.\scripts\build-server.ps1` | Windows 10 | 成功 → `server\dist\xgboost-server.exe`（PyInstaller 有 WARNING 可查阅 `server\build\build\warn-build.txt`） |
+| `.\scripts\build-client.ps1` | Windows 10 | 成功 → `dist\XGBoost Studio Setup 0.1.0.exe` 与 `dist\win-unpacked\` |

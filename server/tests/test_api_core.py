@@ -75,6 +75,26 @@ def test_wizard_dataset_summary(client):
     assert isinstance(data["columns"], list)
 
 
+def test_report_generate_unknown_model(client):
+    r = client.post(
+        "/api/reports/generate",
+        json={"model_id": 999_999, "title": "noop"},
+    )
+    assert r.status_code == 404
+    assert "模型" in r.json().get("detail", "") or "不存在" in r.json().get("detail", "")
+
+
+def test_report_download_unknown_report(client):
+    r = client.get("/api/reports/999_999/download")
+    assert r.status_code == 404
+
+
+def test_prediction_batch_summary_unknown_task(client):
+    r = client.get("/api/prediction/nonexistent-task-id/summary")
+    assert r.status_code == 404
+    assert "预测" in r.json().get("detail", "") or "不存在" in r.json().get("detail", "")
+
+
 def test_split_and_training_start(client):
     up = _upload_iris(client)
     assert up.status_code == 200
