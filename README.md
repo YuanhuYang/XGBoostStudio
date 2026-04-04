@@ -50,23 +50,53 @@
 3. 从桌面启动
 ```
 
-### ② 开发者（源码）
+### ② 开发者（源码运行）
+
+**前置软件（只需安装一次）**
+
+| 软件 | 用途 | 安装 |
+|------|------|------|
+| [Git](https://git-scm.com/) | 版本控制 | 系统包管理器或官网 |
+| [uv](https://docs.astral.sh/uv/) | Python 版本 + 依赖管理 | 见下方命令 |
+| [Node.js 18+](https://nodejs.org/) | 前端运行时 | 官网 LTS 版 |
+
+```bash
+# 安装 uv（Windows PowerShell）
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 安装 uv（macOS / Linux）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+> **uv 会自动下载并隔离管理 Python 3.12，无需手动安装 Python。**
+
+**克隆并安装依赖**
+
 ```bash
 git clone https://github.com/YuanhuYang/XGBoostStudio.git
 cd XGBoostStudio
 
-# 方式 A：Python 脚本启动（跨平台）
-python scripts/dev.py --all
+# 一键安装后端依赖（uv 自动下载 Python 3.12 + 全部包）
+cd server && uv sync && cd ..
 
-# 方式 B：分别启动
-# 终端 1: python scripts/dev.py --server  # 后端 (127.0.0.1:18899)
-# 终端 2: python scripts/dev.py --client  # 前端 (localhost:5173)
+# 安装前端依赖
+cd client && npm install && cd ..
 ```
 
-### ③ Linux 容器部署
+**一键启动**
+
 ```bash
-docker-compose up -d
-# 访问 http://localhost:5000
+# 方式 A：跨平台 Python 脚本（推荐）
+python scripts/dev.py --all
+# 或分别启动：python scripts/dev.py --server / --client
+
+# 方式 B：Windows PowerShell
+.\scripts\start.ps1 -Server   # 终端 1：后端 (127.0.0.1:18899)
+.\scripts\start.ps1 -Client   # 终端 2：前端 (localhost:5173)
+
+# 方式 C：macOS / Linux Shell
+bash scripts/start.sh --server
+bash scripts/start.sh --client
 ```
 
 详见 [📖 快速开始指南](docs/quick-start.md)
@@ -79,9 +109,9 @@ docker-compose up -d
 |------|------|------|
 | 🚀 [快速开始](docs/quick-start.md) | 所有人 | 三种启动方式 + 常见问题 |
 | 👨‍💻 [开发者指南](docs/developers-guide.md) | 工程师 | 环境配置、代码规范、跨平台开发 |
-| 📋 [功能需求](docs/requirements.md) | 产品 | 完整功能规格与 API 设计 |
-| ✅ [验收标准](docs/acceptance-criteria.md) | QA | 测试用例与验收条件 |
-| 🐳 [部署说明](docs/deployment.md) | DevOps | 生产部署、Docker、问题排查 |
+| 📋 [功能需求](docs/需求文档.md) | 产品 | 完整功能规格与 API 设计 |
+| ✅ [验收标准](docs/验收标准文档.md) | QA | 测试用例与验收条件 |
+| 🐳 [部署说明](docs/部署说明.md) | DevOps | 生产部署、常见问题排查 |
 
 ---
 
@@ -108,7 +138,11 @@ docker-compose up -d
 ## 💡 FAQ
 
 **Q: 无需安装 Python 吗？**  
-A: ✅ Windows 用户无需。下载 exe 后双击安装，已内置全部依赖。
+A: ✅ Windows 安装包用户无需。下载 exe 后双击安装，已内置全部依赖。  
+开发者只需安装 `uv`，它会自动下载并管理 Python 3.12，**无需手动安装 Python**。
+
+**Q: uv 是什么？**  
+A: [uv](https://docs.astral.sh/uv/) 是 Rust 编写的极速 Python 包管理器，用一条命令 `uv sync` 即可完成 Python 版本下载 + 虚拟环境创建 + 全部依赖安装。
 
 **Q: 数据存在哪里？**  
 A: `%APPDATA%\XGBoostStudio\` (Windows) 或 `~/.xgbooststudio/` (macOS/Linux)
@@ -116,7 +150,7 @@ A: `%APPDATA%\XGBoostStudio\` (Windows) 或 `~/.xgbooststudio/` (macOS/Linux)
 **Q: 支持多用户协作吗？**  
 A: 目前为单机本地应用。可修改源码切换数据库为 PostgreSQL。
 
-更多 → [快速开始FAQ](docs/quick-start.md#常见问题) 或 [开发者FAQ](docs/developers-guide.md#常见问题)
+更多 → [快速开始 FAQ](docs/quick-start.md#常见问题) 或 [开发者 FAQ](docs/developers-guide.md#常见问题)
 
 ---
 
