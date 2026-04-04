@@ -59,5 +59,8 @@ desktop.ini
 # electron-builder 缓存
 client/.electron-builder-cache/
 
+# Playwright MCP 工具运行时产物
+.playwright-mcp/
+
 client/out/
 client/dist-electron/
