@@ -1,14 +1,29 @@
 import React, { useState, useEffect } from 'react'
 import {
   Card, Table, Button, Space, Typography, Modal, Form, Input,
-  InputNumber, message, Popconfirm, Tag, Row, Col, Statistic, Empty
+  InputNumber, message, Popconfirm, Tag, Row, Col, Statistic, Empty,
+  Checkbox
 } from 'antd'
-import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
+import HelpButton from '../../components/HelpButton'
 
 const { Title, Text } = Typography
+
+const SECTION_OPTIONS = [
+  { label: '执行摘要', value: 'executive_summary' },
+  { label: '数据概览', value: 'data_overview' },
+  { label: '模型参数', value: 'model_params' },
+  { label: '评估指标', value: 'evaluation' },
+  { label: 'SHAP 特征重要性', value: 'shap' },
+  { label: '学习曲线', value: 'learning_curve' },
+  { label: '过拟合分析', value: 'overfitting' },
+  { label: '基线对比', value: 'baseline' },
+  { label: '业务建议', value: 'business_advice' },
+  { label: '数据来源', value: 'data_source' },
+]
 
 interface ReportRecord {
   id: number; name: string; model_id: number | null; path: string; created_at: string
@@ -21,7 +36,7 @@ const ReportPage: React.FC = () => {
   const [genModal, setGenModal] = useState(false)
   const [genLoading, setGenLoading] = useState(false)
   const [previewId, setPreviewId] = useState<number | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [selectedSections, setSelectedSections] = useState<string[]>(SECTION_OPTIONS.map(o => o.value))
   const [form] = Form.useForm()
 
   const fetchReports = async () => {
@@ -50,6 +65,7 @@ const ReportPage: React.FC = () => {
         model_id: values.model_id,
         title: values.title || `模型${values.model_id}报告`,
         notes: values.notes || '',
+        include_sections: selectedSections.length < SECTION_OPTIONS.length ? selectedSections : undefined,
       })
       message.success('报告生成成功')
       setGenModal(false)
@@ -67,18 +83,20 @@ const ReportPage: React.FC = () => {
     try {
       const r = await apiClient.get(`/api/reports/${id}/download`, { responseType: 'blob' })
       const url = URL.createObjectURL(r.data)
-      const a = document.createElement('a'); a.href = url; a.download = `${name}.html`; a.click()
+      const a = document.createElement('a'); a.href = url; a.download = `${name}.pdf`; a.click()
       URL.revokeObjectURL(url)
     } catch { message.error('下载失败') }
   }
 
-  const handlePreview = async (id: number) => {
-    try {
-      const r = await apiClient.get(`/api/reports/${id}/download`, { responseType: 'blob' })
-      const url = URL.createObjectURL(r.data)
-      setPreviewUrl(url)
-      setPreviewId(id)
-    } catch { message.error('预览失败') }
+  const handlePreview = (id: number) => {
+    const url = `http://127.0.0.1:18899/api/reports/${id}/download`
+    const win = window as unknown as { electron?: { openExternal?: (u: string) => void } }
+    if (win.electron?.openExternal) {
+      win.electron.openExternal(url)
+    } else {
+      window.open(url, '_blank')
+    }
+    setPreviewId(id)
   }
 
   const handleDelete = async (id: number) => {
@@ -112,6 +130,11 @@ const ReportPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <FileTextOutlined /> 报告管理
       </Title>
+      <HelpButton pageTitle="报告管理" items={[
+        { title: '如何生成报告？', content: '点击「生成新报告」，输入模型 ID 并选择所需章节，系统将自动生成 PDF 报告。' },
+        { title: '如何选择包含章节？', content: '在生成对话框中勾选/反选对应章节，支持自定义 PDF 内容。' },
+        { title: '如何预览 PDF？', content: '点击操作列的「预览」按鈕，将在弹框中内嵌展示 PDF。' },
+      ]} />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
@@ -144,6 +167,7 @@ const ReportPage: React.FC = () => {
         onOk={handleGenerate}
         confirmLoading={genLoading}
         onCancel={() => { setGenModal(false); form.resetFields() }}
+        width={600}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="model_id" label="模型 ID" rules={[{ required: true, message: '请输入模型ID' }]}>
@@ -153,26 +177,46 @@ const ReportPage: React.FC = () => {
             <Input placeholder="如：泰坦尼克生存预测模型报告" />
           </Form.Item>
           <Form.Item name="notes" label="备注说明">
-            <Input.TextArea rows={3} placeholder="可输入模型说明、实验背景等" />
+            <Input.TextArea rows={2} placeholder="可输入模型说明、实验背景等" />
           </Form.Item>
         </Form>
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500 }}>包含章节</span>
+            <span>
+              <Button size="small" type="link" style={{ padding: '0 4px' }}
+                onClick={() => setSelectedSections(SECTION_OPTIONS.map(o => o.value))}>全选</Button>
+              <Button size="small" type="link" style={{ padding: '0 4px' }}
+                onClick={() => setSelectedSections([])}>清空</Button>
+            </span>
+          </div>
+          <Checkbox.Group
+            options={SECTION_OPTIONS}
+            value={selectedSections}
+            onChange={v => setSelectedSections(v as string[])}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 0' }}
+          />
+        </div>
       </Modal>
 
       <Modal
         title="报告预览"
         open={previewId !== null}
-        onCancel={() => { setPreviewId(null); if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null) }}
-        footer={null}
-        width="90vw"
-        style={{ top: 20 }}
+        onCancel={() => setPreviewId(null)}
+        footer={[
+          <Button key="close" onClick={() => setPreviewId(null)}>关闭</Button>
+        ]}
+        width={600}
       >
-        {previewUrl && (
-          <iframe
-            src={previewUrl}
-            style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 4 }}
-            title="报告预览"
-          />
-        )}
+        <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <EyeOutlined style={{ fontSize: 48, color: '#60a5fa', marginBottom: 16, display: 'block' }} />
+          <Typography.Text style={{ color: '#e2e8f0', display: 'block', marginBottom: 8 }}>
+            PDF 已在系统默认查看器中打开
+          </Typography.Text>
+          <Typography.Text style={{ color: '#64748b', fontSize: 12 }}>
+            如没有自动打开，请点击下载按鈕手动下载
+          </Typography.Text>
+        </div>
       </Modal>
     </div>
   )

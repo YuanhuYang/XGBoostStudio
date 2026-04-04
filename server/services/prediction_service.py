@@ -107,3 +107,27 @@ def get_batch_result_path(task_id: str) -> Path:
     if not path.exists():
         raise HTTPException(status_code=404, detail="预测结果不存在")
     return path
+
+
+def batch_predict_summary(task_id: str) -> dict[str, Any]:
+    """返回批量预测结果的统计摘要（各类别计数/比例）"""
+    path = DATA_DIR / f"predict_{task_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="预测结果不存在")
+    df = pd.read_csv(path, encoding="utf-8-sig")
+    if "prediction" not in df.columns:
+        raise HTTPException(status_code=400, detail="结果文件缺少 prediction 列")
+    total = len(df)
+    vc = df["prediction"].value_counts()
+    distribution = [
+        {"label": str(k), "count": int(v), "ratio": round(float(v) / total, 4)}
+        for k, v in vc.items()
+    ]
+    prob_cols = [c for c in df.columns if c.startswith("prob_class_")]
+    return {
+        "task_id": task_id,
+        "total_rows": total,
+        "distribution": distribution,
+        "has_probability": len(prob_cols) > 0,
+        "probability_columns": prob_cols,
+    }

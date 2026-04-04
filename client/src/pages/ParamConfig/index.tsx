@@ -4,7 +4,7 @@ import {
   InputNumber, Tag, Alert, message,
   Statistic, Badge, Divider, Collapse
 } from 'antd'
-import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, DownOutlined } from '@ant-design/icons'
+import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, DownOutlined, ThunderboltOutlined, AimOutlined, ExperimentOutlined } from '@ant-design/icons'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import ParamExplainCard from '../../components/ParamExplainCard'
@@ -15,11 +15,40 @@ const { Title, Text } = Typography
 // 核心参数（面向所有用户）
 const CORE_PARAM_NAMES = ['n_estimators', 'max_depth', 'learning_rate', 'subsample', 'colsample_bytree', 'reg_lambda']
 
+// 预设方案
+const PRESETS = [
+  {
+    key: 'fast',
+    label: '快速验证',
+    desc: '小数据集/初步探索',
+    icon: <ThunderboltOutlined />,
+    color: '#f59e0b',
+    params: { n_estimators: 50, max_depth: 4, learning_rate: 0.3, subsample: 0.8, colsample_bytree: 0.8, reg_lambda: 1 }
+  },
+  {
+    key: 'balanced',
+    label: '均衡推荐',
+    desc: '大多数场景首选',
+    icon: <AimOutlined />,
+    color: '#3b82f6',
+    params: { n_estimators: 200, max_depth: 6, learning_rate: 0.1, subsample: 0.8, colsample_bytree: 0.8, reg_lambda: 1 }
+  },
+  {
+    key: 'deep',
+    label: '深度训练',
+    desc: '追求最高精度（较慢）',
+    icon: <ExperimentOutlined />,
+    color: '#8b5cf6',
+    params: { n_estimators: 500, max_depth: 8, learning_rate: 0.05, subsample: 0.7, colsample_bytree: 0.7, reg_lambda: 1 }
+  },
+]
+
 const ParamConfigPage: React.FC = () => {
   const activeSplitId = useAppStore(s => s.activeSplitId)
   const [schema, setSchema] = useState<ParamSchema[]>([])
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [splitId, setSplitId] = useState<number | null>(null)
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
   const [recommendation, setRecommendation] = useState<{ params: Record<string, unknown>; notes: string[]; explanations?: Record<string, string> } | null>(null)
   const [validation, setValidation] = useState<{ valid: boolean; errors: Record<string, string> } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -64,7 +93,15 @@ const ParamConfigPage: React.FC = () => {
 
   const handleParamChange = (name: string, value: unknown) => {
     setParams(prev => ({ ...prev, [name]: value }))
+    setSelectedPreset(null)
     setValidation(null)
+  }
+
+  const handlePresetSelect = (preset: typeof PRESETS[0]) => {
+    setSelectedPreset(preset.key)
+    setParams(prev => ({ ...prev, ...preset.params }))
+    setValidation(null)
+    message.success(`已应用「${preset.label}」预设`)
   }
 
   const coreSchema = schema.filter(p => CORE_PARAM_NAMES.includes(p.name))
@@ -75,6 +112,33 @@ const ParamConfigPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <SettingOutlined /> 超参数配置
       </Title>
+
+      {/* 预设方案快捷入口 */}
+      <Row gutter={12} style={{ marginBottom: 20 }}>
+        {PRESETS.map(preset => (
+          <Col span={8} key={preset.key}>
+            <Card
+              onClick={() => handlePresetSelect(preset)}
+              style={{
+                background: selectedPreset === preset.key ? `${preset.color}22` : '#1e293b',
+                border: `2px solid ${selectedPreset === preset.key ? preset.color : '#334155'}`,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: selectedPreset === preset.key ? `0 0 0 1px ${preset.color}` : 'none',
+              }}
+              styles={{ body: { padding: '12px 16px' } }}
+            >
+              <Space>
+                <span style={{ fontSize: 20, color: preset.color }}>{preset.icon}</span>
+                <div>
+                  <Text strong style={{ color: preset.color, display: 'block' }}>{preset.label}</Text>
+                  <Text style={{ color: '#64748b', fontSize: 12 }}>{preset.desc}</Text>
+                </div>
+              </Space>
+            </Card>
+          </Col>
+        ))}
+      </Row>
 
       <Row gutter={16}>
         <Col span={8}>

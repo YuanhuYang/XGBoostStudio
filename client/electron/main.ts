@@ -50,6 +50,17 @@ app.whenReady().then(async () => {
   // IPC 事件处理
   ipcMain.handle('server:status', () => serverManager.getStatus())
   ipcMain.handle('server:getPort', () => 18899)
+  ipcMain.handle('shell:openExternal', (_event, url: string) => shell.openExternal(url))
+  ipcMain.handle('app:isFirstLaunch', () => {
+    const { existsSync, writeFileSync } = require('fs')
+    const { join: pathJoin } = require('path')
+    const flagPath = pathJoin(app.getPath('userData'), 'launched.flag')
+    if (!existsSync(flagPath)) {
+      writeFileSync(flagPath, '1', 'utf-8')
+      return true
+    }
+    return false
+  })
 
   // 创建窗口
   createWindow()

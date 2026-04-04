@@ -8,6 +8,11 @@ dist/
 client/dist/
 server/dist/
 
+# 打包后的二进制文件（超出 GitHub 100MB 限制）
+client/resources/*.exe
+client/resources/*.dll
+server/dist/
+
 # Python
 __pycache__/
 *.pyc

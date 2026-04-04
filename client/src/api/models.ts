@@ -63,3 +63,12 @@ export async function exportModel(id: number, format: 'ubj' | 'pickle' = 'ubj'):
   )
   return res.data
 }
+
+/** 更新模型属性（名称 / 标签 / 备注等）*/
+export async function updateModel(
+  id: number,
+  payload: { name?: string; tags?: string; notes?: string; description?: string }
+): Promise<Model> {
+  const res = await apiClient.patch(`/api/models/${id}`, payload)
+  return res.data
+}

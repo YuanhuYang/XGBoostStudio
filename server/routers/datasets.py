@@ -14,9 +14,11 @@ from schemas.dataset import (
     QualityScoreResponse, SplitResponse,
     HandleMissingRequest, HandleOutliersRequest, SplitRequest,
     EncodeRequest, ScaleRequest, BoxCoxRequest, PCARequest, SelectFeaturesRequest,
+    SimpleMissingRequest, SimpleOutliersRequest,
 )
 import services.dataset_service as svc
 import services.feature_service as feat_svc
+from services.dataset_service import _load_df as _ds_load_df
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 
@@ -110,10 +112,15 @@ def get_missing_pattern(dataset_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{dataset_id}/handle-missing", response_model=DatasetResponse)
 def handle_missing(
-    dataset_id: int, body: HandleMissingRequest, db: Session = Depends(get_db)
+    dataset_id: int, body: SimpleMissingRequest, db: Session = Depends(get_db)
 ):
     ds = _get_dataset(dataset_id, db)
-    return svc.handle_missing(ds, {k: v.model_dump() for k, v in body.config.items()}, db)
+    cols = body.columns
+    if not cols:
+        df = _ds_load_df(ds)
+        cols = df.columns.tolist()
+    config = {col: {"strategy": body.strategy, "fill_value": body.fill_value} for col in cols}
+    return svc.handle_missing(ds, config, db)
 
 
 # ── 异常值 ────────────────────────────────────────────────────────────────────
@@ -126,10 +133,10 @@ def get_outliers(dataset_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{dataset_id}/handle-outliers", response_model=DatasetResponse)
 def handle_outliers(
-    dataset_id: int, body: HandleOutliersRequest, db: Session = Depends(get_db)
+    dataset_id: int, body: SimpleOutliersRequest, db: Session = Depends(get_db)
 ):
     ds = _get_dataset(dataset_id, db)
-    return svc.handle_outliers(ds, body.action, body.row_indices, db)
+    return svc.handle_outliers_by_strategy(ds, body.strategy, db)
 
 
 # ── 重复行 ────────────────────────────────────────────────────────────────────

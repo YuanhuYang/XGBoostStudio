@@ -1,9 +1,10 @@
 """
-报告路由（模块9）
-POST /api/reports/generate        → 生成 HTML 报告
+报告路由
+POST /api/reports/generate        → 生成 PDF 报告
+POST /api/reports/compare         → 多模型对比 PDF
 GET  /api/reports                 → 报告列表
 GET  /api/reports/{id}            → 报告详情
-GET  /api/reports/{id}/download   → 下载 HTML
+GET  /api/reports/{id}/download   → 下载 PDF
 DELETE /api/reports/{id}          → 删除报告
 """
 from __future__ import annotations
@@ -16,8 +17,8 @@ from sqlalchemy.orm import Session
 
 from db.database import get_db
 from db.models import Report
-from schemas.model import ReportGenerateRequest
-from services.report_service import generate_report, list_reports, get_report_path
+from schemas.model import ReportGenerateRequest, ReportCompareRequest
+from services.report_service import generate_report, generate_comparison_report, list_reports, get_report_path
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -28,6 +29,16 @@ def generate(body: ReportGenerateRequest, db: Session = Depends(get_db)) -> dict
         model_id=body.model_id,
         title=body.title or "",
         notes=body.notes or "",
+        db=db,
+        include_sections=body.include_sections,
+    )
+
+
+@router.post("/compare")
+def compare(body: ReportCompareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return generate_comparison_report(
+        model_ids=body.model_ids,
+        title=body.title or "",
         db=db,
     )
 
@@ -56,10 +67,18 @@ def download_report(report_id: int, db: Session = Depends(get_db)) -> FileRespon
     path = get_report_path(report_id, db)
     report = db.query(Report).filter(Report.id == report_id).first()
     safe_name = (report.name if report else "report").replace(" ", "_")
+    # 向后兼容：检测实际文件扩展名
+    ext = path.suffix.lower()
+    if ext == ".pdf":
+        media_type = "application/pdf"
+        filename = f"{safe_name}.pdf"
+    else:
+        media_type = "text/html"
+        filename = f"{safe_name}.html"
     return FileResponse(
         path=str(path),
-        filename=f"{safe_name}.html",
-        media_type="text/html",
+        filename=filename,
+        media_type=media_type,
     )
 
 

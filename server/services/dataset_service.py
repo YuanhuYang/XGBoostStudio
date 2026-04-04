@@ -44,13 +44,18 @@ def _save_df(df: pd.DataFrame, filename: str) -> str:
 def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Optional[str], db: Session) -> Dataset:
     ext = original_filename.rsplit(".", 1)[-1].lower()
     if ext not in ("csv", "xlsx", "xls"):
-        raise HTTPException(status_code=400, detail="仅支持 CSV / XLSX / XLS 格式")
+        raise HTTPException(status_code=400, detail="仅支持 CSV / XLSX / XLS 格式，不支持其他文件类型")
+
+    # 200MB 大小限制
+    max_bytes = 200 * 1024 * 1024
+    if len(file_bytes) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"文件过大（{len(file_bytes)//1024//1024}MB），最大支持 200MB")
 
     unique_name = f"{uuid.uuid4().hex}.{ext}"
     save_path = DATA_DIR / unique_name
     save_path.write_bytes(file_bytes)
 
-    # 读取基本信息
+    # 读取基本信息并清理列名
     try:
         if ext in ("xlsx", "xls"):
             df = pd.read_excel(save_path, sheet_name=sheet_name or 0)
@@ -58,7 +63,12 @@ def save_upload_file(file_bytes: bytes, original_filename: str, sheet_name: Opti
             df = pd.read_csv(save_path, encoding="utf-8-sig")
     except Exception as e:
         save_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=f"文件解析失败: {e}") from e
+        raise HTTPException(status_code=400, detail=f"文件解析失败，请确认文件格式正确且首行为标题行: {e}") from e
+
+    # 清理列名：特殊字符和空格替换为下划线
+    import re as _re
+    df.columns = [_re.sub(r'[^\w]+', '_', str(c)).strip('_') for c in df.columns]
+    df.to_csv(save_path, index=False, encoding='utf-8-sig') if ext == 'csv' else None
 
     dataset = Dataset(
         name=original_filename.rsplit(".", 1)[0],
@@ -174,6 +184,16 @@ def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dat
             df[col] = df[col].fillna(fill_value)
         elif strategy == "drop":
             df = df.dropna(subset=[col])
+        elif strategy == "knn":
+            # KNN 填充（仅对数值列有效）
+            try:
+                from sklearn.impute import KNNImputer  # type: ignore
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                if col in numeric_cols:
+                    imputer = KNNImputer(n_neighbors=5)
+                    df[numeric_cols] = imputer.fit_transform(df[numeric_cols])
+            except Exception:
+                df[col] = df[col].fillna(df[col].mean() if pd.api.types.is_numeric_dtype(df[col]) else df[col].mode().iloc[0] if not df[col].mode().empty else None)
     _save_df(df, dataset.path)
     dataset.rows = len(df)
     db.commit()
@@ -214,6 +234,40 @@ def handle_outliers(dataset: Dataset, action: str, row_indices: list[int], db: S
     if action == "drop":
         valid_indices = [i for i in row_indices if i < len(df)]
         df = df.drop(index=valid_indices).reset_index(drop=True)
+    _save_df(df, dataset.path)
+    dataset.rows = len(df)
+    db.commit()
+    db.refresh(dataset)
+    return dataset
+
+
+def handle_outliers_by_strategy(dataset: Dataset, strategy: str, db: Session) -> Dataset:
+    """按策略（clip/drop/mean）批量处理全部数值列的异常值（IQR 方法）"""
+    df = _load_df(dataset)
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if strategy == "clip":
+        for col in numeric_cols:
+            q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
+            iqr = q3 - q1
+            df[col] = df[col].clip(lower=q1 - 1.5 * iqr, upper=q3 + 1.5 * iqr)
+    elif strategy == "drop":
+        masks = []
+        for col in numeric_cols:
+            q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
+            iqr = q3 - q1
+            mask = (df[col] < q1 - 1.5 * iqr) | (df[col] > q3 + 1.5 * iqr)
+            masks.append(mask)
+        if masks:
+            combined = masks[0]
+            for m in masks[1:]:
+                combined = combined | m
+            df = df[~combined].reset_index(drop=True)
+    elif strategy == "mean":
+        for col in numeric_cols:
+            q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
+            iqr = q3 - q1
+            mask = (df[col] < q1 - 1.5 * iqr) | (df[col] > q3 + 1.5 * iqr)
+            df.loc[mask, col] = df[col].mean()
     _save_df(df, dataset.path)
     dataset.rows = len(df)
     db.commit()

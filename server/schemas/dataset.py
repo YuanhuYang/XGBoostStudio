@@ -23,6 +23,16 @@ class HandleOutliersRequest(BaseModel):
     row_indices: list[int]
 
 
+class SimpleMissingRequest(BaseModel):
+    strategy: str = Field(..., description="mean/median/mode/constant/drop/knn/none")
+    columns: Optional[list[str]] = None  # None 表示全部列
+    fill_value: Optional[Any] = None
+
+
+class SimpleOutliersRequest(BaseModel):
+    strategy: str = Field("clip", description="clip:IQR截断 / drop:删除行 / mean:均值替换")
+
+
 class SplitRequest(BaseModel):
     train_ratio: float = Field(0.8, ge=0.1, le=0.95)
     random_seed: int = Field(42, ge=0)
@@ -37,7 +47,7 @@ class EncodeRequest(BaseModel):
 
 
 class ScaleRequest(BaseModel):
-    columns: list[str]
+    columns: Optional[list[str]] = None  # None 表示全部数值列
     method: str = Field("standard", description="standard/minmax/robust")
 
 
@@ -46,7 +56,7 @@ class BoxCoxRequest(BaseModel):
 
 
 class PCARequest(BaseModel):
-    columns: list[str]
+    columns: Optional[list[str]] = None  # None 表示全部数值列
     n_components: int = Field(2, ge=1)
 
 

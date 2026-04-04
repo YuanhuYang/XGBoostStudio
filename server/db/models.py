@@ -57,6 +57,8 @@ class Model(Base):
     tags: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 逗号分隔的标签
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     training_time_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)  # 软删除标志
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)  # 用户备注
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -102,6 +104,8 @@ class Report(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     model_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("models.id"), nullable=True)
-    path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # HTML 报告文件名
+    path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 报告文件名（.pdf 或 .html）
     config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default="single")  # single/comparison
+    model_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 多模型对比时的 model_ids JSON
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

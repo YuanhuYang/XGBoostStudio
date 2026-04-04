@@ -20,6 +20,7 @@ from services.training_service import (
     training_stream,
     stop_task,
     get_task_result,
+    kfold_evaluate,
 )
 
 router = APIRouter(prefix="/api/training", tags=["training"])
@@ -59,3 +60,15 @@ def stop_training(task_id: str, db: Session = Depends(get_db)) -> dict[str, str]
 def training_result(task_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     """获取训练任务结果（指标、model_id 等）。"""
     return get_task_result(task_id, db)
+
+@router.post("/kfold")
+def kfold_cross_validate(
+    split_id: int,
+    k: int = 5,
+    params: dict[str, Any] | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    K-Fold 交叉验证训练集上的均値指标。
+    """
+    return kfold_evaluate(split_id=split_id, params=params or {}, k=k, db=db)

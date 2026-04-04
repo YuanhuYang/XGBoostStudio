@@ -1,224 +1,488 @@
-"""
-报告生成业务逻辑（HTML 报告）
+﻿"""
+报告生成业务逻辑  使用 reportlab 生成专业 PDF 报告
 """
 from __future__ import annotations
 
 import json
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+from uuid import uuid4
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from db.database import REPORTS_DIR
 from db.models import Dataset, DatasetSplit, Model, Report
 
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    HRFlowable, Image, PageBreak,
+)
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
-_HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>{title}</title>
-<style>
-  body {{ font-family: 'Microsoft YaHei', sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:32px; }}
-  h1 {{ font-size:24px; color:#60a5fa; border-bottom:2px solid #334155; padding-bottom:12px; }}
-  h2 {{ font-size:18px; color:#93c5fd; margin-top:32px; }}
-  table {{ border-collapse:collapse; width:100%; margin-top:8px; }}
-  th {{ background:#1e293b; color:#94a3b8; font-weight:600; padding:8px 12px; text-align:left; border:1px solid #334155; }}
-  td {{ padding:8px 12px; border:1px solid #334155; }}
-  tr:nth-child(even) td {{ background:#1e293b; }}
-  .badge {{ display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; }}
-  .badge-blue {{ background:#1d4ed8; color:#bfdbfe; }}
-  .badge-green {{ background:#15803d; color:#bbf7d0; }}
-  .metric-grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:12px; }}
-  .metric-card {{ background:#1e293b; border:1px solid #334155; border-radius:8px; padding:16px; text-align:center; }}
-  .metric-value {{ font-size:28px; font-weight:700; color:#60a5fa; }}
-  .metric-label {{ font-size:12px; color:#94a3b8; margin-top:4px; }}
-  .tag {{ background:#1e3a5f; color:#93c5fd; border-radius:4px; padding:2px 8px; font-size:12px; }}
-  footer {{ margin-top:48px; color:#475569; font-size:12px; border-top:1px solid #334155; padding-top:16px; }}
-  .alert {{ border-radius:8px; padding:16px 20px; margin-top:12px; }}
-  .alert-error {{ background:#450a0a; border:1px solid #7f1d1d; color:#fca5a5; }}
-  .alert-warning {{ background:#431407; border:1px solid #7c2d12; color:#fdba74; }}
-  .alert-success {{ background:#052e16; border:1px solid #14532d; color:#86efac; }}
-  .alert-title {{ font-weight:700; font-size:15px; margin-bottom:4px; }}
-</style>
-</head>
-<body>
-<h1>XGBoost Studio · 模型报告</h1>
-<p>生成时间：{gen_time} &nbsp;|&nbsp; 报告标题：<strong>{title}</strong></p>
+# -- Font --
+_FONT_NAME = "MicrosoftYaHei"
 
-<h2>数据集信息</h2>
-{dataset_section}
+def _register_cn_font():
+    for p in ["C:/Windows/Fonts/msyh.ttc","C:/Windows/Fonts/simhei.ttf","C:/Windows/Fonts/simsun.ttc"]:
+        if Path(p).exists():
+            try:
+                pdfmetrics.registerFont(TTFont(_FONT_NAME, p))
+                return _FONT_NAME
+            except Exception:
+                continue
+    return "Helvetica"
 
-<h2>模型信息</h2>
-{model_section}
+_CN_FONT = _register_cn_font()
 
-<h2>训练参数</h2>
-{params_section}
+# -- Colors --
+BRAND_BLUE  = colors.HexColor("#1677ff")
+BRAND_DARK  = colors.HexColor("#003eb3")
+BRAND_LIGHT = colors.HexColor("#e6f4ff")
+SUCCESS     = colors.HexColor("#52c41a")
+WARNING     = colors.HexColor("#fa8c16")
+DANGER      = colors.HexColor("#ff4d4f")
+GRAY_BG     = colors.HexColor("#f0f2f5")
+GRAY_LINE   = colors.HexColor("#d9d9d9")
+TEXT_DARK   = colors.HexColor("#1a1a1a")
+TEXT_MED    = colors.HexColor("#595959")
+TEXT_LIGHT  = colors.HexColor("#8c8c8c")
 
-<h2>评估指标</h2>
-{metrics_section}
+# -- Styles --
+def _S(name, **kw):
+    return ParagraphStyle(name, fontName=_CN_FONT, **kw)
 
-{overfitting_section}
+ST = {
+    "cover_title": _S("cover_title", fontSize=28, textColor=BRAND_BLUE, alignment=TA_CENTER, spaceAfter=8, leading=34),
+    "cover_sub":   _S("cover_sub",   fontSize=14, textColor=TEXT_MED,   alignment=TA_CENTER, spaceAfter=6),
+    "cover_meta":  _S("cover_meta",  fontSize=11, textColor=TEXT_LIGHT, alignment=TA_CENTER, spaceAfter=4),
+    "h1":          _S("h1",  fontSize=16, textColor=BRAND_DARK, spaceBefore=16, spaceAfter=8, leading=20),
+    "h2":          _S("h2",  fontSize=13, textColor=BRAND_BLUE, spaceBefore=12, spaceAfter=6, leading=16),
+    "body":        _S("body", fontSize=10, textColor=TEXT_DARK, leading=16, spaceAfter=6),
+    "body_j":      _S("body_j", fontSize=10, textColor=TEXT_DARK, leading=16, spaceAfter=6, alignment=TA_JUSTIFY),
+    "small":       _S("small", fontSize=9, textColor=TEXT_LIGHT, spaceAfter=4),
+    "caption":     _S("caption", fontSize=9, textColor=TEXT_MED, alignment=TA_CENTER, spaceBefore=2, spaceAfter=10),
+    "kv_key":      _S("kv_key", fontSize=10, textColor=TEXT_MED),
+    "kv_val":      _S("kv_val", fontSize=10, textColor=TEXT_DARK),
+    "warn_text":   _S("warn_text", fontSize=10, textColor=colors.HexColor("#ad4e00"), leading=15, spaceAfter=4),
+    "success_text":_S("success_text", fontSize=10, textColor=colors.HexColor("#135200"), leading=15, spaceAfter=4),
+    "danger_text": _S("danger_text", fontSize=10, textColor=colors.HexColor("#820014"), leading=15, spaceAfter=4),
+}
 
-{extra_section}
+_INTERNAL_KEYS = frozenset({"overfitting_level","overfitting_gap","train_accuracy","train_rmse","early_stopped","best_round"})
 
-<footer>由 XGBoost Studio 自动生成 · {gen_time}</footer>
-</body>
-</html>"""
+METRIC_EXPLAIN = {
+    "accuracy":  "准确率：所有预测中正确的比例，越高越好（满分1.0）",
+    "auc":       "AUC：分类器排序能力，0.5=随机，1.0=完美",
+    "f1":        "F1分数：精确率与召回率的调和平均数",
+    "precision": "精确率：预测正类中实际为正类的比例",
+    "recall":    "召回率：实际正类中正确识别的比例",
+    "rmse":      "均方根误差：预测偏差，越小越好",
+    "mae":       "平均绝对误差：绝对偏差平均值，越小越好",
+    "r2":        "R²决定系数：模型解释方差比例，1.0为完美",
+    "log_loss":  "对数损失：概率预测质量，越小越好",
+}
 
+def _metric_level(key, val):
+    if key in("accuracy","auc","f1","precision","recall","r2"):
+        if val>=0.9: return "优秀"
+        if val>=0.75: return "良好"
+        if val>=0.6: return "尚可"
+        return "待提升"
+    return "越低越好" if key in("rmse","mae","log_loss") else ""
 
-def _kv_table(data: dict[str, Any]) -> str:
-    rows = "".join(f"<tr><td><strong>{k}</strong></td><td>{v}</td></tr>" for k, v in data.items())
-    return f"<table><thead><tr><th>参数</th><th>值</th></tr></thead><tbody>{rows}</tbody></table>"
+def _img(img_bytes, width=13*cm):
+    if not img_bytes: return None
+    buf = BytesIO(img_bytes)
+    img = Image(buf)
+    aspect = img.imageHeight / img.imageWidth
+    img.drawWidth = width; img.drawHeight = width * aspect
+    return img
 
+def _kv_table(data):
+    rows = [[Paragraph(str(k), ST["kv_key"]), Paragraph(str(v), ST["kv_val"])] for k,v in data.items()]
+    t = Table(rows, colWidths=[5*cm, 11*cm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(0,-1),GRAY_BG),
+        ("GRID",(0,0),(-1,-1),0.5,GRAY_LINE),
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ("LEFTPADDING",(0,0),(-1,-1),8),
+        ("RIGHTPADDING",(0,0),(-1,-1),8),
+        ("TOPPADDING",(0,0),(-1,-1),5),
+        ("BOTTOMPADDING",(0,0),(-1,-1),5),
+    ]))
+    return t
 
-_INTERNAL_METRIC_KEYS = frozenset({
-    "overfitting_level", "overfitting_gap", "train_accuracy", "train_rmse",
-    "early_stopped", "best_round",
-})
+def _metrics_table(metrics):
+    filtered = {k:v for k,v in metrics.items() if k not in _INTERNAL_KEYS and isinstance(v,(int,float))}
+    if not filtered: return None
+    rows = [["指标","数值","水平","说明"]]
+    for k,v in filtered.items():
+        rows.append([Paragraph(k.upper(),ST["kv_key"]), Paragraph(f"{float(v):.4f}",ST["body"]),
+                     Paragraph(_metric_level(k,float(v)),ST["small"]), Paragraph(METRIC_EXPLAIN.get(k,"")[:50],ST["small"])])
+    t = Table(rows, colWidths=[3*cm,2.5*cm,2.5*cm,8*cm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,0),BRAND_BLUE),("TEXTCOLOR",(0,0),(-1,0),colors.white),
+        ("FONTNAME",(0,0),(-1,-1),_CN_FONT),("FONTSIZE",(0,0),(-1,-1),9),
+        ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,BRAND_LIGHT]),
+        ("GRID",(0,0),(-1,-1),0.5,GRAY_LINE),
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6),
+        ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
+    ]))
+    return t
 
+def _header_footer(canvas, doc):
+    canvas.saveState()
+    w,h = A4
+    canvas.setFillColor(BRAND_DARK); canvas.rect(0, h-1.2*cm, w, 1.2*cm, fill=True, stroke=False)
+    canvas.setFillColor(colors.white); canvas.setFont(_CN_FONT,9)
+    canvas.drawString(1*cm, h-0.8*cm, "XGBoost Studio  专业数据分析报告")
+    canvas.drawRightString(w-1*cm, h-0.8*cm, datetime.now().strftime("%Y-%m-%d"))
+    canvas.setFillColor(GRAY_BG); canvas.rect(0,0,w,0.8*cm,fill=True,stroke=False)
+    canvas.setFillColor(TEXT_LIGHT); canvas.setFont(_CN_FONT,8)
+    canvas.drawString(1*cm,0.25*cm,"由 XGBoost Studio 自动生成  仅供参考，请结合实际业务判断")
+    canvas.drawRightString(w-1*cm,0.25*cm,f"第 {doc.page} 页")
+    canvas.restoreState()
 
-def _metrics_grid(metrics: dict[str, Any]) -> str:
-    cards = ""
-    for k, v in metrics.items():
-        if k in _INTERNAL_METRIC_KEYS:
-            continue
-        if isinstance(v, float):
-            val = f"{v:.4f}"
-        else:
-            val = str(v)
-        cards += f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{k}</div></div>'
-    return f'<div class="metric-grid">{cards}</div>'
-
-
-def _overfitting_section(metrics: dict[str, Any]) -> str:
-    level = metrics.get("overfitting_level")
-    if not level:
-        return ""
-    gap = metrics.get("overfitting_gap", 0)
-    early_stopped = metrics.get("early_stopped", False)
-    best_round = metrics.get("best_round")
-    if level == "high":
-        cls, icon, title = "alert-error", "⚠️", "检测到明显过拟合"
-        body = (f"训练集与验证集指标差距 {abs(gap):.4f}，模型泛化能力存在较大风险。"
-                "<br>建议：降低 max_depth、增大 reg_lambda/reg_alpha、提高 subsample/colsample_bytree。")
-    elif level == "medium":
-        cls, icon, title = "alert-warning", "📊", "轻微过拟合"
-        body = (f"训练集与验证集指标差距 {abs(gap):.4f}，泛化能力尚可。"
-                "<br>建议适当增加正则化参数或提升数据量。")
+def _executive_summary(metrics, task_type, ds_name, model_name):
+    paras = []
+    if task_type=="classification":
+        acc=metrics.get("accuracy"); auc=metrics.get("auc"); f1=metrics.get("f1")
+        level=_metric_level("accuracy",float(acc)) if acc else "未知"
+        p1=(f"本报告对模型 <b>\"{model_name}\"</b> 在数据集 <b>\"{ds_name}\"</b> 上的分类性能进行全面评估。"
+            f"模型在测试集上达到准确率 <b>{float(acc):.2%}</b>，表现<b>{level}</b>。")
+        if auc: p1+=f" AUC={float(auc):.4f}，说明模型具备{'良好' if float(auc)>=0.75 else '基础'}的样本区分能力。"
+        paras.append(p1)
+        if f1:
+            lf=_metric_level("f1",float(f1))
+            paras.append(f"F1分数 {float(f1):.4f}（{lf}），{'适合正式部署' if float(f1)>=0.75 else '建议进一步调参再部署'}。")
+        ol=metrics.get("overfitting_level","low")
+        if ol=="high": paras.append("⚠️ <b>过拟合预警</b>：训练集与验证集指标差距较大，建议降低模型复杂度或增加训练数据后再部署。")
+        elif ol=="medium": paras.append("训练集与验证集指标存在轻微差距，建议适当增加正则化参数以提升泛化能力。")
+        else: paras.append("✅ 模型泛化能力良好，训练集与验证集指标接近，无明显过拟合迹象。")
     else:
-        cls, icon, title = "alert-success", "✅", "过拟合风险低"
-        body = "训练集与验证集指标接近，模型泛化能力良好。"
-    extra = ""
-    if early_stopped and best_round:
-        extra = f'<br><small>🛑 训练在第 {best_round} 轮触发早停，自动保护了模型泛化能力。</small>'
-    return (
-        f'<h2>过拟合诊断</h2>'
-        f'<div class="alert {cls}">'
-        f'<div class="alert-title">{icon} {title}</div>'
-        f'<div>{body}{extra}</div>'
-        f'</div>'
-    )
+        r2=metrics.get("r2"); rmse=metrics.get("rmse")
+        p1=f"本报告对回归模型 <b>\"{model_name}\"</b> 在数据集 <b>\"{ds_name}\"</b> 上的预测性能进行全面评估。"
+        if r2 is not None:
+            lr=_metric_level("r2",float(r2))
+            p1+=f" R²={float(r2):.4f}（{lr}），可解释 {max(0,float(r2))*100:.1f}% 的目标方差。"
+        paras.append(p1)
+        if rmse: paras.append(f"RMSE={float(rmse):.4f}，{'预测精度较高' if float(r2 or 0)>=0.75 else '仍有提升空间'}，建议结合业务误差容忍度判断可用性。")
+    return paras
 
+def _business_advice(metrics, task_type):
+    advice=[]
+    if task_type=="classification":
+        acc=float(metrics.get("accuracy",0)); auc=float(metrics.get("auc",0))
+        if acc>=0.9 and auc>=0.9: advice.append("✅ 性能优秀，建议在小范围业务场景中先行上线A/B测试验证效果。")
+        elif acc>=0.75: advice.append("📊 性能良好，可考虑在非关键场景上线；若精确率要求高，建议调整预测阈值（当前默认0.5）。")
+        else: advice.append("⚠️ 性能有待提升： 增加训练数据； 优化特征工程； 使用Optuna自动调参。")
+        advice.append("💡 建议建立模型监控机制，定期用新数据重评估，注意数据分布漂移。")
+    else:
+        r2=float(metrics.get("r2",0))
+        if r2>=0.85: advice.append("✅ 拟合效果优秀，R²较高，可用于实际预测场景。")
+        elif r2>=0.6: advice.append("📊 具备基础预测能力，建议检查未被捕捉的交互特征或非线性关系。")
+        else: advice.append("⚠️ 拟合效果不理想： 检查数据质量； 增加特征工程； 增大数据量。")
+        advice.append("💡 请结合具体业务场景设定可接受的RMSE/MAE阈值，而非仅依赖R²判断。")
+    advice.append("📌 免责声明：本报告由机器学习模型自动生成，预测结果仅供参考，最终决策应结合领域专家判断。")
+    return advice
 
-def generate_report(
-    model_id: int,
-    title: str,
-    notes: str,
-    db: Session,
-) -> dict[str, Any]:
-    record = db.query(Model).filter(Model.id == model_id).first()
-    if not record:
-        raise HTTPException(status_code=404, detail="模型不存在")
+ALL_SECTIONS = ["executive_summary","data_overview","model_params","evaluation","shap","learning_curve","overfitting","baseline","business_advice"]
 
-    dataset = db.query(Dataset).filter(Dataset.id == record.dataset_id).first() if record.dataset_id else None
-    split = db.query(DatasetSplit).filter(DatasetSplit.id == record.split_id).first() if record.split_id else None
+def generate_report(model_id, title, notes, db, include_sections=None):
+    from services import chart_service
+    from services.eval_service import get_evaluation, get_learning_curve
 
+    record = db.query(Model).filter(Model.id==model_id).first()
+    if not record: raise HTTPException(status_code=404, detail="模型不存在")
+    dataset = db.query(Dataset).filter(Dataset.id==record.dataset_id).first() if record.dataset_id else None
+    split   = db.query(DatasetSplit).filter(DatasetSplit.id==record.split_id).first() if record.split_id else None
     gen_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 数据集区块
-    if dataset:
-        dataset_info = {
-            "名称": dataset.name,
-            "行数": dataset.rows,
-            "列数": dataset.cols,
-            "目标列": dataset.target_column or "-",
-            "上传时间": str(dataset.created_at)[:19],
-        }
-    else:
-        dataset_info = {"信息": "无关联数据集"}
-    dataset_section = _kv_table(dataset_info)
-
-    # 模型区块
-    model_info = {
-        "模型名称": record.name,
-        "任务类型": record.task_type,
-        "创建时间": str(record.created_at)[:19],
-        "文件": record.path,
-    }
-    if split:
-        model_info["训练集比例"] = f"{split.train_ratio * 100:.0f}%"
-    model_section = _kv_table(model_info)
-
-    # 参数区块
-    params = json.loads(record.params_json or "{}")
-    params_section = _kv_table(params) if params else "<p>无参数信息</p>"
-
-    # 指标区块
+    report_title = title or f"模型报告 - {record.name}"
+    ds_name = dataset.name if dataset else "未知数据集"
+    params  = json.loads(record.params_json or "{}")
     metrics = json.loads(record.metrics_json or "{}")
-    metrics_section = _metrics_grid(metrics) if metrics else "<p>无指标信息</p>"
+    sections = set(include_sections if include_sections else ALL_SECTIONS)
 
-    # 备注
-    extra_section = f"<h2>备注</h2><p>{notes}</p>" if notes else ""
+    eval_result = {}
+    try: eval_result = get_evaluation(model_id, db)
+    except Exception: pass
 
-    # 过拟合诊断块
-    overfitting_section = _overfitting_section(metrics)
+    story = []
+    # -- Cover --
+    story += [Spacer(1,6*cm),
+              Paragraph("XGBoost Studio", ST["cover_title"]),
+              Paragraph("专业机器学习分析报告", _S("cs",fontSize=16,textColor=TEXT_MED,alignment=TA_CENTER,spaceAfter=10)),
+              HRFlowable(width="80%",thickness=2,color=BRAND_BLUE,spaceAfter=20,spaceBefore=10),
+              Paragraph(f"<b>{report_title}</b>", ST["cover_sub"]),
+              Spacer(1,0.5*cm),
+              Paragraph(f"模型：{record.name}", ST["cover_meta"]),
+              Paragraph(f"数据集：{ds_name}", ST["cover_meta"]),
+              Paragraph(f"任务类型：{'分类' if record.task_type=='classification' else '回归'}", ST["cover_meta"]),
+              Paragraph(f"生成时间：{gen_time}", ST["cover_meta"]),
+              PageBreak()]
 
-    html = _HTML_TEMPLATE.format(
-        title=title or f"模型报告_{model_id}",
-        gen_time=gen_time,
-        dataset_section=dataset_section,
-        model_section=model_section,
-        params_section=params_section,
-        metrics_section=metrics_section,
-        overfitting_section=overfitting_section,
-        extra_section=extra_section,
-    )
+    # -- 执行摘要 --
+    if "executive_summary" in sections:
+        story += [Paragraph("一、执行摘要", ST["h1"]),
+                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        for p in _executive_summary(metrics, record.task_type, ds_name, record.name):
+            story.append(Paragraph(p, ST["body_j"]))
+        story.append(Spacer(1,0.3*cm))
 
-    from uuid import uuid4
-    report_filename = f"report_{uuid4().hex[:12]}.html"
-    report_path = REPORTS_DIR / report_filename
-    report_path.write_text(html, encoding="utf-8")
+    # -- 数据集概览 --
+    if "data_overview" in sections:
+        story += [Paragraph("二、数据集概览", ST["h1"]),
+                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        if dataset:
+            dinfo = {"数据集名称": dataset.name,"总行数": f"{dataset.rows:,}" if dataset.rows else "-",
+                     "总列数": str(dataset.cols) if dataset.cols else "-","目标列": dataset.target_column or "-",
+                     "任务类型": "分类" if record.task_type=="classification" else "回归",
+                     "上传时间": str(dataset.created_at)[:19]}
+            if split:
+                dinfo["训练集行数"] = f"{split.train_rows:,}" if split.train_rows else "-"
+                dinfo["测试集行数"] = f"{split.test_rows:,}" if split.test_rows else "-"
+                dinfo["训练/测试比例"] = f"{split.train_ratio*100:.0f}% / {(1-split.train_ratio)*100:.0f}%"
+            story.append(_kv_table(dinfo))
+        try:
+            from db.database import DATA_DIR
+            import pandas as pd
+            if split and dataset and dataset.target_column:
+                tp = DATA_DIR / split.test_path
+                if tp.exists():
+                    df = pd.read_csv(tp, encoding="utf-8-sig")
+                    if dataset.target_column in df.columns:
+                        cb = chart_service.target_distribution_chart(df[dataset.target_column].tolist(), record.task_type, dataset.target_column)
+                        im = _img(cb, 12*cm)
+                        if im: story += [Spacer(1,0.3*cm), im, Paragraph("图1：目标列分布", ST["caption"])]
+        except Exception: pass
+        story.append(Spacer(1,0.3*cm))
 
-    report = Report(
-        name=title or f"Report_{model_id}",
-        model_id=model_id,
-        path=report_filename,
-    )
-    db.add(report)
-    db.commit()
-    db.refresh(report)
+    # -- 模型参数 --
+    if "model_params" in sections:
+        story += [Paragraph("三、模型训练参数", ST["h1"]),
+                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        minfo = {"模型名称": record.name,"任务类型": "分类" if record.task_type=="classification" else "回归",
+                 "训练耗时": f"{record.training_time_s:.1f} 秒" if record.training_time_s else "-",
+                 "创建时间": str(record.created_at)[:19]}
+        story.append(_kv_table(minfo))
+        if params:
+            story.append(Paragraph("XGBoost 超参数配置：", ST["h2"]))
+            story.append(_kv_table({k:v for k,v in params.items() if not k.startswith("_")}))
 
-    return {
-        "id": report.id,
-        "name": report.name,
-        "path": report_filename,
-        "created_at": str(report.created_at),
-    }
+    # -- 评估指标 --
+    if "evaluation" in sections:
+        story += [Paragraph("四、模型评估结果", ST["h1"]),
+                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        mt = _metrics_table(metrics)
+        if mt: story += [mt, Spacer(1,0.3*cm)]
+        if record.task_type=="classification":
+            try:
+                rb = chart_service.metrics_radar_chart(metrics)
+                im = _img(rb, 10*cm)
+                if im: story += [im, Paragraph("图2：评估指标雷达图", ST["caption"])]
+            except Exception: pass
+        roc = eval_result.get("roc_curve")
+        if roc:
+            try:
+                cb = chart_service.roc_curve_chart(roc["fpr"],roc["tpr"],roc["auc"])
+                im = _img(cb, 12*cm)
+                if im: story += [im, Paragraph(f"图3：ROC曲线（AUC={roc['auc']:.4f}）", ST["caption"])]
+            except Exception: pass
+        cm_data = eval_result.get("confusion_matrix")
+        if cm_data:
+            try:
+                cb = chart_service.confusion_matrix_chart(cm_data["matrix"], cm_data["labels"])
+                im = _img(cb, 10*cm)
+                if im: story += [im, Paragraph("图4：混淆矩阵", ST["caption"])]
+            except Exception: pass
+        pr = eval_result.get("pr_curve")
+        if pr:
+            try:
+                cb = chart_service.pr_curve_chart(pr["precision"],pr["recall"],pr["ap"])
+                im = _img(cb, 12*cm)
+                if im: story += [im, Paragraph(f"图5：PR曲线（AP={pr['ap']:.4f}）", ST["caption"])]
+            except Exception: pass
+        res_data = eval_result.get("residuals")
+        if res_data:
+            try:
+                cb = chart_service.residual_scatter_chart(res_data["predicted"],res_data["values"])
+                im = _img(cb, 14*cm)
+                if im: story += [im, Paragraph("图3：残差分析", ST["caption"])]
+            except Exception: pass
 
+    # -- SHAP --
+    if "shap" in sections:
+        shap_data = eval_result.get("shap_summary",[])
+        if shap_data:
+            story += [Paragraph("五、特征重要性分析（SHAP）", ST["h1"]),
+                      HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
+                      Paragraph("SHAP值量化每个特征对预测的平均贡献，绝对值越大影响越显著。", ST["body_j"])]
+            try:
+                feats=[d["feature"] for d in shap_data[:10]]; imps=[d["importance"] for d in shap_data[:10]]
+                cb = chart_service.shap_bar_chart(feats, imps)
+                im = _img(cb, 13*cm)
+                if im: story += [im, Paragraph("图6：SHAP特征重要性 Top10", ST["caption"])]
+            except Exception: pass
+            rows=[["排名","特征名称","平均|SHAP|","重要程度"]]
+            for i,d in enumerate(shap_data[:10],1):
+                lv="高" if i<=3 else("中" if i<=6 else "低")
+                rows.append([Paragraph(str(i),ST["small"]),Paragraph(str(d["feature"]),ST["small"]),Paragraph(f"{d['importance']:.4f}",ST["body"]),Paragraph(lv,ST["small"])])
+            st2=Table(rows,colWidths=[1.5*cm,8*cm,3*cm,2.5*cm])
+            st2.setStyle(TableStyle([
+                ("BACKGROUND",(0,0),(-1,0),BRAND_BLUE),("TEXTCOLOR",(0,0),(-1,0),colors.white),
+                ("FONTNAME",(0,0),(-1,-1),_CN_FONT),("FONTSIZE",(0,0),(-1,-1),9),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,BRAND_LIGHT]),
+                ("GRID",(0,0),(-1,-1),0.5,GRAY_LINE),
+                ("ALIGN",(0,0),(-1,-1),"CENTER"),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
+            ]))
+            story += [st2, Spacer(1,0.3*cm)]
 
-def list_reports(db: Session) -> list[dict[str, Any]]:
+    # -- 学习曲线 --
+    if "learning_curve" in sections:
+        try:
+            lc = get_learning_curve(model_id, db)
+            if lc and lc.get("sample_counts"):
+                story += [Paragraph("六、学习曲线分析", ST["h1"]),
+                          HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
+                          Paragraph("学习曲线展示模型随训练样本量增加的性能变化。两曲线趋于收敛说明模型已充分学习；持续差距较大提示过拟合。", ST["body_j"])]
+                cb = chart_service.learning_curve_chart(lc["sample_counts"],lc["train_scores"],lc["val_scores"],lc.get("metric","Score"),record.task_type)
+                im = _img(cb, 13*cm)
+                if im: story += [im, Paragraph("图7：学习曲线", ST["caption"])]
+        except Exception: pass
+
+    # -- 过拟合诊断 --
+    if "overfitting" in sections:
+        ov = eval_result.get("overfitting_diagnosis")
+        if ov:
+            story += [Paragraph("七、过拟合诊断", ST["h1"]),
+                      HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+            lv=ov.get("level","low")
+            sk={"high":"danger_text","medium":"warn_text"}.get(lv,"success_text")
+            story.append(Paragraph(ov.get("message",""), ST[sk]))
+            if ov.get("early_stopped"):
+                story.append(Paragraph(f"🛑 训练在第 {ov.get('best_round')} 轮触发早停，自动保护了模型泛化能力。", ST["body"]))
+
+    # -- 基线对比 --
+    if "baseline" in sections:
+        baseline = eval_result.get("baseline")
+        if baseline:
+            story += [Paragraph("八、与随机基线对比", ST["h1"]),
+                      HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
+                      Paragraph(f"与策略\"{baseline.get('strategy','均值/多数类预测')}\"相比，本模型的提升如下：", ST["body"])]
+            try:
+                cb = chart_service.baseline_compare_chart(metrics, baseline, record.task_type)
+                im = _img(cb, 12*cm)
+                if im: story += [im, Paragraph("图8：模型 vs 随机基线对比", ST["caption"])]
+            except Exception: pass
+
+    # -- 业务建议 --
+    if "business_advice" in sections:
+        story += [Paragraph("九、业务建议", ST["h1"]),
+                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+        for line in _business_advice(metrics, record.task_type):
+            story.append(Paragraph(line, ST["body"]))
+
+    # -- 备注 --
+    if notes:
+        story += [Paragraph("十、备注", ST["h1"]),
+                  HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10),
+                  Paragraph(notes, ST["body_j"])]
+
+    # -- 数据来源 --
+    story += [Spacer(1,1*cm), HRFlowable(width="100%",thickness=0.5,color=GRAY_LINE,spaceAfter=6),
+              Paragraph(f"数据来源：{ds_name}  |  模型：XGBoost {record.task_type}  |  生成工具：XGBoost Studio  |  时间：{gen_time}", ST["small"])]
+
+    rname = f"report_{uuid4().hex[:12]}.pdf"
+    rpath = REPORTS_DIR / rname
+    doc = SimpleDocTemplate(str(rpath), pagesize=A4, topMargin=1.5*cm, bottomMargin=1.2*cm, leftMargin=2*cm, rightMargin=2*cm, title=report_title, author="XGBoost Studio")
+    doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
+
+    report = Report(name=title or f"Report_{model_id}", model_id=model_id, path=rname)
+    db.add(report); db.commit(); db.refresh(report)
+    return {"id": report.id, "name": report.name, "path": rname, "created_at": str(report.created_at)}
+
+def generate_comparison_report(model_ids, title, db):
+    from services import chart_service
+    models = db.query(Model).filter(Model.id.in_(model_ids)).all()
+    if not models: raise HTTPException(status_code=404, detail="未找到指定模型")
+    gen_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    report_title = title or f"多模型对比报告（{len(models)}个）"
+    story = [Spacer(1,5*cm), Paragraph("XGBoost Studio", ST["cover_title"]),
+             Paragraph("多模型横向对比报告", _S("cs2",fontSize=16,textColor=TEXT_MED,alignment=TA_CENTER,spaceAfter=10)),
+             HRFlowable(width="80%",thickness=2,color=BRAND_BLUE,spaceAfter=20,spaceBefore=10),
+             Paragraph(f"对比模型数量：{len(models)} 个", ST["cover_meta"]),
+             Paragraph(f"生成时间：{gen_time}", ST["cover_meta"]), PageBreak()]
+    story += [Paragraph("一、指标汇总对比", ST["h1"]), HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+    all_metrics=[json.loads(m.metrics_json or "{}") for m in models]
+    model_names=[m.name[:20] for m in models]
+    metric_keys=[k for k in ["accuracy","auc","f1","precision","recall","rmse","mae","r2"] if any(k in md for md in all_metrics)]
+    rows=[["指标"]+model_names]
+    best_cols={}
+    for k in metric_keys:
+        row=[Paragraph(k.upper(),ST["kv_key"])]; vals=[]
+        for md in all_metrics:
+            v=md.get(k); row.append(Paragraph(f"{float(v):.4f}" if v is not None else "-",ST["body"])); vals.append(float(v) if v is not None else None)
+        valid=[(i,v) for i,v in enumerate(vals) if v is not None]
+        if valid:
+            bi=min(valid,key=lambda x:x[1])[0] if k in("rmse","mae","log_loss") else max(valid,key=lambda x:x[1])[0]
+            best_cols[len(rows)]=bi+1
+        rows.append(row)
+    cw=[3*cm]+[max(2.5*cm,12*cm/len(models))]*len(models)
+    ct=Table(rows,colWidths=cw)
+    ts=[("BACKGROUND",(0,0),(-1,0),BRAND_BLUE),("TEXTCOLOR",(0,0),(-1,0),colors.white),
+        ("FONTNAME",(0,0),(-1,-1),_CN_FONT),("FONTSIZE",(0,0),(-1,-1),9),
+        ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,BRAND_LIGHT]),
+        ("GRID",(0,0),(-1,-1),0.5,GRAY_LINE),("ALIGN",(0,0),(-1,-1),"CENTER"),
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]
+    for ri,ci in best_cols.items():
+        ts+=[("BACKGROUND",(ci,ri),(ci,ri),colors.HexColor("#d9f7be")),("TEXTCOLOR",(ci,ri),(ci,ri),colors.HexColor("#135200"))]
+    ct.setStyle(TableStyle(ts)); story += [ct, Paragraph("注：绿色背景列为该指标最优模型", ST["caption"]), Spacer(1,0.5*cm)]
+    km=metric_keys[0] if metric_keys else "accuracy"
+    try:
+        cb=chart_service.multi_model_compare_chart(model_names, all_metrics, km)
+        im=_img(cb,14*cm)
+        if im: story += [im, Paragraph(f"图1：多模型{km.upper()}指标对比", ST["caption"])]
+    except Exception: pass
+    story += [Paragraph("二、训练参数对比", ST["h1"]), HRFlowable(width="100%",thickness=1,color=BRAND_BLUE,spaceAfter=10)]
+    all_params=[{k:v for k,v in json.loads(m.params_json or "{}").items() if not k.startswith("_")} for m in models]
+    pk=[k for k in ["n_estimators","max_depth","learning_rate","subsample","colsample_bytree","reg_alpha","reg_lambda"] if any(k in p for p in all_params)]
+    if pk:
+        pr=[["参数"]+model_names]+[[Paragraph(k,ST["kv_key"])]+[Paragraph(str(p.get(k,"-")),ST["body"]) for p in all_params] for k in pk]
+        pt=Table(pr,colWidths=cw); pt.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,0),BRAND_DARK),("TEXTCOLOR",(0,0),(-1,0),colors.white),
+            ("FONTNAME",(0,0),(-1,-1),_CN_FONT),("FONTSIZE",(0,0),(-1,-1),9),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#f0f2f5")]),
+            ("GRID",(0,0),(-1,-1),0.5,GRAY_LINE),("ALIGN",(0,0),(-1,-1),"CENTER"),
+            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)])); story.append(pt)
+    story += [Spacer(1,0.5*cm), HRFlowable(width="100%",thickness=0.5,color=GRAY_LINE,spaceAfter=6),
+              Paragraph(f"数据来源：XGBoost Studio  |  生成时间：{gen_time}", ST["small"])]
+    rname=f"compare_{uuid4().hex[:12]}.pdf"; rpath=REPORTS_DIR / rname
+    doc=SimpleDocTemplate(str(rpath),pagesize=A4,topMargin=1.5*cm,bottomMargin=1.2*cm,leftMargin=2*cm,rightMargin=2*cm,title=report_title,author="XGBoost Studio")
+    doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
+    report=Report(name=report_title, model_id=model_ids[0] if model_ids else None, path=rname, report_type="comparison", model_ids_json=json.dumps(model_ids))
+    db.add(report); db.commit(); db.refresh(report)
+    return {"id": report.id, "name": report.name, "path": rname, "created_at": str(report.created_at)}
+
+def list_reports(db):
     rows = db.query(Report).order_by(Report.created_at.desc()).all()
-    return [{"id": r.id, "name": r.name, "path": r.path, "created_at": str(r.created_at)} for r in rows]
+    return [{"id": r.id, "name": r.name, "model_id": r.model_id, "path": r.path,
+             "report_type": getattr(r,"report_type","single") or "single",
+             "created_at": str(r.created_at)} for r in rows]
 
-
-def get_report_path(report_id: int, db: Session) -> Path:
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="报告不存在")
+def get_report_path(report_id, db):
+    report = db.query(Report).filter(Report.id==report_id).first()
+    if not report: raise HTTPException(status_code=404, detail="报告不存在")
     path = REPORTS_DIR / report.path
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="报告文件不存在")
+    if not path.exists(): raise HTTPException(status_code=404, detail="报告文件不存在")
     return path

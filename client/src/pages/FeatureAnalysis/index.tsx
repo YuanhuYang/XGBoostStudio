@@ -7,6 +7,7 @@ import { BarChartOutlined, ExperimentOutlined, ApartmentOutlined } from '@ant-de
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
+import { useDatasetColumns } from '../../hooks/useDatasetColumns'
 
 const { Title, Text } = Typography
 
@@ -40,6 +41,7 @@ interface PcaResult {
 
 const FeatureAnalysisPage: React.FC = () => {
   const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const { allColumns, numericColumns } = useDatasetColumns(activeDatasetId)
   const [loading, setLoading] = useState<string | null>(null)
   const [distributions, setDistributions] = useState<Record<string, unknown>[]>([])
   const [correlation, setCorrelation] = useState<{ matrix: number[][]; columns: string[] } | null>(null)
@@ -106,16 +108,16 @@ const FeatureAnalysisPage: React.FC = () => {
   } : null
 
   const distCols = [
-    { title: '特征', dataIndex: 'column', key: 'column' },
-    { title: '均値', dataIndex: 'mean', key: 'mean', render: (v: number) => v?.toFixed(4) },
-    { title: '标准差', dataIndex: 'std', key: 'std', render: (v: number) => v?.toFixed(4) },
-    { title: '偏度', dataIndex: 'skewness', key: 'skewness', render: (v: number) => v?.toFixed(4) },
-    { title: '峰度', dataIndex: 'kurtosis', key: 'kurtosis', render: (v: number) => v?.toFixed(4) },
+    { title: '特征', dataIndex: 'column', key: 'column', sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => String(a.column).localeCompare(String(b.column)) },
+    { title: '均値', dataIndex: 'mean', key: 'mean', render: (v: number) => v?.toFixed(4), sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => ((a.mean as number) ?? 0) - ((b.mean as number) ?? 0) },
+    { title: '标准差', dataIndex: 'std', key: 'std', render: (v: number) => v?.toFixed(4), sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => ((a.std as number) ?? 0) - ((b.std as number) ?? 0) },
+    { title: '偏度', dataIndex: 'skewness', key: 'skewness', render: (v: number) => v?.toFixed(4), sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => ((a.skewness as number) ?? 0) - ((b.skewness as number) ?? 0) },
+    { title: '峰度', dataIndex: 'kurtosis', key: 'kurtosis', render: (v: number) => v?.toFixed(4), sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => ((a.kurtosis as number) ?? 0) - ((b.kurtosis as number) ?? 0) },
     { title: '正态检验(p)', dataIndex: 'normality_p', key: 'normality_p', render: (v: number) => {
       if (v == null) return '-'
       return <Tag color={v > 0.05 ? 'green' : 'red'}>{v?.toFixed(4)}</Tag>
-    }},
-    { title: '缺失率', dataIndex: 'missing_rate', key: 'missing_rate', render: (v: number) => v != null ? `${(v * 100).toFixed(1)}%` : '-' }
+    }, sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => ((a.normality_p as number) ?? 0) - ((b.normality_p as number) ?? 0) },
+    { title: '缺失率', dataIndex: 'missing_rate', key: 'missing_rate', render: (v: number) => v != null ? `${(v * 100).toFixed(1)}%` : '-', sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => ((a.missing_rate as number) ?? 0) - ((b.missing_rate as number) ?? 0) }
   ]
 
   return (
@@ -134,7 +136,8 @@ const FeatureAnalysisPage: React.FC = () => {
                 <Space style={{ marginBottom: 12 }}>
                   <Button type="primary" onClick={() => load('dist')} loading={loading === 'dist'}>分析分布</Button>
                 </Space>
-                <Table columns={distCols} dataSource={distributions.map((d, i) => ({ ...d, key: i }))} size="small" />
+                <Table columns={distCols} dataSource={distributions.map((d, i) => ({ ...d, key: i }))} size="small"
+                  pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (t) => `共 ${t} 个特征` }} />
               </Card>
             )
           },
@@ -164,10 +167,11 @@ const FeatureAnalysisPage: React.FC = () => {
                     { title: 'VIF值', dataIndex: 'vif', key: 'vif', render: (v: number) => {
                       const color = v > 10 ? 'red' : v > 5 ? 'orange' : 'green'
                       return <Tag color={color}>{v?.toFixed(2)}</Tag>
-                    }},
+                    }, sorter: (a: { vif: number }, b: { vif: number }) => a.vif - b.vif },
                     { title: '共线性风险', dataIndex: 'vif', key: 'risk', render: (v: number) => v > 10 ? '高' : v > 5 ? '中' : '低' }
                   ]}
                   size="small"
+                  pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (t) => `共 ${t} 项` }}
                 />
               </Card>
             )
@@ -178,11 +182,14 @@ const FeatureAnalysisPage: React.FC = () => {
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Space style={{ marginBottom: 12 }}>
                   <Text style={{ color: '#94a3b8' }}>目标列：</Text>
-                  <input
-                    placeholder="输入目标列名"
-                    value={targetCol}
-                    onChange={e => setTargetCol(e.target.value)}
-                    style={{ padding: '4px 8px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: 4 }}
+                  <Select
+                    showSearch
+                    placeholder="选择目标列"
+                    value={targetCol || undefined}
+                    onChange={v => setTargetCol(v)}
+                    options={allColumns.map(c => ({ value: c, label: c }))}
+                    style={{ width: 200 }}
+                    allowClear
                   />
                   <Button type="primary" onClick={() => load('imp')} loading={loading === 'imp'}>分析重要性</Button>
                 </Space>
@@ -196,11 +203,14 @@ const FeatureAnalysisPage: React.FC = () => {
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Space style={{ marginBottom: 12 }} wrap>
                   <Text style={{ color: '#94a3b8' }}>列名：</Text>
-                  <input
-                    placeholder="例如：Fare、Age"
-                    value={distTestCol}
-                    onChange={e => setDistTestCol(e.target.value)}
-                    style={{ padding: '4px 8px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: 4, width: 200 }}
+                  <Select
+                    showSearch
+                    placeholder="选择要检验的列"
+                    value={distTestCol || undefined}
+                    onChange={v => setDistTestCol(v)}
+                    options={numericColumns.map(c => ({ value: c, label: c }))}
+                    style={{ width: 220 }}
+                    allowClear
                   />
                   <Button type="primary" onClick={() => load('disttest')} loading={loading === 'disttest'}>
                     分布拟合检验

@@ -56,3 +56,26 @@ def init_db():
     importlib.import_module("db.models")
 
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
+
+
+def _run_migrations():
+    """对已存在的表执行增量列迁移（SQLite ALTER TABLE ADD COLUMN）"""
+    from sqlalchemy import text
+
+    migrations = [
+        # (table, column, column_def)
+        ("models",  "is_deleted",      "INTEGER NOT NULL DEFAULT 0"),
+        ("models",  "notes",           "TEXT"),
+        ("reports", "report_type",     "VARCHAR(50) DEFAULT 'single'"),
+        ("reports", "model_ids_json",  "TEXT"),
+    ]
+
+    with engine.connect() as conn:
+        for table, col, col_def in migrations:
+            # 检查列是否已存在
+            rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            existing_cols = {r[1] for r in rows}
+            if col not in existing_cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
+                conn.commit()

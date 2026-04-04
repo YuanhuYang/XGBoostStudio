@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 // 暴露给渲染进程的安全 API
 contextBridge.exposeInMainWorld('electron', {
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   server: {
     getStatus: () => ipcRenderer.invoke('server:status'),
     getPort: () => ipcRenderer.invoke('server:getPort'),

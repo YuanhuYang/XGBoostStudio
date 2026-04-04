@@ -27,11 +27,16 @@ interface ModelRecord {
 const ModelManagementPage: React.FC = () => {
   const [models, setModels] = useState<ModelRecord[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchText, setSearchText] = useState('')
   const [renameModal, setRenameModal] = useState<{ open: boolean; id: number | null; name: string }>({ open: false, id: null, name: '' })
   const [compareIds, setCompareIds] = useState<number[]>([])
   const [compareData, setCompareData] = useState<ModelRecord[]>([])
   const [compareVisible, setCompareVisible] = useState(false)
   const [form] = Form.useForm()
+
+  const filteredModels = models.filter(m =>
+    !searchText || m.name.toLowerCase().includes(searchText.toLowerCase())
+  )
 
   const fetchModels = async () => {
     setLoading(true)
@@ -90,6 +95,10 @@ const ModelManagementPage: React.FC = () => {
         return key ? <span><Tag color="purple">{key}: {m[key]?.toFixed(4)}</Tag></span> : '-'
       }
     },
+    {
+      title: '备注', dataIndex: 'notes', key: 'notes',
+      render: (v: string | undefined) => v ? <Text style={{ color: '#94a3b8', fontSize: 12 }}>{v}</Text> : <Text style={{ color: '#334155' }}>-</Text>
+    },
     { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: v => v?.slice(0, 19) },
     {
       title: '对比', key: 'compare',
@@ -100,8 +109,10 @@ const ModelManagementPage: React.FC = () => {
     },
     {
       title: '操作', key: 'action',
+      width: 160,
+      fixed: 'right' as const,
       render: (_, r) => (
-        <Space>
+        <Space wrap={false}>
           <Tooltip title="重命名"><Button size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue({ name: r.name }); setRenameModal({ open: true, id: r.id, name: r.name }) }} /></Tooltip>
           <Tooltip title="导出模型"><Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(r.id, r.name)} /></Tooltip>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(r.id)}>
@@ -187,8 +198,20 @@ const ModelManagementPage: React.FC = () => {
         </Col>
       </Row>
 
-      <Card style={{ background: '#1e293b', border: '1px solid #334155' }} extra={<Button size="small" onClick={fetchModels}>刷新</Button>}>
-        <Table columns={columns} dataSource={models} loading={loading} rowKey="id" size="small" />
+      <Card style={{ background: '#1e293b', border: '1px solid #334155' }} extra={
+        <Space>
+          <Input.Search
+            placeholder="搜索模型名称"
+            allowClear
+            size="small"
+            style={{ width: 200 }}
+            onSearch={v => setSearchText(v)}
+            onChange={e => setSearchText(e.target.value)}
+          />
+          <Button size="small" onClick={fetchModels}>刷新</Button>
+        </Space>
+      }>
+        <Table columns={columns} dataSource={filteredModels} loading={loading} rowKey="id" size="small" scroll={{ x: 'max-content' }} />
       </Card>
 
       <Modal title="重命名模型" open={renameModal.open} onOk={handleRename} onCancel={() => setRenameModal({ open: false, id: null, name: '' })}>

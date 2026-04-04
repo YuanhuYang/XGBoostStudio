@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Card, Row, Col, Button, Typography, Space, InputNumber,
+  Card, Row, Col, Button, Typography, Space, Select,
   Tabs, Table, Tag, Alert, message, Statistic, Divider, Slider, Progress
 } from 'antd'
 import { ExperimentOutlined, BarChartOutlined, SafetyOutlined } from '@ant-design/icons'
@@ -14,10 +14,23 @@ const { Title, Text } = Typography
 const ModelEvalPage: React.FC = () => {
   const activeModelId = useAppStore(s => s.activeModelId)
   const [modelId, setModelId] = useState<number | null>(null)
+  const [modelOptions, setModelOptions] = useState<{ value: number; label: string }[]>([])
 
   useEffect(() => {
     if (activeModelId !== null && modelId === null) setModelId(activeModelId)
   }, [activeModelId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 加载模型列表
+  useEffect(() => {
+    apiClient.get('/api/models').then(r => {
+      const list = (r.data || []) as { id: number; name: string; task_type: string; metrics: Record<string, number> }[]
+      setModelOptions(list.map(m => {
+        const mainMetric = Object.entries(m.metrics || {}).find(([k]) => !['overfitting_level','overfitting_gap','train_accuracy','train_rmse','early_stopped','best_round'].includes(k))
+        const metricStr = mainMetric ? ` | ${mainMetric[0]}=${mainMetric[1]?.toFixed(4)}` : ''
+        return { value: m.id, label: `#${m.id} ${m.name}${metricStr}` }
+      }))
+    }).catch(() => {})
+  }, [])
   const [evalData, setEvalData] = useState<Record<string, unknown> | null>(null)
   const [shapData, setShapData] = useState<Record<string, unknown> | null>(null)
   const [lcData, setLcData] = useState<Record<string, unknown> | null>(null)
@@ -188,8 +201,17 @@ const ModelEvalPage: React.FC = () => {
 
       <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
         <Space>
-          <Text style={{ color: '#94a3b8' }}>模型 ID：</Text>
-          <InputNumber min={1} value={modelId || undefined} onChange={v => setModelId(v)} placeholder="输入模型ID" />
+          <Text style={{ color: '#94a3b8' }}>选择模型：</Text>
+          <Select
+            showSearch
+            allowClear
+            placeholder="选择模型"
+            value={modelId ?? undefined}
+            onChange={v => setModelId(v ?? null)}
+            options={modelOptions}
+            style={{ width: 340 }}
+            filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+          />
           <Button type="primary" onClick={fetchEval} loading={loading}>加载评估</Button>
           <Button onClick={fetchShap} loading={loading}>加载SHAP详情</Button>
           <Button onClick={fetchLearningCurve} loading={loading}>加载学习曲线</Button>

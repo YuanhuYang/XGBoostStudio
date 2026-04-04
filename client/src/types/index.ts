@@ -71,9 +71,18 @@ export interface Model {
   split_id?: number
   tags?: string
   description?: string
+  notes?: string
+  is_deleted?: boolean
   training_time_s?: number
   created_at: string
   updated_at: string
+}
+
+export interface ReportConfig {
+  model_id: number
+  title?: string
+  notes?: string
+  include_sections?: string[]
 }
 
 export interface TrainingTask {

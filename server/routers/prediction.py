@@ -18,6 +18,7 @@ from services.prediction_service import (
     single_predict,
     batch_predict,
     get_batch_result_path,
+    batch_predict_summary,
 )
 
 router = APIRouter(prefix="/api/prediction", tags=["prediction"])
@@ -50,3 +51,9 @@ def download_result(task_id: str) -> FileResponse:
         filename=f"prediction_{task_id}.csv",
         media_type="text/csv",
     )
+
+
+@router.get("/{task_id}/summary")
+def predict_summary(task_id: str) -> dict[str, Any]:
+    """返回批量预测结果的统计摘要（各类别分布）"""
+    return batch_predict_summary(task_id)

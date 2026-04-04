@@ -209,11 +209,14 @@ def encode_features(
 
 # ── 特征缩放 ──────────────────────────────────────────────────────────────────
 
-def scale_features(dataset: Dataset, columns: list[str], method: str, db: Session) -> Dataset:
+def scale_features(dataset: Dataset, columns: Optional[list[str]], method: str, db: Session) -> Dataset:
     from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler  # type: ignore
 
     df = _load_df(dataset)
-    valid_cols = [c for c in columns if c in df.columns]
+    if columns:
+        valid_cols = [c for c in columns if c in df.columns]
+    else:
+        valid_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if not valid_cols:
         return dataset
 
@@ -251,11 +254,14 @@ def box_cox_transform(dataset: Dataset, columns: list[str], db: Session) -> Data
 
 # ── PCA 降维 ──────────────────────────────────────────────────────────────────
 
-def pca_transform(dataset: Dataset, columns: list[str], n_components: int, db: Session) -> Dataset:
+def pca_transform(dataset: Dataset, columns: Optional[list[str]], n_components: int, db: Session) -> Dataset:
     from sklearn.decomposition import PCA  # type: ignore
 
     df = _load_df(dataset)
-    valid_cols = [c for c in columns if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
+    if columns:
+        valid_cols = [c for c in columns if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
+    else:
+        valid_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if len(valid_cols) < 2:
         raise HTTPException(status_code=400, detail="PCA 需要至少 2 个数值列")
 

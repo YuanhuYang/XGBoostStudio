@@ -36,14 +36,31 @@ def _to_dict(m: Model) -> dict[str, Any]:
         "split_id": m.split_id,
         "tags": m.tags or "",
         "description": m.description or "",
+        "notes": getattr(m, "notes", None) or "",
         "training_time_s": m.training_time_s,
+        "is_deleted": getattr(m, "is_deleted", False) or False,
         "created_at": str(m.created_at),
     }
 
 
 @router.get("")
-def list_models(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    models = db.query(Model).order_by(Model.created_at.desc()).all()
+def list_models(
+    task_type: str | None = Query(None, description="过滤任务类型: classification/regression"),
+    dataset_id: int | None = Query(None),
+    min_auc: float | None = Query(None, description="最低AUC阈值"),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    q = db.query(Model).filter(Model.is_deleted == False)  # noqa: E712
+    if task_type:
+        q = q.filter(Model.task_type == task_type)
+    if dataset_id:
+        q = q.filter(Model.dataset_id == dataset_id)
+    models = q.order_by(Model.created_at.desc()).all()
+    if min_auc is not None:
+        models = [
+            m for m in models
+            if json.loads(m.metrics_json or "{}").get("auc", 0) >= min_auc
+        ]
     return [_to_dict(m) for m in models]
 
 
@@ -67,15 +84,48 @@ def get_model(model_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 @router.delete("/{model_id}")
 def delete_model(model_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+    """软删除：设置 is_deleted=True，保留数据库记录"""
+    m = db.query(Model).filter(Model.id == model_id).first()
+    if not m:
+        raise HTTPException(status_code=404, detail="模型不存在")
+    m.is_deleted = True
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.patch("/{model_id}")
+def patch_model(
+    model_id: int,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """更新模型 name / tags / notes"""
+    m = db.query(Model).filter(Model.id == model_id, Model.is_deleted == False).first()  # noqa: E712
+    if not m:
+        raise HTTPException(status_code=404, detail="模型不存在")
+    if "name" in body:
+        m.name = str(body["name"])
+    if "tags" in body:
+        m.tags = str(body["tags"])
+    if "notes" in body:
+        m.notes = str(body["notes"])
+    if "description" in body:
+        m.description = str(body["description"])
+    db.commit()
+    return _to_dict(m)
+
+
+@router.get("/{model_id}/export")
+def export_model_get(model_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    """GET 方式下载模型文件"""
     m = db.query(Model).filter(Model.id == model_id).first()
     if not m:
         raise HTTPException(status_code=404, detail="模型不存在")
     path = MODELS_DIR / m.path
-    if path.exists():
-        path.unlink()
-    db.delete(m)
-    db.commit()
-    return {"status": "deleted"}
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="模型文件不存在")
+    safe_name = m.name.replace(" ", "_")
+    return FileResponse(path=str(path), filename=f"{safe_name}.ubj", media_type="application/octet-stream")
 
 
 @router.put("/{model_id}/rename")

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Typography, Tooltip, Button, Badge, Tag, Space } from 'antd'
+import { Layout, Menu, Typography, Tooltip, Button, Badge, Tag, Space, Alert } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   DatabaseOutlined,
@@ -15,6 +15,8 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   BulbOutlined,
+  CheckCircleFilled,
+  CloseCircleFilled,
 } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
 
@@ -30,11 +32,13 @@ import ModelManagementPage from '../pages/ModelManagement'
 import ReportPage from '../pages/Report'
 import PredictionPage from '../pages/Prediction'
 import SmartWorkflowPage from '../pages/SmartWorkflow'
+import WelcomePage from '../pages/Welcome'
 
 const { Sider, Content, Header } = Layout
 const { Text } = Typography
 
 type PageKey =
+  | 'welcome'
   | 'smart-workflow'
   | 'data-import'
   | 'feature-analysis'
@@ -107,6 +111,7 @@ const menuItems: MenuProps['items'] = [
 ]
 
 const pageMap: Record<PageKey, React.ReactNode> = {
+  welcome: <WelcomePage />,
   'smart-workflow': <SmartWorkflowPage />,
   'data-import': <DataImportPage />,
   'feature-analysis': <FeatureAnalysisPage />,
@@ -121,12 +126,18 @@ const pageMap: Record<PageKey, React.ReactNode> = {
 }
 
 const MainLayout: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<PageKey>('smart-workflow')
+  // 首次启动展示欢迎页
+  const isFirstLaunch = !localStorage.getItem('xgb_launched_before')
+  const [currentPage, setCurrentPage] = useState<PageKey>(isFirstLaunch ? 'welcome' : 'smart-workflow')
   const { sidebarCollapsed, toggleSidebar } = useAppStore()
   const activeDatasetName = useAppStore(s => s.activeDatasetName)
   const activeDatasetId = useAppStore(s => s.activeDatasetId)
   const activeSplitId = useAppStore(s => s.activeSplitId)
   const activeModelId = useAppStore(s => s.activeModelId)
+  const globalError = useAppStore(s => s.globalError)
+  const setGlobalError = useAppStore(s => s.setGlobalError)
+  const serverReady = useAppStore(s => s.serverReady)
+  const isOffline = useAppStore(s => s.isOffline)
 
   // 监听页面内导航事件（由 SmartWorkflow 触发）
   useEffect(() => {
@@ -134,6 +145,7 @@ const MainLayout: React.FC = () => {
       const detail = (e as CustomEvent<string>).detail
       if (detail && Object.keys(pageMap).includes(detail)) {
         setCurrentPage(detail as PageKey)
+        localStorage.setItem('xgb_launched_before', '1')
       }
     }
     window.addEventListener('navigate', handler)
@@ -142,6 +154,16 @@ const MainLayout: React.FC = () => {
 
   return (
     <Layout style={{ height: '100vh', background: '#0f172a' }}>
+      {/* 全局错误 Banner */}
+      {globalError && (
+        <Alert
+          type="error"
+          message={globalError}
+          closable
+          onClose={() => setGlobalError(null)}
+          style={{ borderRadius: 0, zIndex: 1000 }}
+        />
+      )}
       {/* 侧边栏 */}
       <Sider
         collapsed={sidebarCollapsed}
@@ -177,7 +199,10 @@ const MainLayout: React.FC = () => {
           items={menuItems}
           style={{ background: 'transparent', border: 'none', marginTop: 8 }}
           theme="dark"
-          onClick={({ key }) => setCurrentPage(key as PageKey)}
+          onClick={({ key }) => {
+            setCurrentPage(key as PageKey)
+            localStorage.setItem('xgb_launched_before', '1')
+          }}
         />
       </Sider>
 
@@ -212,6 +237,12 @@ const MainLayout: React.FC = () => {
           {/* 右侧上下文状态栏 */}
           <div style={{ marginLeft: 'auto' }}>
             <Space size={4}>
+              {/* 后端连接状态 */}
+              <Tooltip title={serverReady ? '后端服务已连接' : '后端服务未连接'}>
+                {serverReady && !isOffline
+                  ? <CheckCircleFilled style={{ color: '#52c41a', fontSize: 14 }} />
+                  : <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 14 }} />}
+              </Tooltip>
               {(activeDatasetId || activeDatasetName) ? (
                 <Tooltip title="点击跳转至数据导入">
                   <Tag
@@ -265,6 +296,20 @@ const MainLayout: React.FC = () => {
         >
           {pageMap[currentPage]}
         </Content>
+        {/* 底部状态栏 */}
+        <div style={{
+          height: 24, background: '#1e293b', borderTop: '1px solid #334155',
+          padding: '0 16px', display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <Text style={{ color: '#475569', fontSize: 11 }}>
+            XGBoost Studio v{(window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '0.1.0'}
+          </Text>
+          <Text style={{ color: '#334155', fontSize: 11 }}>|</Text>
+          {serverReady && !isOffline
+            ? <Text style={{ color: '#52c41a', fontSize: 11 }}>● 服务已连接</Text>
+            : <Text style={{ color: '#ff4d4f', fontSize: 11 }}>● 服务未连接</Text>}
+          {isOffline && <Text style={{ color: '#fa8c16', fontSize: 11 }}>▲ 网络离线</Text>}
+        </div>
       </Layout>
     </Layout>
   )

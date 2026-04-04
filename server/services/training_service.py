@@ -300,6 +300,86 @@ def stop_task(task_id: str, db: Session) -> None:
         db.commit()
 
 
+def kfold_evaluate(split_id: int, params: dict[str, Any], k: int, db: Session) -> dict[str, Any]:
+    """
+    K-Fold 交叉验证：在训练集上进行 k 折交叉验证并返回均値指标。
+    """
+    from sklearn.model_selection import KFold, StratifiedKFold  # type: ignore
+    from sklearn.metrics import (  # type: ignore
+        accuracy_score, f1_score, roc_auc_score,
+        mean_squared_error, r2_score,
+    )
+
+    split = db.query(DatasetSplit).filter(DatasetSplit.id == split_id).first()
+    if not split:
+        raise HTTPException(status_code=404, detail=f"划分记录 {split_id} 不存在")
+
+    dataset = db.query(Dataset).filter(Dataset.id == split.dataset_id).first() if split.dataset_id else None
+    target_col = dataset.target_column if dataset else None
+
+    train_path = DATA_DIR / split.train_path
+    if not train_path.exists():
+        raise HTTPException(status_code=400, detail="训练集文件不存在")
+
+    df = pd.read_csv(train_path, encoding="utf-8-sig")
+    if not target_col or target_col not in df.columns:
+        target_col = df.columns[-1]
+
+    X = df.drop(columns=[target_col]).select_dtypes(include=[np.number]).fillna(0)
+    y = df[target_col]
+    task_type = _detect_task_type(y)
+    merged_params = {**_default_params(task_type), **params}
+    n_estimators = int(merged_params.pop("n_estimators", 100))
+    merged_params.pop("early_stopping_rounds", None)
+    merged_params.pop("_model_name", None)
+
+    k = max(2, min(k, 10))
+    kf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42) if task_type == "classification" else KFold(n_splits=k, shuffle=True, random_state=42)
+
+    fold_metrics: list[dict[str, float]] = []
+    for fold_idx, (train_idx, val_idx) in enumerate(kf.split(X, y if task_type == "classification" else None)):
+        X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_tr, y_val = y.iloc[train_idx], y.iloc[val_idx]
+
+        model = (xgb.XGBClassifier(**merged_params) if task_type == "classification"
+                 else xgb.XGBRegressor(**merged_params))
+        model.set_params(n_estimators=n_estimators)
+        model.fit(X_tr, y_tr, verbose=False)
+
+        fm: dict[str, float] = {"fold": fold_idx + 1}
+        if task_type == "classification":
+            y_pred = model.predict(X_val)
+            fm["accuracy"] = round(float(accuracy_score(y_val, y_pred)), 4)
+            fm["f1"] = round(float(f1_score(y_val, y_pred, average="weighted", zero_division=0)), 4)
+            try:
+                y_prob = model.predict_proba(X_val)
+                auc = roc_auc_score(y_val, y_prob if y_prob.shape[1] > 2 else y_prob[:, 1],
+                                    multi_class="ovr", average="weighted")
+                fm["auc"] = round(float(auc), 4)
+            except (ValueError, TypeError):
+                pass
+        else:
+            y_pred = model.predict(X_val)
+            fm["rmse"] = round(float(np.sqrt(mean_squared_error(y_val, y_pred))), 4)
+            fm["r2"] = round(float(r2_score(y_val, y_pred)), 4)
+        fold_metrics.append(fm)
+
+    # 计算均値和标准差
+    metric_keys = [k for k in fold_metrics[0].keys() if k != "fold"]
+    summary: dict[str, Any] = {}
+    for mk in metric_keys:
+        vals = [f[mk] for f in fold_metrics]
+        summary[f"{mk}_mean"] = round(float(np.mean(vals)), 4)
+        summary[f"{mk}_std"] = round(float(np.std(vals)), 4)
+
+    return {
+        "task_type": task_type,
+        "k": k,
+        "fold_metrics": fold_metrics,
+        "summary": summary,
+    }
+
+
 def get_task_result(task_id: str, db: Session) -> dict[str, Any]:
     task = db.query(TrainingTask).filter(TrainingTask.id == task_id).first()
     if not task:

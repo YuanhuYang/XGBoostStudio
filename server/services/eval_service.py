@@ -203,6 +203,69 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
     return result
 
 
+def compare_models(model_ids: list[int], db: Session) -> dict[str, Any]:
+    """多模型对比，包含 McNemar 检验（二分类）"""
+    models_data = []
+    for mid in model_ids:
+        rec = db.query(Model).filter(Model.id == mid).first()
+        if not rec:
+            continue
+        models_data.append({
+            "id": rec.id,
+            "name": rec.name,
+            "task_type": rec.task_type,
+            "metrics": json.loads(rec.metrics_json or "{}"),
+            "params": json.loads(rec.params_json or "{}"),
+        })
+
+    result: dict[str, Any] = {"models": models_data}
+
+    # McNemar 检验：仅对二分类、正好两个模型有效
+    if len(model_ids) == 2:
+        try:
+            r1 = db.query(Model).filter(Model.id == model_ids[0]).first()
+            r2 = db.query(Model).filter(Model.id == model_ids[1]).first()
+            if r1 and r2 and r1.task_type == "classification" == r2.task_type:
+                m1, _, X1, y1, _ = _load_model_and_data(model_ids[0], db)
+                m2, _, X2, _y2, _ = _load_model_and_data(model_ids[1], db)
+                if X1 is not None and y1 is not None and X2 is not None:
+                    common = X1.columns.intersection(X2.columns)
+                    p1 = m1.predict(X1[common])
+                    p2 = m2.predict(X2[common])
+                    correct1 = (p1 == y1.values)
+                    correct2 = (p2 == y1.values)
+                    b = int(np.sum(correct1 & ~correct2))  # m1 对 m2 错
+                    c = int(np.sum(~correct1 & correct2))  # m1 错 m2 对
+                    n = b + c
+                    if n > 0:
+                        # McNemar 检验（刚性校正）
+                        chi2 = (abs(b - c) - 1) ** 2 / n
+                        # P 値近伧4：chi2分布（df=1），使用 survival function 近伧4
+                        import math
+                        p_value = round(math.exp(-chi2 / 2), 4)  # 近伧4公式
+                        try:
+                            from scipy.stats import chi2 as chi2_dist  # type: ignore
+                            p_value = round(float(chi2_dist.sf(chi2, df=1)), 4)
+                        except ImportError:
+                            pass
+                        better = models_data[0]["name"] if b < c else models_data[1]["name"]
+                        result["mcnemar"] = {
+                            "b": b, "c": c, "n": n,
+                            "chi2": round(float(chi2), 4),
+                            "p_value": p_value,
+                            "significant": p_value < 0.05,
+                            "interpretation": (
+                                f"两模型预测差异{'\u663e\u8457' if p_value < 0.05 else '\u4e0d\u663e\u8457'}"
+                                f"（p={p_value:.4f}）。"
+                                + (f"建议选择「{better}」效果更佳。" if p_value < 0.05 else "")
+                            ),
+                        }
+        except Exception:  # noqa
+            pass
+
+    return result
+
+
 def get_shap_detail(model_id: int, db: Session) -> dict[str, Any]:
     import shap  # type: ignore
 

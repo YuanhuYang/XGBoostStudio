@@ -5,6 +5,10 @@ interface AppState {
   serverReady: boolean
   serverError: string | null
   connectingProgress: { attempt: number; max: number } | null
+  /** 全局错误提示（Banner） */
+  globalError: string | null
+  /** 网络离线状态 */
+  isOffline: boolean
   /** 当前活跃的数据集 id */
   activeDatasetId: number | null
   /** 当前活跃的数据集名称（用于上下文显示） */
@@ -23,6 +27,8 @@ interface AppState {
   setServerReady: (ready: boolean) => void
   setServerError: (msg: string | null) => void
   setConnectingProgress: (p: { attempt: number; max: number } | null) => void
+  setGlobalError: (msg: string | null) => void
+  setIsOffline: (offline: boolean) => void
   setActiveDatasetId: (id: number | null) => void
   setActiveDatasetName: (name: string | null) => void
   setActiveSplitId: (id: number | null) => void
@@ -36,6 +42,8 @@ export const useAppStore = create<AppState>((set) => ({
   serverReady: false,
   serverError: null,
   connectingProgress: null,
+  globalError: null,
+  isOffline: false,
   activeDatasetId: null,
   activeDatasetName: null,
   activeSplitId: null,
@@ -47,6 +55,8 @@ export const useAppStore = create<AppState>((set) => ({
   setServerReady: (ready) => set({ serverReady: ready }),
   setServerError: (msg) => set({ serverError: msg }),
   setConnectingProgress: (p) => set({ connectingProgress: p }),
+  setGlobalError: (msg) => set({ globalError: msg }),
+  setIsOffline: (offline) => set({ isOffline: offline }),
   setActiveDatasetId: (id) => set({ activeDatasetId: id }),
   setActiveDatasetName: (name) => set({ activeDatasetName: name }),
   setActiveSplitId: (id) => set({ activeSplitId: id }),

@@ -46,7 +46,8 @@ const ModelTrainingPage: React.FC = () => {
   const [log, setLog] = useState<string[]>([])
   const [earlyStoppedRound, setEarlyStoppedRound] = useState<number | null>(null)
   const esRef = useRef<EventSource | null>(null)
-  const logRef = useRef<HTMLDivElement>(null)  const sseRetryRef = useRef(0)
+  const logRef = useRef<HTMLDivElement>(null)
+  const sseRetryRef = useRef(0)
   const MAX_SSE_RETRIES = 3
   const PORT = 18899
 

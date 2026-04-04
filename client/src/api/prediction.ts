@@ -34,3 +34,15 @@ export async function downloadPrediction(taskId: string): Promise<Blob> {
   })
   return res.data
 }
+
+/** 批量预测结果摘要（分布统计） */
+export async function batchPredictSummary(taskId: string): Promise<{
+  task_id: string
+  total_rows: number
+  distribution: { label: string; count: number; ratio: number }[]
+  has_probability: boolean
+  probability_columns: string[]
+}> {
+  const res = await apiClient.get(`/api/prediction/${taskId}/summary`)
+  return res.data
+}

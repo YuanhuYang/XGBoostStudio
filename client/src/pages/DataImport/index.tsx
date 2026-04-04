@@ -13,6 +13,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { datasetsApi } from '../../api/datasets'
 import { useAppStore } from '../../store/appStore'
 import type { QualityScore } from '../../types'
+import HelpButton from '../../components/HelpButton'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
@@ -62,10 +63,15 @@ const DataImportPage: React.FC = () => {
     const formData = new FormData()
     formData.append('file', file as File)
     try {
-      await datasetsApi.upload(formData)
-      message.success('上传成功')
+      const res = await datasetsApi.upload(formData)
+      message.success('上传成功 — 请设置目标列')
       fetchDatasets()
       onSuccess?.({})
+      // 上传成功后自动打开设置目标列对话框
+      if (res.data?.id) {
+        const newRecord = res.data as DatasetRow
+        openTargetModal(newRecord)
+      }
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail || '上传失败')
@@ -204,6 +210,11 @@ const DataImportPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <DatabaseOutlined /> 数据导入
       </Title>
+      <HelpButton pageTitle="数据导入" items={[
+        { title: '支持怎样的文件？', content: '支持 CSV、Excel（.xlsx / .xls），单文件不超过 200MB。' },
+        { title: '上传后必须设置目标列', content: '目标列（要预测的列）是模型训练的必要条件，上传后系统会自动弹出设置对话框。' },
+        { title: '数据质量检测是什么？', content: '点击表格中的「检测」按鈕，系统会评分缺失率、异常率、重复行等指标。' },
+      ]} />
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={6}>

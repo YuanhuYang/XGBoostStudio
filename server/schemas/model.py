@@ -99,3 +99,9 @@ class ReportGenerateRequest(BaseModel):
             "shap", "tuning_history"
         ]
     )
+    include_sections: Optional[list[str]] = None  # 按需生成章节，None=全部
+
+
+class ReportCompareRequest(BaseModel):
+    model_ids: list[int] = Field(..., min_length=2, description="至少选择2个模型")
+    title: Optional[str] = None
