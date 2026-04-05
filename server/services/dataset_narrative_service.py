@@ -70,6 +70,8 @@ MULTIPLICITY_CAVEAT = (
 _CAUSALITY_CAVEAT = (
     "统计上的相关或关联不等于因果关系；结论需结合业务与实验设计解读。"
 )
+# G2-Auth-4：PDF / report_methodology 单源引用（与上句一致）
+CAUSALITY_CAVEAT = _CAUSALITY_CAVEAT
 
 
 def _infer_task_type(ds: Dataset, df: pd.DataFrame, target_col: str | None) -> str:

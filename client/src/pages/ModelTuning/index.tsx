@@ -14,9 +14,11 @@ const { Title, Text } = Typography
 
 interface TrialEvent {
   trial?: number; total?: number; score?: number; params?: Record<string, unknown>
-  best_score?: number; elapsed_s?: number
+  best_score?: number; best_so_far?: number; elapsed_s?: number
   completed?: boolean; best_params?: Record<string, unknown>
   error?: string; stopped?: boolean
+  trial_failed?: boolean
+  n_failed?: number; n_completed?: number
 }
 
 interface SplitItem {
@@ -44,6 +46,10 @@ const ModelTuningPage: React.FC = () => {
   const [bestScore, setBestScore] = useState<number | null>(null)
   const [bestParams, setBestParams] = useState<Record<string, unknown> | null>(null)
   const [resultModelId, setResultModelId] = useState<number | null>(null)
+  /** 上次完成任务的 G2-Auth-3 诊断（用于重进页面时重绘收敛曲线） */
+  const [savedDiagnostics, setSavedDiagnostics] = useState<{
+    trial_points?: Array<{ trial: number; score?: number; best_so_far?: number; trial_failed?: boolean }>
+  } | null>(null)
   const esRef = useRef<EventSource | null>(null)
   const sseRetryRef = useRef(0)
   const MAX_SSE_RETRIES = 3
@@ -78,6 +84,8 @@ const ModelTuningPage: React.FC = () => {
         setLastResultAt(d.completed_at ?? null)
         if (d.n_trials) setNTrials(d.n_trials)
         if (d.strategy) setStrategy(d.strategy)
+        const diag = (d as { diagnostics?: typeof savedDiagnostics }).diagnostics
+        setSavedDiagnostics(diag && typeof diag === 'object' ? diag : null)
       } else {
         setTaskId(null)
         setBestScore(null)
@@ -85,6 +93,7 @@ const ModelTuningPage: React.FC = () => {
         setResultModelId(null)
         setStatus('idle')
         setLastResultAt(null)
+        setSavedDiagnostics(null)
       }
     }).catch(() => { /* 静默失败 */ })
   }, [splitId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -99,6 +108,7 @@ const ModelTuningPage: React.FC = () => {
     if (status === 'running') { message.warning('调优正在进行中'); return }
     setStatus('running')
     setTrialHistory([])
+    setSavedDiagnostics(null)
     setBestScore(null)
     setBestParams(null)
     try {
@@ -118,11 +128,13 @@ const ModelTuningPage: React.FC = () => {
               const data: TrialEvent = JSON.parse(e.data)
               if (data.trial !== undefined) {
                 setTrialHistory(prev => [...prev, data])
-                setBestScore(data.best_score || null)
+                setBestScore(data.best_score ?? data.best_so_far ?? null)
               }
               if (data.completed) {
                 setStatus('completed')
                 setBestParams(data.best_params || null)
+                const d = (data as { diagnostics?: typeof savedDiagnostics }).diagnostics
+                if (d && typeof d === 'object') setSavedDiagnostics(d)
                 message.success('调优完成！')
                 es.close()
               }
@@ -175,13 +187,29 @@ const ModelTuningPage: React.FC = () => {
     }
   }
 
-  const scoreHistory = trialHistory.map((t, i) => [i + 1, t.score || 0])
-  const bestHistory = trialHistory.map((t, i) => [i + 1, t.best_score || 0])
+  const chartPoints = (() => {
+    if (trialHistory.length > 0) return trialHistory
+    const pts = savedDiagnostics?.trial_points
+    if (!pts?.length) return []
+    return pts.map(p => ({
+      trial: p.trial,
+      score: p.trial_failed ? undefined : p.score,
+      best_score: p.best_so_far,
+      trial_failed: p.trial_failed,
+    })) as TrialEvent[]
+  })()
 
-  const chartOption = trialHistory.length > 0 ? {
+  const scoreHistory = chartPoints
+    .filter(t => !t.trial_failed && t.score !== undefined)
+    .map(t => [t.trial!, t.score as number])
+  const bestHistory = chartPoints
+    .filter(t => !t.trial_failed && (t.best_score !== undefined || t.best_so_far !== undefined))
+    .map(t => [t.trial!, (t.best_score ?? t.best_so_far) as number])
+
+  const chartOption = chartPoints.length > 0 ? {
     tooltip: { trigger: 'axis' },
     legend: { textStyle: { color: '#94a3b8' } },
-    xAxis: { type: 'value', name: 'Trial', axisLabel: { color: '#94a3b8' } },
+    xAxis: { type: 'value', name: 'Trial #', axisLabel: { color: '#94a3b8' } },
     yAxis: { type: 'value', name: '得分', axisLabel: { color: '#94a3b8' } },
     series: [
       { name: '本轮得分', type: 'scatter', data: scoreHistory, symbolSize: 6, itemStyle: { color: '#60a5fa', opacity: 0.6 } },
@@ -189,7 +217,7 @@ const ModelTuningPage: React.FC = () => {
     ]
   } : null
 
-  const pct = trialHistory.length > 0 ? Math.round((trialHistory.length / nTrials) * 100) : 0
+  const pct = chartPoints.length > 0 ? Math.round((chartPoints.length / nTrials) * 100) : 0
 
   return (
     <div style={{ padding: 24 }}>
@@ -252,7 +280,7 @@ const ModelTuningPage: React.FC = () => {
           {bestScore !== null && (
             <Card title={<Text style={{ color: '#e2e8f0' }}>最优结果</Text>}
               style={{ background: '#1e293b', border: '1px solid #334155' }}>
-              {lastResultAt && status === 'completed' && trialHistory.length === 0 && (
+              {lastResultAt && status === 'completed' && chartPoints.length === 0 && (
                 <Alert
                   type="info"
                   message={`上次调优结果（${new Date(lastResultAt).toLocaleString('zh-CN')}）`}
@@ -277,7 +305,7 @@ const ModelTuningPage: React.FC = () => {
         <Col span={17}>
           <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
             <Row gutter={16}>
-              <Col span={6}><Statistic title="已完成轮次" value={trialHistory.length} valueStyle={{ color: '#60a5fa' }} /></Col>
+              <Col span={6}><Statistic title="已完成轮次" value={chartPoints.length} valueStyle={{ color: '#60a5fa' }} /></Col>
               <Col span={6}><Statistic title="总轮次" value={nTrials} valueStyle={{ color: '#94a3b8' }} /></Col>
               <Col span={12}>
                 <Progress percent={pct} strokeColor="#3b82f6" trailColor="#334155" />

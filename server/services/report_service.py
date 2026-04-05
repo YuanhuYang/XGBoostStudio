@@ -390,23 +390,51 @@ def _executive_summary(metrics, task_type, ds_name, model_name):
     return paras
 
 def _business_advice(metrics, task_type):
-    advice=[]
-    if task_type=="classification":
-        acc=float(metrics.get("accuracy",0)); auc=float(metrics.get("auc",0))
-        if acc>=0.9 and auc>=0.9: advice.append("✅ 性能优秀，建议在小范围业务场景中先行上线A/B测试验证效果。")
-        elif acc>=0.75: advice.append("📊 性能良好，可考虑在非关键场景上线；若精确率要求高，建议调整预测阈值（当前默认0.5）。")
-        else: advice.append("⚠️ 性能有待提升： 增加训练数据； 优化特征工程； 使用Optuna自动调参。")
+    from services.report_methodology import (
+        CLASSIFICATION_AUC_DEPLOY_THRESHOLD,
+        REGRESSION_R2_DEPLOY_THRESHOLD,
+    )
+
+    advice = []
+    if task_type == "classification":
+        acc = float(metrics.get("accuracy", 0))
+        auc = float(metrics.get("auc", 0))
+        if auc < CLASSIFICATION_AUC_DEPLOY_THRESHOLD:
+            advice.append(
+                f"⚠️ 当前 AUC（{auc:.4f}）低于建议阈值 {CLASSIFICATION_AUC_DEPLOY_THRESHOLD}，"
+                "不宜将「上线试验」作为近期目标；优先补充特征、检查标签与样本、或调参后再评估。"
+            )
+        elif acc >= 0.9 and auc >= 0.9:
+            advice.append("✅ 性能优秀，可在小范围业务场景中先行 A/B 测试验证效果。")
+        elif acc >= 0.75:
+            advice.append(
+                "📊 性能良好，可考虑在非关键场景试点；若精确率要求高，建议调整预测阈值（当前默认 0.5）。"
+            )
+        else:
+            advice.append("⚠️ 性能有待提升：增加训练数据、优化特征工程或使用 Optuna 自动调参。")
         advice.append("💡 建议建立模型监控机制，定期用新数据重评估，注意数据分布漂移。")
     else:
-        r2=float(metrics.get("r2",0))
-        if r2>=0.85: advice.append("✅ 拟合效果优秀，R²较高，可用于实际预测场景。")
-        elif r2>=0.6: advice.append("📊 具备基础预测能力，建议检查未被捕捉的交互特征或非线性关系。")
-        else: advice.append("⚠️ 拟合效果不理想： 检查数据质量； 增加特征工程； 增大数据量。")
-        advice.append("💡 请结合具体业务场景设定可接受的RMSE/MAE阈值，而非仅依赖R²判断。")
-    advice.append("📌 免责声明：本报告由机器学习模型自动生成，预测结果仅供参考，最终决策应结合领域专家判断。")
+        r2 = float(metrics.get("r2", 0))
+        if r2 < REGRESSION_R2_DEPLOY_THRESHOLD:
+            advice.append(
+                f"⚠️ 当前 R²（{r2:.4f}）低于建议阈值 {REGRESSION_R2_DEPLOY_THRESHOLD}，"
+                "不宜将「用于实际预测场景」作为结论；请先提升数据质量、特征或模型再评估。"
+            )
+        elif r2 >= 0.85:
+            advice.append("✅ 拟合效果优秀，R² 较高，在业务误差容忍度允许时可进入试点应用。")
+        elif r2 >= 0.6:
+            advice.append("📊 具备基础预测能力，建议检查未被捕捉的交互特征或非线性关系。")
+        else:
+            advice.append("⚠️ 拟合效果不理想：检查数据质量、增加特征工程或增大数据量。")
+        advice.append("💡 请结合具体业务场景设定可接受的 RMSE/MAE 阈值，而非仅依赖 R² 判断。")
+    advice.append(
+        "📌 免责声明：本报告由机器学习模型自动生成，预测结果仅供参考，最终决策应结合领域专家判断。"
+    )
     return advice
 
+
 ALL_SECTIONS = [
+    "methodology",
     "executive_summary",
     "data_relations",
     "data_overview",
@@ -447,6 +475,8 @@ def generate_report(
 
     story = []
     sn = [0]
+    from services.report_methodology import methodology_section_paragraphs
+
     # -- Cover --
     story += [Spacer(1,6*cm),
               Paragraph("XGBoost Studio", ST["cover_title"]),
@@ -459,6 +489,13 @@ def generate_report(
               Paragraph(f"任务类型：{'分类' if record.task_type=='classification' else '回归'}", ST["cover_meta"]),
               Paragraph(f"生成时间：{gen_time}", ST["cover_meta"]),
               PageBreak()]
+
+    # -- 方法与指标定义（G2-Auth-4）--
+    if "methodology" in sections:
+        story += _h1_pair(sn, "方法与指标定义")
+        for para in methodology_section_paragraphs():
+            story.append(Paragraph(para, ST["body_j"]))
+        story.append(Spacer(1, 0.3 * cm))
 
     # -- 执行摘要 --
     if "executive_summary" in sections:
@@ -551,9 +588,7 @@ def generate_report(
         if _proto.get("notes_zh"):
             story.append(Paragraph(_proto["notes_zh"], ST["body_j"]))
         story.append(Paragraph(
-            "<b>指标定义（摘要）</b>：Accuracy 为正确分类比例；AUC-ROC 衡量正类排序区分能力（0.5 为随机）；"
-            "F1 为精确率与召回率的调和平均；回归任务 RMSE=√(mean((y−ŷ)²))，R² 表示解释方差比例。"
-            "上述指标均基于<b>单次 hold-out</b>测试集，未估计重复划分下的方差。",
+            "指标口径与局限性见前文<b>「方法与指标定义」</b>；下列数值均基于<b>单次 hold-out</b> 测试集。",
             ST["body_j"],
         ))
         mt = _metrics_table(metrics)

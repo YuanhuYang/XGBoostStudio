@@ -99,6 +99,8 @@ class TuningTask(Base):
     best_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     model_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("models.id"), nullable=True)
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # G2-Auth-3：trial 历史、失败计数、收敛序列（JSON）
+    tuning_diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

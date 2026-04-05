@@ -99,6 +99,7 @@ def _run_migrations():
         ("models", "cv_fold_metrics_json", "TEXT"),
         ("models", "cv_summary_json", "TEXT"),
         ("models", "cv_k", "INTEGER"),
+        ("tuning_tasks", "tuning_diagnostics_json", "TEXT"),
     ]
 
     with engine.connect() as conn:

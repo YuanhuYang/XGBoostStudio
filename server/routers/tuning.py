@@ -41,7 +41,7 @@ def latest_tuning(
     )
     if task is None:
         return {"task_id": None}
-    return {
+    out = {
         "task_id": task.id,
         "best_score": task.best_score,
         "best_params": _json.loads(task.best_params_json) if task.best_params_json else None,
@@ -50,6 +50,9 @@ def latest_tuning(
         "strategy": task.strategy,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
     }
+    if task.tuning_diagnostics_json:
+        out["diagnostics"] = _json.loads(task.tuning_diagnostics_json)
+    return out
 
 
 @router.post("/start")

@@ -1,0 +1,30 @@
+# 迭代章程 · G2-Auth-3：调优可信度
+
+**状态**：**已落地**（与代码、pytest、执行记录同步）  
+**上级路线图**：[`迭代规划-G2+模型权威性与专业性.md`](迭代规划-G2+模型权威性与专业性.md) **迭代 C**  
+**依赖**：G2-Auth-1 运行档案（`provenance` 含 `tuning_task_id`）
+
+---
+
+## 1. 交付范围（DoD）
+
+| # | 交付物 | 说明 |
+|---|--------|------|
+| 1 | **Study 摘要** | `GET /api/tuning/{task_id}/result` 含：`n_trials`、`n_completed`、`n_failed`、`direction`、`strategy`、`task_type`；最优参数与得分（若有至少一次成功 trial）。 |
+| 2 | **收敛序列** | `diagnostics.trial_points`：每点含 `trial`、`score`、`best_so_far`（成功）；失败点含 `trial_failed`、`error` 摘要。 |
+| 3 | **禁止静默失败** | `optimize` 异常时 **累计 `n_failed`**、SSE 推送 `trial_failed`、结果中可见；**不得**无记录 `continue`。 |
+| 4 | **搜索空间说明** | `diagnostics.search_space_documentation`：各超参键与 XGBoost 语义简述（静态表，可测）。 |
+| 5 | **pytest** | 小 `n_trials` 下调优完成且结果含 `diagnostics`。 |
+
+## 2. 非目标（本期不做）
+
+- 分布式 / 多机 Optuna；自定义 Pruner 深度集成。  
+- 与外部实验跟踪（MLflow/W&B）同步。
+
+## 3. 豁免
+
+若某数据集导致 **全部 trial 失败**：任务 `status=failed`，`error_msg` 说明原因；**不**强行生成模型文件。
+
+---
+
+*章程版本：v1.0 · 2026-04-06*
