@@ -2,6 +2,11 @@
 
 本文件给 **人类维护者** 与 **AI Agent** 共用：约定如何在本仓库里做 **长时间、可迭代的测试与 CI 看护**。
 
+## 文档与默认上下文（索引）
+
+- **日常研发 / 下一迭代**：优先 [`需求文档.md`](docs/需求文档.md)、[`验收标准文档.md`](docs/验收标准文档.md)、[`迭代计划.md`](docs/迭代计划.md)（按需）、[`功能需求与验收状态.md`](docs/功能需求与验收状态.md)、[`验收-AC证据矩阵.md`](docs/验收-AC证据矩阵.md)、[`验收追踪.md`](docs/验收追踪.md)；章程见 `docs/迭代章程-*.md`（与当期任务相关再打开）。
+- **按日期的执行记录**（`docs/验收执行记录-*.md`）与 **抽样过程**（`docs/验收抽样-F3-分模块.md`）为 **审计与全量验收留痕**，已在 [`.cursorignore`](.cursorignore) 中排除默认索引，避免历史材料占满对话上下文；**发版、全量验收、回溯**时仍可 `@` 路径或从仓库直接打开。
+
 ## 能力与配置（规则 / Skill / 提示词）
 
 | 能力 | 作用 | 在本仓库中的位置 |
@@ -28,7 +33,7 @@
 
 - **后端（在 `server` 目录）**
   - 安装 **含开发组** 依赖（含 `pytest`、`httpx` 等，见 [`server/pyproject.toml`](server/pyproject.toml) 的 `[dependency-groups] dev`）：`uv sync --all-groups`（推荐）或等价方式安装 dev 组。
-  - **API 自动化回归（无需先起服务）**：`uv run pytest`（默认不收集 `tests/acceptance_test.py`，见 `tests/conftest.py` 中 `collect_ignore`）。**G1 信任链**：`tests/test_trust_chain_contract.py`、`tests/test_authority_breast_cancer_pipeline.py`（见 [`docs/迭代章程-G1-信任链与权威数据.md`](docs/迭代章程-G1-信任链与权威数据.md)）。
+  - **API 自动化回归（无需先起服务）**：`uv run pytest`（默认不收集 `tests/acceptance_test.py`，见 `tests/conftest.py` 中 `collect_ignore`）。**G1 信任链**：`tests/test_trust_chain_contract.py`、`tests/test_authority_breast_cancer_pipeline.py`（章程：`docs/迭代章程-G1-信任链与权威数据.md`，按需查阅）。
   - **端到端验收**：需 **API 已监听**（端口以项目配置为准，验收脚本当前为 `18899`）：`python tests/acceptance_test.py`。
   - **有模型时的报告 PDF 快验**（可选）：`python tests/e2e_validate.py`（无模型时跳过报告步骤，见脚本文档字符串与 [`docs/验收追踪.md`](docs/验收追踪.md)）。
 - **客户端**：`cd client && npm install && npm run test -- --run && npm run typecheck`（Vitest 最小集：`src/constants/reportSections.test.ts`）。
