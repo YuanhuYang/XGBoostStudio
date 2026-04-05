@@ -67,7 +67,7 @@
 
 | 文件 | `/name` | 职责 | model |
 |------|---------|------|--------|
-| `pm.md` | `pm` | 路线图、章程、范围冻结、Subagent 排期 | inherit |
+| `pm.md` | `pm` | 路线图（可一次多行迭代）、章程、范围冻结、Subagent 排期 | inherit |
 | `data-reproducibility.md` | `data-reproducibility` | 数据与可复现审视 | fast |
 | `modeling-eval.md` | `modeling-eval` | 建模与评估审视 | fast |
 | `product-experience.md` | `product-experience` | 产品体验审视 | inherit |
@@ -93,7 +93,7 @@
 
 ## 推荐工作流
 
-1. **大需求**：Plan 模式 → **`pm-harness`** + **`role-project-manager`** →《迭代路线图》；或运行命令 **`/pm-迭代启动`** 并输入方向。  
+1. **大需求**：Plan 模式 → **`pm-harness`** + **`role-project-manager`** →《迭代路线图》（可一次多迭代；拆分启发式见 PM Skill）；或运行命令 **`/pm-迭代启动`** 并输入方向。  
 2. **每迭代**：范围冻结 → **A**（五领域，**优先 5 子代理 + 汇总**，可用 `/consensus-review` 编排；无关领域由 PM 标 **跳过**）→ **B**（`/implementation`）→ **C**（`/test-delivery`，命令=子集+回归）。  
 3. **小需求**：新 **Agent 会话** 一条 backlog；避免单上下文跨多迭代。  
 4. 命令与约定见 **[`AGENTS.md`](AGENTS.md)**（本目录）。  
