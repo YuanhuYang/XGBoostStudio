@@ -41,6 +41,15 @@
 | [`harness-D2/`](iterations/harness-D2/) | Harness 抽样与双轨记录 |
 | … | 详见 `iterations/` 下列表 |
 
+## 最佳实践示例 → [`best-practices/`](best-practices/)
+
+| 目录 | 说明 |
+|------|------|
+| [`README.md`](best-practices/README.md) | 最佳实践索引 |
+| [01-titanic-survival.md](best-practices/01-titanic-survival.md) | 泰坦尼克号生还预测（二分类） |
+| [02-boston-housing.md](best-practices/02-boston-housing.md) | 波士顿房价预测（回归） |
+| [03-iris-classification.md](best-practices/03-iris-classification.md) | 鸢尾花分类（多分类） |
+
 ## 跨迭代证据 → [`evidence/`](evidence/)
 
 | 文件 | 说明 |

@@ -31,7 +31,8 @@ client/node_modules/
 # 运行时数据（用户数据，不入库）
 *.db
 *.sqlite
-data/
+# 仅忽略仓库根目录下的 data/（勿用 data/ 以免误伤 server/tests/data）
+/data/
 logs/
 *.log
 

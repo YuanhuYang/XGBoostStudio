@@ -54,6 +54,17 @@ def test_upload_rejects_non_tabular(client):
     assert r.status_code == 400
 
 
+def test_import_sample_dataset_offline(client):
+    """内置示例：tests/data，无需外网。"""
+    r = client.post("/api/datasets/import-sample?key=iris")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("id")
+    assert body.get("rows", 0) > 0
+    r2 = client.post("/api/datasets/import-sample?key=invalid_key")
+    assert r2.status_code == 400
+
+
 def _upload_iris(client):
     path = _FIXTURES / "iris.csv"
     with open(path, "rb") as f:

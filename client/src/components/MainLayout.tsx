@@ -145,6 +145,13 @@ const pageTitles: Record<PageKey, string> = {
 const pageHelpMap: Record<PageKey, HelpItem[]> = {
   welcome: [
     { title: '如何开始？', content: '建议先完成数据导入，再按特征工程、模型训练、模型评估、报告导出的顺序推进。' },
+    { title: '内置示例（离线）', content: '欢迎页可一键导入 Titanic / Boston Housing / Iris，数据来自后端随包 CSV（server/tests/data/），无需联网。导入后会跳转数据导入并弹出目标列设置。' },
+    {
+      title: '最佳实践文档',
+      content:
+        '完整步骤、指标解读与进阶练习见项目 docs/best-practices/ 目录（README 与 01～03 篇）。'
+        + ' 开发克隆仓库即可在本地打开；安装版若附带文档请以安装目录或发行说明为准。',
+    },
     { title: '必须按流程吗？', content: '不强制，你可以从左侧菜单直接跳转到任意模块。' },
     { title: '看不到数据怎么办？', content: '请先在数据导入中激活数据集，顶部上下文标签会显示当前状态。' },
   ],
@@ -155,6 +162,12 @@ const pageHelpMap: Record<PageKey, HelpItem[]> = {
   ],
   'data-import': [
     { title: '支持哪些文件？', content: '支持 CSV/XLSX，建议优先使用 UTF-8 编码。' },
+    {
+      title: '内置示例与最佳实践',
+      content:
+        '「一键导入」使用后端本地 CSV（server/tests/data/），离线可用。'
+        + ' 分步说明与验收指标见 docs/best-practices/（源码 docs 目录；安装版以附带文档为准）。',
+    },
     { title: '导入后下一步？', content: '先在特征分析查看数据质量，再进入特征工程处理。' },
     { title: '数据过大怎么办？', content: '先抽样验证流程，再用完整数据训练。' },
   ],

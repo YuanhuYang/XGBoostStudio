@@ -1,11 +1,15 @@
-import React from 'react'
-import { Card, Col, Row, Typography } from 'antd'
+import React, { useState } from 'react'
+import { Card, Col, Row, Typography, Button, Space, Divider, message } from 'antd'
 import {
   RocketOutlined,
   BarChartOutlined,
   ExperimentOutlined,
   FileTextOutlined,
+  BookOutlined,
+  ImportOutlined,
 } from '@ant-design/icons'
+import { datasetsApi } from '../../api/datasets'
+import { useAppStore } from '../../store/appStore'
 
 const { Title, Paragraph } = Typography
 
@@ -36,14 +40,44 @@ const steps = [
   },
 ]
 
+const WELCOME_SAMPLES = [
+  { key: 'titanic' as const, label: 'Titanic', task: '二分类' },
+  { key: 'boston' as const, label: 'Boston', task: '回归' },
+  { key: 'iris' as const, label: 'Iris', task: '多分类' },
+]
+
 const WelcomePage: React.FC = () => {
   const navigateTo = (pageKey: string) => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: pageKey }))
   }
+  const setActiveDatasetId = useAppStore(s => s.setActiveDatasetId)
+  const setActiveDatasetName = useAppStore(s => s.setActiveDatasetName)
+  const [sampleLoading, setSampleLoading] = useState<string | null>(null)
+
+  const handleImportSample = async (key: (typeof WELCOME_SAMPLES)[number]['key']) => {
+    setSampleLoading(key)
+    try {
+      const res = await datasetsApi.importSample(key)
+      setActiveDatasetId(res.data.id)
+      setActiveDatasetName(res.data.name ?? null)
+      try {
+        sessionStorage.setItem('xgb_open_target_for_dataset', String(res.data.id))
+      } catch {
+        /* ignore */
+      }
+      message.success('已导入内置示例，正在前往数据导入…')
+      navigateTo('data-import')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '导入失败，请确认后端已启动且资源完整')
+    } finally {
+      setSampleLoading(null)
+    }
+  }
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
-      <div style={{ textAlign: 'center', marginBottom: 48 }}>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <Title level={2} style={{ color: '#f8fafc', marginBottom: 8 }}>
           欢迎使用 XGBoost Studio
         </Title>
@@ -52,8 +86,46 @@ const WelcomePage: React.FC = () => {
         </Paragraph>
       </div>
 
+      <Card
+        title={
+          <Space>
+            <BookOutlined style={{ color: '#1677ff' }} />
+            <span style={{ color: '#e2e8f0' }}>快速开始</span>
+          </Space>
+        }
+        style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 32 }}
+        styles={{ body: { padding: '12px 16px' } }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <Paragraph type="secondary" style={{ margin: 0, flex: '1 1 200px' }}>
+            <ImportOutlined style={{ color: '#1677ff', marginRight: 6 }} />
+            内置示例离线可用，一键导入后可在数据导入页设置目标列：
+          </Paragraph>
+          <Space wrap size={8}>
+            {WELCOME_SAMPLES.map(s => (
+              <Button
+                key={s.key}
+                size="small"
+                type="primary"
+                ghost
+                loading={sampleLoading === s.key}
+                disabled={sampleLoading !== null && sampleLoading !== s.key}
+                onClick={() => void handleImportSample(s.key)}
+              >
+                {s.label}（{s.task}）
+              </Button>
+            ))}
+            <Button type="link" size="small" onClick={() => navigateTo('data-import')}>
+              进入数据导入 →
+            </Button>
+          </Space>
+        </div>
+      </Card>
+
+      <Divider style={{ borderColor: '#334155' }} />
+
       <Row gutter={[16, 16]}>
-        {steps.map((s) => (
+        {steps.map(s => (
           <Col xs={24} sm={12} key={s.title}>
             <Card
               hoverable
@@ -80,7 +152,7 @@ const WelcomePage: React.FC = () => {
 
       <div style={{ textAlign: 'center', marginTop: 40 }}>
         <Paragraph style={{ color: '#475569', fontSize: 12 }}>
-          遇到问题？点击页面右下角的"帮助"按钮查看功能说明
+          遇到问题？点击页面右下角的&quot;帮助&quot;按钮查看功能说明
         </Paragraph>
       </div>
     </div>

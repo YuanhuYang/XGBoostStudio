@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import {
   Upload, Table, Button, Space, Tag, Modal, Form, Select, Typography,
   Card, Statistic, Row, Col, Progress, message, Popconfirm, Tooltip,
@@ -6,7 +6,8 @@ import {
 } from 'antd'
 import {
   InboxOutlined, DatabaseOutlined, EyeOutlined, DeleteOutlined,
-  CheckCircleOutlined, WarningOutlined, FileTextOutlined, SafetyOutlined
+  CheckCircleOutlined, WarningOutlined, FileTextOutlined, SafetyOutlined,
+  ImportOutlined,
 } from '@ant-design/icons'
 import type { UploadProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -17,6 +18,12 @@ import HelpButton from '../../components/HelpButton'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
+
+const BUILTIN_SAMPLES = [
+  { key: 'titanic' as const, label: 'Titanic', task: '二分类' },
+  { key: 'boston' as const, label: 'Boston Housing', task: '回归' },
+  { key: 'iris' as const, label: 'Iris', task: '多分类' },
+]
 
 interface DatasetRow {
   id: number
@@ -43,6 +50,7 @@ const DataImportPage: React.FC = () => {
   const [qualityScores, setQualityScores] = useState<Record<number, QualityScore>>({})
   const [qualityModal, setQualityModal] = useState<{ open: boolean; datasetId: number | null; data: QualityScore | null; name: string }>({ open: false, datasetId: null, data: null, name: '' })
   const [deduping, setDeduping] = useState(false)
+  const [sampleKeyLoading, setSampleKeyLoading] = useState<string | null>(null)
 
   const fetchDatasets = useCallback(async () => {
     setLoading(true)
@@ -57,6 +65,46 @@ const DataImportPage: React.FC = () => {
   }, [])
 
   React.useEffect(() => { fetchDatasets() }, [fetchDatasets])
+
+  const openTargetModal = useCallback(async (record: DatasetRow) => {
+    try {
+      const res = await datasetsApi.preview(record.id)
+      setColumnOptions(res.data?.columns || [])
+      setTargetModal({ open: true, datasetId: record.id })
+      form.setFieldsValue({ target_column: record.target_column })
+    } catch {
+      message.error('获取列信息失败')
+    }
+  }, [form])
+
+  /** 欢迎页一键导入后跳转：自动弹出目标列设置 */
+  useEffect(() => {
+    let sid: string | null = null
+    try {
+      sid = sessionStorage.getItem('xgb_open_target_for_dataset')
+    } catch {
+      return
+    }
+    if (!sid || loading || datasets.length === 0) return
+    const id = Number(sid)
+    if (Number.isNaN(id)) {
+      try {
+        sessionStorage.removeItem('xgb_open_target_for_dataset')
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+    const row = datasets.find(d => d.id === id)
+    if (row) {
+      try {
+        sessionStorage.removeItem('xgb_open_target_for_dataset')
+      } catch {
+        /* ignore */
+      }
+      void openTargetModal(row)
+    }
+  }, [datasets, loading, openTargetModal])
 
   const handleUpload: UploadProps['customRequest'] = async ({ file, onSuccess, onError }) => {
     setUploading(true)
@@ -81,6 +129,21 @@ const DataImportPage: React.FC = () => {
     }
   }
 
+  const handleImportSample = async (key: (typeof BUILTIN_SAMPLES)[number]['key']) => {
+    setSampleKeyLoading(key)
+    try {
+      const res = await datasetsApi.importSample(key)
+      message.success('已导入内置示例（本地资源，无需联网）')
+      await fetchDatasets()
+      openTargetModal(res.data as DatasetRow)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '导入内置示例失败')
+    } finally {
+      setSampleKeyLoading(null)
+    }
+  }
+
   const handlePreview = async (record: DatasetRow) => {
     try {
       const res = await datasetsApi.preview(record.id)
@@ -99,17 +162,6 @@ const DataImportPage: React.FC = () => {
       fetchDatasets()
     } catch {
       message.error('删除失败')
-    }
-  }
-
-  const openTargetModal = async (record: DatasetRow) => {
-    try {
-      const res = await datasetsApi.preview(record.id)
-      setColumnOptions(res.data?.columns || [])
-      setTargetModal({ open: true, datasetId: record.id })
-      form.setFieldsValue({ target_column: record.target_column })
-    } catch {
-      message.error('获取列信息失败')
     }
   }
 
@@ -240,6 +292,39 @@ const DataImportPage: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: '#1e293b',
+          border: '1px solid #334155',
+          borderRadius: 8,
+        }}
+      >
+        <Text type="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
+          <ImportOutlined style={{ color: '#1677ff' }} />
+          内置示例（离线）：
+        </Text>
+        <Space size={8} wrap>
+          {BUILTIN_SAMPLES.map(s => (
+            <Button
+              key={s.key}
+              size="small"
+              type="default"
+              loading={sampleKeyLoading === s.key}
+              disabled={sampleKeyLoading !== null && sampleKeyLoading !== s.key}
+              onClick={() => void handleImportSample(s.key)}
+            >
+              {s.label}（{s.task}）
+            </Button>
+          ))}
+        </Space>
+      </div>
 
       <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 24 }}>
         <Dragger

@@ -98,12 +98,14 @@ def dataset_summary(dataset_id: int, db: Session) -> dict[str, Any]:
     # 目标列候选推荐 ── 多维度评分，综合排名
     _kw_primary = {
         'target', 'label', 'result', 'outcome', 'class', 'category',
-        'survived', 'churn', 'status', 'flag',
+        'survived', 'churn', 'status', 'flag', 'prediction', 'output',
+        'medv', 'median', 'species',
     }
     _kw_primary_exact = {'y'}  # 单字符关键词只做精确匹配，避免误判 quantity/scrapqty 等
-    _kw_price = {'price', 'sales', 'revenue', 'cost', 'amount', 'wage', 'salary'}
+    _kw_price = {'price', 'sales', 'revenue', 'cost', 'amount', 'wage', 'salary', 'value'}
     # 表示"最终/人工"语义的前缀/后缀，优先级更高
     _prefix_boost = {'manual', 'final', 'actual', 'real', 'true', 'total', 'net', 'gross'}
+    _suffix_boost = {'target', 'label', 'class', 'output', 'prediction'}
 
     n_cols_total = len(df.columns)
     candidate_targets: list[dict[str, Any]] = []
@@ -127,10 +129,15 @@ def dataset_summary(dataset_id: int, db: Session) -> dict[str, Any]:
             score += 0.15
             reasons.append("含最终/人工语义前缀，通常为目标值")
 
-        # 最后一列奖励
+        # 目标语义后缀加权
+        if any(_col_lower.endswith(_s) for _s in _suffix_boost):
+            score += 0.15
+            reasons.append("含目标语义后缀，通常为预测目标")
+
+        # 最后一列奖励（业界习惯将目标放在最后一列）
         if _i == n_cols_total - 1:
             score += 0.10
-            reasons.append("位于最后一列")
+            reasons.append("位于最后一列（业界习惯）")
 
         # 数值型且方差充足（回归目标特征）
         if pd.api.types.is_numeric_dtype(df[_col]) and not df[_col].isnull().all():

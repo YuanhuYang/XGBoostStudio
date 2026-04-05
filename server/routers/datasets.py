@@ -44,6 +44,15 @@ async def upload_dataset(
     return dataset
 
 
+@router.post("/import-sample", response_model=DatasetResponse)
+def import_sample_dataset(
+    key: str = Query(..., description="titanic | boston | iris"),
+    db: Session = Depends(get_db),
+):
+    """一键导入内置示例数据集（本地 tests/data，离线可用）。"""
+    return svc.import_sample_dataset(key, db)
+
+
 # ── 列表 / 详情 / 删除 ────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[DatasetResponse])

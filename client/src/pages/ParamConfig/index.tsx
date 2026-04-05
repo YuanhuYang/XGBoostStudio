@@ -44,12 +44,22 @@ const PRESETS = [
   },
 ]
 
+// 从 localStorage 恢复上次选中的预设
+const STORAGE_KEY = 'xgboost-studio:last-selected-preset'
+
 const ParamConfigPage: React.FC = () => {
   const activeSplitId = useAppStore(s => s.activeSplitId)
   const [schema, setSchema] = useState<ParamSchema[]>([])
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [splitId, setSplitId] = useState<number | null>(null)
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(() => {
+    // 从 localStorage 恢复上次选中
+    try {
+      return localStorage.getItem(STORAGE_KEY) || null
+    } catch {
+      return null
+    }
+  })
   const [recommendation, setRecommendation] = useState<{ params: Record<string, unknown>; notes: string[]; explanations?: Record<string, string> } | null>(null)
   const [validation, setValidation] = useState<{ valid: boolean; errors: Record<string, string> } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -63,6 +73,13 @@ const ParamConfigPage: React.FC = () => {
       setSchema(r.data)
       const defaults: Record<string, unknown> = {}
       r.data.forEach((p: ParamSchema) => { defaults[p.name] = p.default })
+      // 如果有选中的预设，覆盖默认值
+      if (selectedPreset) {
+        const preset = PRESETS.find(p => p.key === selectedPreset)
+        if (preset) {
+          Object.assign(defaults, preset.params)
+        }
+      }
       setParams(defaults)
     }).catch(() => message.error('获取参数Schema失败'))
   }, [])
@@ -74,6 +91,11 @@ const ParamConfigPage: React.FC = () => {
       const r = await apiClient.get('/api/params/recommend', { params: { split_id: splitId } })
       setRecommendation(r.data)
       setParams(prev => ({ ...prev, ...r.data.params }))
+      // AI 推荐覆盖了预设参数，清除预设选中状态
+      setSelectedPreset(null)
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+      } catch {}
       message.success('已应用推荐参数')
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -102,6 +124,10 @@ const ParamConfigPage: React.FC = () => {
     setSelectedPreset(preset.key)
     setParams(prev => ({ ...prev, ...preset.params }))
     setValidation(null)
+    // 保存选中状态到 localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, preset.key)
+    } catch {}
     message.success(`已应用「${preset.label}」预设`)
   }
 

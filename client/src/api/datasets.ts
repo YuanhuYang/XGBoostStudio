@@ -1,6 +1,16 @@
 import apiClient from './client'
 import type { Dataset, DatasetStats, PreviewData, QualityScore } from '../types'
 
+/** 一键导入内置示例（本地 tests/data，离线可用） */
+export async function importSampleDataset(
+  key: 'titanic' | 'boston' | 'iris'
+): Promise<Dataset> {
+  const res = await apiClient.post<Dataset>('/api/datasets/import-sample', null, {
+    params: { key },
+  })
+  return res.data
+}
+
 /** 上传数据集 */
 export async function uploadDataset(file: File, sheetName?: string): Promise<Dataset> {
   const form = new FormData()
@@ -139,6 +149,8 @@ export async function setTargetColumn(id: number, targetColumn: string): Promise
 /** 便捷 API 对象（页面组件使用） */
 export const datasetsApi = {
   list: () => apiClient.get('/api/datasets'),
+  importSample: (key: 'titanic' | 'boston' | 'iris') =>
+    apiClient.post<Dataset>('/api/datasets/import-sample', null, { params: { key } }),
   upload: (formData: FormData) => apiClient.post('/api/datasets/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   preview: (id: number, page = 1, pageSize = 50) => apiClient.get(`/api/datasets/${id}/preview`, { params: { page, page_size: pageSize } }),
   stats: (id: number) => apiClient.get(`/api/datasets/${id}/stats`),

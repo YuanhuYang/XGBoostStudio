@@ -129,6 +129,7 @@ const SmartWorkflow: React.FC = () => {
   const cancelPipelineRef = useRef<(() => void) | null>(null)
 
   const logsEndRef = useRef<HTMLDivElement | null>(null)
+  const nextButtonRef = useRef<HTMLButtonElement | null>(null)
 
   // ── Lab 参数实验 ──────────────────────────────────────────────────────────
   const [labOpen, setLabOpen] = useState(false)
@@ -228,6 +229,16 @@ const SmartWorkflow: React.FC = () => {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [pipelineLogs])
+
+  // 每一步完成后自动聚焦到下一步按钮
+  useEffect(() => {
+    // 延时等待渲染完成后再聚焦
+    setTimeout(() => {
+      if (nextButtonRef.current) {
+        nextButtonRef.current.focus()
+      }
+    }, 100)
+  }, [currentStep])
 
   // ── Step 0: 选择数据集 ─────────────────────────────────────────────────────
 
@@ -713,6 +724,8 @@ const SmartWorkflow: React.FC = () => {
             onClick={goToStep1}
             size="large"
             style={{ marginTop: 8 }}
+            ref={nextButtonRef}
+            autoFocus
           >
             下一步：查看数据分析
           </Button>
@@ -841,7 +854,12 @@ const SmartWorkflow: React.FC = () => {
 
           <Space style={{ marginTop: 16 }}>
             <Button onClick={() => setCurrentStep(0)}>返回</Button>
-            <Button type="primary" onClick={() => setCurrentStep(2)}>
+            <Button
+              type="primary"
+              onClick={() => setCurrentStep(2)}
+              ref={nextButtonRef}
+              autoFocus
+            >
               {preprocessSuggestions.length === 0 ? '下一步：确认目标列' : '继续：确认目标列'}
             </Button>
           </Space>
@@ -965,6 +983,8 @@ const SmartWorkflow: React.FC = () => {
               disabled={!selectedSplitId}
               loading={loading}
               onClick={goToStep3}
+              ref={nextButtonRef}
+              autoFocus
             >
               下一步：AI 参数推荐
             </Button>
@@ -1082,7 +1102,14 @@ const SmartWorkflow: React.FC = () => {
                 ⚗️ 参数实验
               </Button>
             )}
-            <Button type="primary" size="large" icon={<RocketOutlined />} onClick={() => setCurrentStep(4)}>
+            <Button
+              type="primary"
+              size="large"
+              icon={<RocketOutlined />}
+              onClick={() => setCurrentStep(4)}
+              ref={nextButtonRef}
+              autoFocus
+            >
               下一步：开始训练
             </Button>
           </Space>

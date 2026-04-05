@@ -18,6 +18,36 @@ from sqlalchemy.orm import Session
 from db.database import DATA_DIR
 from db.models import Dataset, DatasetSplit
 
+# 内置示例 CSV（与仓库 tests/data 一致，离线可用）
+SAMPLE_DATASET_FILES: dict[str, str] = {
+    "titanic": "titanic.csv",
+    "boston": "boston_housing.csv",
+    "iris": "iris.csv",
+}
+
+
+def _sample_data_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "tests" / "data"
+
+
+def import_sample_dataset(sample_key: str, db: Session) -> Dataset:
+    """从本地 tests/data 复制示例 CSV 并创建数据集（无需联网）。"""
+    key = sample_key.strip().lower()
+    if key not in SAMPLE_DATASET_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未知示例类型: {sample_key}，可选: {', '.join(SAMPLE_DATASET_FILES)}",
+        )
+    filename = SAMPLE_DATASET_FILES[key]
+    src = _sample_data_dir() / filename
+    if not src.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"示例文件缺失: {filename}（请确认应用资源完整）",
+        )
+    content = src.read_bytes()
+    return save_upload_file(content, filename, None, db)
+
 
 # ── 内部工具 ──────────────────────────────────────────────────────────────────
 
