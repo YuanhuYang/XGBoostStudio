@@ -44,11 +44,12 @@
 
 | 步骤 | 环境 | 结果摘要 |
 |------|------|----------|
-| `uv sync --all-groups --frozen` + `uv run pytest -q` | Windows 10, Python 3.12（uv 管理） | 11 passed（含 Titanic→PDF 全链） |
+| `uv sync --all-groups --frozen` + `uv run pytest -q` | Windows 10, Python 3.12（uv 管理） | **41 passed**（2026-04-05，CQ-2 回归）；历史行「11 passed」为早期摘录 |
 | `npm run typecheck` | Windows 10, Node 20 | 通过（无输出错误） |
-| `python tests/check_wizard.py` | 同上 | 退出码 0，PARAM_SCHEMA 14 params |
+| `uv run python tests/check_wizard.py`（`server/`） | 同上 | 退出码 0，PARAM_SCHEMA 14 params（勿用系统 `python`，见 CQ-1 执行记录） |
+| `uv run python tests/acceptance_test.py`（`server/`，18899 已起当前构建 API） | 同上 | **通过**（2026-04-05，CQ-2）；成功行 ASCII，避免 GBK 控制台编码错误 |
 
-端到端 `acceptance_test.py` 未在本表代跑（需独立起服务）；发版前请补一行结果。
+详情与 B 档构建证据：[`docs/iterations/CQ-2/执行记录.md`](../iterations/CQ-2/执行记录.md)。
 
 ## 5. 商业验收抽样记录（Harness D2）
 

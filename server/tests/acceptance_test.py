@@ -120,4 +120,4 @@ print(
     f"source={pv.get('source')} random_state={pv.get('params_final', {}).get('random_state')}"
 )
 
-print("\n✅ 所有验收测试通过！")
+print("\n[OK] All acceptance checks passed.")
