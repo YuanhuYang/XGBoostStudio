@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, Tag, Alert,
   InputNumber, Progress, Statistic, message, Divider, Badge,
-  Popconfirm, Empty, Tooltip,
+  Popconfirm, Empty, Tooltip, Checkbox,
 } from 'antd'
 import {
   PlayCircleOutlined, StopOutlined, ThunderboltOutlined,
@@ -26,6 +26,12 @@ interface ProgressEvent {
   error?: string; stopped?: boolean
   early_stopping_hint?: boolean
   early_stopped?: boolean; best_round?: number
+  cv_phase?: boolean
+  cv_done?: boolean
+  message?: string
+  cv_k?: number
+  cv_summary?: Record<string, number>
+  cv_fold_metrics?: unknown[]
 }
 
 const ModelTrainingPage: React.FC = () => {
@@ -52,6 +58,8 @@ const ModelTrainingPage: React.FC = () => {
   const sseRetryRef = useRef(0)
   const MAX_SSE_RETRIES = 3
   const PORT = 18899
+  const [useKfoldCv, setUseKfoldCv] = useState(true)
+  const [kfoldK, setKfoldK] = useState(5)
 
   // SSE 清理（测试专家：防止组件卸载后连接泄漏）
   useEffect(() => {
@@ -72,7 +80,11 @@ const ModelTrainingPage: React.FC = () => {
     setLog([])
     setEarlyStoppedRound(null)
     try {
-      const r = await apiClient.post('/api/training/start', { split_id: splitId })
+      const r = await apiClient.post('/api/training/start', {
+        split_id: splitId,
+        use_kfold_cv: useKfoldCv,
+        kfold_k: kfoldK,
+      })
       const tid = r.data.task_id
       setTaskId(tid)
       setLog(prev => [...prev, `✅ 任务创建成功: ${tid}`])
@@ -89,6 +101,14 @@ const ModelTrainingPage: React.FC = () => {
             try {
               const data: ProgressEvent = JSON.parse(e.data)
               setProgress(data)
+              if (data.cv_phase) {
+                setLog(prev => [...prev, `📊 ${data.message || 'K 折交叉验证进行中...'}`])
+                return
+              }
+              if (data.cv_done) {
+                setLog(prev => [...prev, `✅ K 折完成 (k=${data.cv_k}) summary: ${JSON.stringify(data.cv_summary)}`])
+                return
+              }
               if (data.round !== undefined) {
                 const trainVal = data.train_logloss ?? data.train_rmse ?? 0
                 const valVal = data.val_logloss ?? data.val_rmse
@@ -206,6 +226,15 @@ const ModelTrainingPage: React.FC = () => {
             <Space direction="vertical" style={{ width: '100%' }}>
               <Text style={{ color: '#94a3b8' }}>Split ID（先在特征工程页完成划分）：</Text>
               <InputNumber min={1} value={splitId || undefined} onChange={v => setSplitId(v)} style={{ width: '100%' }} placeholder="Split ID" />
+              <Checkbox checked={useKfoldCv} onChange={e => setUseKfoldCv(e.target.checked)}>
+                <Text style={{ color: '#94a3b8' }}>训练前对训练集做 K 折交叉验证（AC-6-03，写入模型）</Text>
+              </Checkbox>
+              {useKfoldCv && (
+                <Space>
+                  <Text style={{ color: '#94a3b8' }}>折数 K：</Text>
+                  <InputNumber min={2} max={10} value={kfoldK} onChange={v => setKfoldK(v ?? 5)} />
+                </Space>
+              )}
               <Button type="primary" icon={<PlayCircleOutlined />} onClick={startTraining}
                 disabled={status === 'running'} block loading={status === 'running'}>
                 开始训练

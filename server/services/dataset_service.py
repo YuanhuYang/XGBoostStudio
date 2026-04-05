@@ -392,6 +392,8 @@ def split_dataset(
     stratify: bool,
     target_column: str,
     db: Session,
+    split_strategy: str = "random",
+    time_column: str | None = None,
 ) -> DatasetSplit:
     """按配置划分训练/测试集并落盘，返回划分记录。"""
     # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
@@ -400,22 +402,36 @@ def split_dataset(
     if target_column not in df.columns:
         raise HTTPException(status_code=400, detail=f"目标列不存在: {target_column}")
 
-    stratify_col = df[target_column] if stratify else None
-    # 若目标列为连续型（浮点或高基数整数），自动降级为非分层划分
-    if stratify_col is not None:
-        if pd.api.types.is_float_dtype(stratify_col) or (
-            pd.api.types.is_integer_dtype(stratify_col) and stratify_col.nunique() > 20
-        ):
-            stratify_col = None
-    try:
-        train_df, test_df = train_test_split(
-            df,
-            train_size=train_ratio,
-            random_state=random_seed,
-            stratify=stratify_col,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"数据划分失败: {e}") from e
+    if split_strategy == "time_series":
+        if not time_column or time_column not in df.columns:
+            raise HTTPException(
+                status_code=400,
+                detail="时间序列划分必须指定存在于数据表中的 time_column",
+            )
+        df = df.sort_values(by=time_column, na_position="first").reset_index(drop=True)
+        n = len(df)
+        if n < 10:
+            raise HTTPException(status_code=400, detail="样本量过少，无法进行时间序列划分")
+        n_train = max(1, int(n * train_ratio))
+        n_train = min(n_train, n - 1)
+        train_df = df.iloc[:n_train].copy()
+        test_df = df.iloc[n_train:].copy()
+    else:
+        stratify_col = df[target_column] if stratify else None
+        if stratify_col is not None:
+            if pd.api.types.is_float_dtype(stratify_col) or (
+                pd.api.types.is_integer_dtype(stratify_col) and stratify_col.nunique() > 20
+            ):
+                stratify_col = None
+        try:
+            train_df, test_df = train_test_split(
+                df,
+                train_size=train_ratio,
+                random_state=random_seed,
+                stratify=stratify_col,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"数据划分失败: {e}") from e
 
     base = dataset.path.rsplit(".", 1)[0]
     train_filename = f"{base}_train_{uuid.uuid4().hex[:8]}.csv"
@@ -436,6 +452,8 @@ def split_dataset(
         stratify=stratify,
         train_rows=len(train_df),
         test_rows=len(test_df),
+        split_strategy=split_strategy,
+        time_column=time_column if split_strategy == "time_series" else None,
     )
     db.add(split)
     db.commit()

@@ -547,6 +547,15 @@ def generate_report(
     # -- 评估指标 --
     if "evaluation" in sections:
         story += _h1_pair(sn, "模型评估结果")
+        _proto = eval_result.get("evaluation_protocol") or {}
+        if _proto.get("notes_zh"):
+            story.append(Paragraph(_proto["notes_zh"], ST["body_j"]))
+        story.append(Paragraph(
+            "<b>指标定义（摘要）</b>：Accuracy 为正确分类比例；AUC-ROC 衡量正类排序区分能力（0.5 为随机）；"
+            "F1 为精确率与召回率的调和平均；回归任务 RMSE=√(mean((y−ŷ)²))，R² 表示解释方差比例。"
+            "上述指标均基于<b>单次 hold-out</b>测试集，未估计重复划分下的方差。",
+            ST["body_j"],
+        ))
         mt = _metrics_table(metrics)
         if mt: story += [mt, Spacer(1,0.3*cm)]
         if record.task_type=="classification":

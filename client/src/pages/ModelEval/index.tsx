@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, Select,
-  Tabs, Table, Tag, Alert, message, Statistic, Divider, Slider, Progress
+  Tabs, Table, Tag, Alert, message, Statistic, Divider, Slider, Progress,
 } from 'antd'
 import { ExperimentOutlined, BarChartOutlined, SafetyOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { getLearningCurve } from '../../api/models'
 import { useAppStore } from '../../store/appStore'
-import HelpButton from '../../components/HelpButton'
-
 const { Title, Text } = Typography
 
 const ModelEvalPage: React.FC = () => {
@@ -47,7 +45,23 @@ const ModelEvalPage: React.FC = () => {
   const [evalData, setEvalData] = useState<Record<string, unknown> | null>(null)
   const [shapData, setShapData] = useState<Record<string, unknown> | null>(null)
   const [lcData, setLcData] = useState<Record<string, unknown> | null>(null)
+  const [modelMeta, setModelMeta] = useState<{
+    split_id?: number
+    params?: Record<string, unknown>
+  } | null>(null)
+  const [kfoldData, setKfoldData] = useState<Record<string, unknown> | null>(null)
+  const [kfoldLoading, setKfoldLoading] = useState(false)
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!modelId) {
+      setModelMeta(null)
+      return
+    }
+    apiClient.get(`/api/models/${modelId}`).then(r => {
+      setModelMeta(r.data as { split_id?: number; params?: Record<string, unknown> })
+    }).catch(() => setModelMeta(null))
+  }, [modelId])
 
   const fetchEval = async () => {
     if (!modelId) { message.warning('请输入模型 ID'); return }
@@ -74,6 +88,28 @@ const ModelEvalPage: React.FC = () => {
       message.error(err.response?.data?.detail || '获取SHAP失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const runKfold = async () => {
+    if (!modelMeta?.split_id) {
+      message.warning('当前模型无划分信息，无法做 K 折（需训练时关联 split）')
+      return
+    }
+    setKfoldLoading(true)
+    try {
+      const r = await apiClient.post('/api/training/kfold', {
+        split_id: modelMeta.split_id,
+        k: 5,
+        params: modelMeta.params || {},
+      })
+      setKfoldData(r.data as Record<string, unknown>)
+      message.success('K 折交叉验证完成（训练集）')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || 'K 折失败')
+    } finally {
+      setKfoldLoading(false)
     }
   }
 
@@ -196,6 +232,42 @@ const ModelEvalPage: React.FC = () => {
 
   const metrics = evalData?.metrics as Record<string, number> | undefined
 
+  const cvKfoldEval = evalData?.cv_kfold as {
+    k?: number
+    fold_metrics?: Record<string, unknown>[]
+    summary?: Record<string, unknown>
+  } | undefined
+
+  const boxFiveStats = (vals: number[]): [number, number, number, number, number] => {
+    const s = [...vals].filter(v => !Number.isNaN(v)).sort((a, b) => a - b)
+    const n = s.length
+    if (n === 0) return [0, 0, 0, 0, 0]
+    if (n === 1) return [s[0], s[0], s[0], s[0], s[0]]
+    if (n === 2) return [s[0], s[0], (s[0] + s[1]) / 2, s[1], s[1]]
+    const q = (p: number) => s[Math.min(n - 1, Math.round(p * (n - 1)))]
+    return [s[0], q(0.25), q(0.5), q(0.75), s[n - 1]]
+  }
+
+  const cvBoxplotOption = (() => {
+    const rows = cvKfoldEval?.fold_metrics
+    if (!rows?.length) return null
+    const first = rows[0]
+    const keys = Object.keys(first).filter(k => k !== 'fold' && k !== 'outlier_highlight')
+    if (!keys.length) return null
+    return {
+      tooltip: { trigger: 'item' },
+      grid: { left: 48, right: 16, bottom: 40 },
+      xAxis: { type: 'category', data: keys, axisLabel: { color: '#94a3b8' } },
+      yAxis: { type: 'value', axisLabel: { color: '#94a3b8' }, splitLine: { lineStyle: { color: '#334155' } } },
+      series: [{
+        type: 'boxplot' as const,
+        name: 'K 折分布',
+        data: keys.map(k => boxFiveStats(rows.map(r => Number(r[k])))),
+        itemStyle: { color: '#3b82f6', borderColor: '#60a5fa' },
+      }],
+    }
+  })()
+
   // 指标评级
   const getMetricRating = (key: string, val: number): { color: string; label: string } => {
     if (key === 'auc') {
@@ -223,11 +295,6 @@ const ModelEvalPage: React.FC = () => {
       <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
         <ExperimentOutlined /> 模型评估
       </Title>
-      <HelpButton pageTitle="模型评估" items={[
-        { title: 'AUC 越高越好吗？', content: 'AUC 越接近 1 越好；> 0.9 为优秀，> 0.75 为良好，< 0.5 表示模型不如随机猜测。' },
-        { title: '混淆矩阵如何读？', content: '对角线为正确预测数量，非对角线为误分类。希望对角线数大、非对角线数小。' },
-        { title: '过拟合如何判断？', content: '训练集指标明显高于测试集（差距>0.1）则可能过拟合，建议增大 reg_lambda 或降低 max_depth。' },
-      ]} />
 
       <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
         <Space>
@@ -245,8 +312,101 @@ const ModelEvalPage: React.FC = () => {
           <Button type="primary" onClick={fetchEval} loading={loading}>加载评估</Button>
           <Button onClick={fetchShap} loading={loading}>加载SHAP详情</Button>
           <Button onClick={fetchLearningCurve} loading={loading}>加载学习曲线</Button>
+          <Button onClick={runKfold} loading={kfoldLoading} disabled={!modelMeta?.split_id}>
+            K 折交叉验证（训练集）
+          </Button>
         </Space>
       </Card>
+
+      {evalData?.evaluation_protocol && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={<Text strong>评估协议（G2-Auth-2）</Text>}
+          description={
+            <Text style={{ fontSize: 13 }}>
+              {(evalData.evaluation_protocol as { notes_zh?: string }).notes_zh}
+              {' '}
+              {(evalData.evaluation_protocol as { current_split_is_time_ordered?: boolean }).current_split_is_time_ordered
+                ? '（当前划分为时间序列顺序）'
+                : ''}
+            </Text>
+          }
+        />
+      )}
+
+      {cvKfoldEval?.fold_metrics?.length ? (
+        <Card
+          title={`训练期 K 折结果（AC-6-03，k=${cvKfoldEval.k ?? '?'})`}
+          style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}
+        >
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+            汇总（均值 ± 标准差）：{' '}
+            {Object.entries(cvKfoldEval.summary || {})
+              .filter(([k]) => k.endsWith('_mean'))
+              .map(([k, v]) => {
+                const base = k.replace(/_mean$/, '')
+                const sd = (cvKfoldEval.summary || {})[`${base}_std`]
+                return `${base}: ${Number(v).toFixed(4)} ± ${sd !== undefined ? Number(sd).toFixed(4) : '-'}`
+              })
+              .join(' | ')}
+          </Text>
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={cvKfoldEval.fold_metrics}
+            rowKey={r => String(r.fold)}
+            onRow={r => ({
+              style: r.outlier_highlight ? { background: 'rgba(127, 29, 29, 0.35)' } : undefined,
+            })}
+            columns={(() => {
+              const rows = cvKfoldEval.fold_metrics || []
+              if (!rows.length) return []
+              return Object.keys(rows[0]).map(k => ({
+                title: k === 'outlier_highlight' ? '异常折(>2σ)' : k,
+                dataIndex: k,
+                key: k,
+                render: (v: unknown) => {
+                  if (k === 'outlier_highlight') return v ? <Tag color="volcano">是</Tag> : <Tag>否</Tag>
+                  return typeof v === 'number' ? v.toFixed(4) : String(v)
+                },
+              }))
+            })()}
+          />
+          {cvBoxplotOption && (
+            <>
+              <Divider style={{ borderColor: '#334155' }} />
+              <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 8 }}>各指标 K 折箱线图</Text>
+              <ReactECharts option={cvBoxplotOption} style={{ height: 280 }} />
+            </>
+          )}
+        </Card>
+      ) : null}
+
+      {kfoldData && (
+        <Card title="K 折结果（训练集内划分）" style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+            summary: {JSON.stringify(kfoldData.summary)}
+          </Text>
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={(kfoldData.fold_metrics as Record<string, unknown>[]) || []}
+            rowKey={(_, i) => String(i)}
+            columns={(() => {
+              const rows = (kfoldData.fold_metrics as Record<string, unknown>[]) || []
+              if (!rows.length) return []
+              return Object.keys(rows[0]).map(k => ({
+                title: k,
+                dataIndex: k,
+                key: k,
+                render: (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : String(v)),
+              }))
+            })()}
+          />
+        </Card>
+      )}
 
       {metrics && (
         <>
@@ -283,7 +443,7 @@ const ModelEvalPage: React.FC = () => {
               }
               description={
                 <Row gutter={16}>
-                  {Object.entries(baseline).filter(([k]) => k !== 'strategy').map(([k, v]) => (
+                  {Object.entries(baseline).filter(([k]) => k !== 'strategy' && k !== 'fit_scope').map(([k, v]) => (
                     <Col key={k}>
                       <Text type="secondary" style={{ fontSize: 12 }}>{k.toUpperCase()} 基线: </Text>
                       <Text strong style={{ color: '#faad14' }}>{typeof v === 'number' ? v.toFixed(4) : String(v)}</Text>

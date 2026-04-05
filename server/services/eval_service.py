@@ -16,6 +16,44 @@ from db.database import DATA_DIR, MODELS_DIR
 from db.models import Model, DatasetSplit, Dataset
 
 
+def _load_xy_train_test(model_rec: Model, db: Session):
+    """
+    加载划分上的训练集、测试集特征与标签（数值列对齐），供基线在训练集上 fit。
+    与 training_service 一致：取 train/test 列交集。
+    """
+    split = (
+        db.query(DatasetSplit).filter(DatasetSplit.id == model_rec.split_id).first()
+        if model_rec.split_id
+        else None
+    )
+    dataset = (
+        db.query(Dataset).filter(Dataset.id == model_rec.dataset_id).first()
+        if model_rec.dataset_id
+        else None
+    )
+    if not split or not dataset:
+        return None, None, None, None
+    target_col = dataset.target_column
+    train_path = DATA_DIR / split.train_path
+    test_path = DATA_DIR / split.test_path
+    if not train_path.exists() or not test_path.exists():
+        return None, None, None, None
+    train_df = pd.read_csv(train_path, encoding="utf-8-sig")
+    test_df = pd.read_csv(test_path, encoding="utf-8-sig")
+    if not target_col or target_col not in train_df.columns:
+        target_col = train_df.columns[-1]
+    X_train = train_df.drop(columns=[target_col]).select_dtypes(include=[np.number]).fillna(0)
+    y_train = train_df[target_col]
+    X_test = test_df.drop(columns=[target_col], errors="ignore").select_dtypes(include=[np.number]).fillna(0)
+    y_test = test_df[target_col] if target_col in test_df.columns else None
+    common_cols = X_train.columns.intersection(X_test.columns)
+    if len(common_cols) == 0:
+        return None, None, None, None
+    X_train = X_train[common_cols]
+    X_test = X_test[common_cols]
+    return X_train, y_train, X_test, y_test
+
+
 def _load_model_and_data(model_id: int, db: Session):
     model_rec = db.query(Model).filter(Model.id == model_id).first()
     if not model_rec:
@@ -58,7 +96,46 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
 
     model, model_rec, X_test, y_test, _target_col = _load_model_and_data(model_id, db)
     base_metrics = json.loads(model_rec.metrics_json or "{}")
-    result: dict[str, Any] = {"metrics": base_metrics, "task_type": model_rec.task_type}
+    split_for_protocol = (
+        db.query(DatasetSplit).filter(DatasetSplit.id == model_rec.split_id).first()
+        if model_rec.split_id
+        else None
+    )
+    strategy = getattr(split_for_protocol, "split_strategy", None) or "random"
+    has_cv = bool(model_rec.cv_fold_metrics_json)
+    notes_parts = [
+        "当前测试集上的评估指标来自单次 hold-out 划分。",
+    ]
+    if has_cv:
+        notes_parts.append(
+            "训练阶段已在训练集上完成 K 折交叉验证，各折指标与均值/标准差见下方「训练期 K 折结果」。"
+        )
+    else:
+        notes_parts.append(
+            "若需对训练集做 K 折，可在训练时开启「K 折」或调用 POST /api/training/kfold。"
+        )
+    if strategy == "time_series":
+        notes_parts.append(
+            "当前数据划分按时间列升序：较早样本为训练集、较晚样本为测试集（降低时间泄漏风险）。"
+        )
+    result: dict[str, Any] = {
+        "metrics": base_metrics,
+        "task_type": model_rec.task_type,
+        "evaluation_protocol": {
+            "scheme": "single_holdout",
+            "notes_zh": " ".join(notes_parts),
+            "kfold_endpoint": "POST /api/training/kfold",
+            "time_series_split_supported": True,
+            "current_split_strategy": strategy,
+            "current_split_is_time_ordered": strategy == "time_series",
+        },
+    }
+    if has_cv:
+        result["cv_kfold"] = {
+            "k": model_rec.cv_k,
+            "fold_metrics": json.loads(model_rec.cv_fold_metrics_json or "[]"),
+            "summary": json.loads(model_rec.cv_summary_json or "{}"),
+        }
 
     # ── 过拟合诊断（从训练时保存的指标中读取）──────────────────────────────────
     overfitting_level = base_metrics.get("overfitting_level")
@@ -146,15 +223,30 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
                 })
             result["threshold_metrics"] = thr_rows
 
-            # 基线对比 (DummyClassifier most_frequent)
-            dummy = DummyClassifier(strategy="most_frequent").fit(X_test, y_test)
-            d_pred = dummy.predict(X_test)
+            # 基线对比：仅在训练集上 fit Dummy，在测试集上评估（与可发表实践一致）
+            X_tr, y_tr, _, _ = _load_xy_train_test(model_rec, db)
             from sklearn.metrics import accuracy_score, f1_score as f1_fn  # type: ignore
-            result["baseline"] = {
-                "accuracy": round(float(accuracy_score(y_test, d_pred)), 4),
-                "f1": round(float(f1_fn(y_test, d_pred, zero_division=0, average="macro")), 4),
-                "strategy": "多数类预测（most_frequent）",
-            }
+            if X_tr is not None and y_tr is not None:
+                common = X_tr.columns.intersection(X_test.columns)
+                X_tr_b = X_tr[common]
+                X_te_b = X_test[common]
+                dummy = DummyClassifier(strategy="most_frequent").fit(X_tr_b, y_tr)
+                d_pred = dummy.predict(X_te_b)
+                result["baseline"] = {
+                    "accuracy": round(float(accuracy_score(y_test, d_pred)), 4),
+                    "f1": round(float(f1_fn(y_test, d_pred, zero_division=0, average="macro")), 4),
+                    "strategy": "多数类预测（most_frequent）",
+                    "fit_scope": "train_only",
+                }
+            else:
+                dummy = DummyClassifier(strategy="most_frequent").fit(X_test, y_test)
+                d_pred = dummy.predict(X_test)
+                result["baseline"] = {
+                    "accuracy": round(float(accuracy_score(y_test, d_pred)), 4),
+                    "f1": round(float(f1_fn(y_test, d_pred, zero_division=0, average="macro")), 4),
+                    "strategy": "多数类预测（most_frequent）",
+                    "fit_scope": "test_fallback",
+                }
     else:
         y_pred = model.predict(X_test)
         residuals = y_test - y_pred
@@ -164,15 +256,30 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
             "actual": [round(float(a), 4) for a in y_test.values[:500]],
         }
 
-        # 基线对比 (DummyRegressor mean)
+        # 基线：训练集上拟合均值策略，在测试集上评估
         from sklearn.metrics import mean_squared_error, r2_score as r2_fn  # type: ignore
-        dummy_r = DummyRegressor(strategy="mean").fit(X_test, y_test)
-        d_pred_r = dummy_r.predict(X_test)
-        result["baseline"] = {
-            "rmse": round(float(np.sqrt(mean_squared_error(y_test, d_pred_r))), 4),
-            "r2": round(float(r2_fn(y_test, d_pred_r)), 4),
-            "strategy": "均值预测（mean）",
-        }
+        X_tr, y_tr, _, _ = _load_xy_train_test(model_rec, db)
+        if X_tr is not None and y_tr is not None:
+            common = X_tr.columns.intersection(X_test.columns)
+            X_tr_b = X_tr[common]
+            X_te_b = X_test[common]
+            dummy_r = DummyRegressor(strategy="mean").fit(X_tr_b, y_tr)
+            d_pred_r = dummy_r.predict(X_te_b)
+            result["baseline"] = {
+                "rmse": round(float(np.sqrt(mean_squared_error(y_test, d_pred_r))), 4),
+                "r2": round(float(r2_fn(y_test, d_pred_r)), 4),
+                "strategy": "均值预测（mean）",
+                "fit_scope": "train_only",
+            }
+        else:
+            dummy_r = DummyRegressor(strategy="mean").fit(X_test, y_test)
+            d_pred_r = dummy_r.predict(X_test)
+            result["baseline"] = {
+                "rmse": round(float(np.sqrt(mean_squared_error(y_test, d_pred_r))), 4),
+                "r2": round(float(r2_fn(y_test, d_pred_r)), 4),
+                "strategy": "均值预测（mean）",
+                "fit_scope": "test_fallback",
+            }
 
     # SHAP 摘要（top-20）
     try:

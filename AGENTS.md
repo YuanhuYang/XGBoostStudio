@@ -28,7 +28,7 @@
 
 - **后端（在 `server` 目录）**
   - 安装 **含开发组** 依赖（含 `pytest`、`httpx` 等，见 [`server/pyproject.toml`](server/pyproject.toml) 的 `[dependency-groups] dev`）：`uv sync --all-groups`（推荐）或等价方式安装 dev 组。
-  - **API 自动化回归（无需先起服务）**：`uv run pytest`（默认不收集 `tests/acceptance_test.py`，见 `tests/conftest.py` 中 `collect_ignore`）。
+  - **API 自动化回归（无需先起服务）**：`uv run pytest`（默认不收集 `tests/acceptance_test.py`，见 `tests/conftest.py` 中 `collect_ignore`）。**G1 信任链**：`tests/test_trust_chain_contract.py`、`tests/test_authority_breast_cancer_pipeline.py`（见 [`docs/迭代章程-G1-信任链与权威数据.md`](docs/迭代章程-G1-信任链与权威数据.md)）。
   - **端到端验收**：需 **API 已监听**（端口以项目配置为准，验收脚本当前为 `18899`）：`python tests/acceptance_test.py`。
   - **有模型时的报告 PDF 快验**（可选）：`python tests/e2e_validate.py`（无模型时跳过报告步骤，见脚本文档字符串与 [`docs/验收追踪.md`](docs/验收追踪.md)）。
 - **客户端**：`cd client && npm install && npm run test -- --run && npm run typecheck`（Vitest 最小集：`src/constants/reportSections.test.ts`）。

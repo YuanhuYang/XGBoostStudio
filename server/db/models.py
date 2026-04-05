@@ -39,6 +39,8 @@ class DatasetSplit(Base):
     stratify: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)
     train_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     test_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    split_strategy: Mapped[str] = mapped_column(String(32), nullable=False, default="random")
+    time_column: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -52,6 +54,10 @@ class Model(Base):
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)  # classification/regression
     metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON 字符串
     params_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 训练参数 JSON
+    provenance_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # G2-Auth-1 运行档案 JSON
+    cv_fold_metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # AC-6-03 K 折各折指标
+    cv_summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cv_k: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("datasets.id"), nullable=True)
     split_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("dataset_splits.id"), nullable=True)
     tags: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 逗号分隔的标签

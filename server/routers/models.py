@@ -5,6 +5,7 @@ GET    /api/models/{id}                 → 模型详情
 DELETE /api/models/{id}                 → 删除模型
 PUT    /api/models/{id}/rename          → 重命名
 GET    /api/models/{id}/evaluation      → 评估指标 + 图表数据
+GET    /api/models/{id}/provenance      → 运行档案（G2-Auth-1）
 GET    /api/models/{id}/shap            → SHAP 详细值
 GET    /api/models/compare?ids=1,2,3   → 多模型对比
 POST   /api/models/{id}/export          → 导出模型文件
@@ -19,8 +20,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from db.database import get_db, MODELS_DIR
-from db.models import Model
+from db.models import DatasetSplit, Model
 from services.eval_service import get_evaluation, get_shap_detail, get_learning_curve
+from services.provenance import legacy_provenance_from_model_row
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -72,6 +74,24 @@ def compare_models(
     id_list = [int(i.strip()) for i in ids.split(",") if i.strip().isdigit()]
     models = db.query(Model).filter(Model.id.in_(id_list)).all()
     return [_to_dict(m) for m in models]
+
+
+@router.get("/{model_id}/provenance")
+def get_model_provenance(model_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """G2-Auth-1：导出运行档案（环境版本、划分种子、最终参数与指标摘要）。"""
+    m = db.query(Model).filter(Model.id == model_id).first()
+    if not m:
+        raise HTTPException(status_code=404, detail="模型不存在")
+    if m.provenance_json:
+        return json.loads(m.provenance_json)
+    base = legacy_provenance_from_model_row(
+        m.dataset_id, m.split_id, m.params_json, m.metrics_json
+    )
+    if m.split_id:
+        sp = db.query(DatasetSplit).filter(DatasetSplit.id == m.split_id).first()
+        if sp:
+            base["split_random_seed"] = sp.random_seed
+    return base
 
 
 @router.get("/{model_id}")

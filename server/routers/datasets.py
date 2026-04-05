@@ -324,12 +324,22 @@ def split_dataset(
     dataset_id: int, body: SplitRequest, db: Session = Depends(get_db)
 ):
     ds = _get_dataset(dataset_id, db)
-    split = svc.split_dataset(ds, body.train_ratio, body.random_seed,
-                              body.stratify, body.target_column, db)
+    split = svc.split_dataset(
+        ds,
+        body.train_ratio,
+        body.random_seed,
+        body.stratify,
+        body.target_column,
+        db,
+        split_strategy=body.split_strategy,
+        time_column=body.time_column,
+    )
     return SplitResponse(
         split_id=split.id,
         train_rows=split.train_rows or 0,
         test_rows=split.test_rows or 0,
         train_ratio=split.train_ratio,
+        split_strategy=split.split_strategy,
+        time_column=split.time_column,
     )
 

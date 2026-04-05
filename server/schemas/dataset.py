@@ -3,7 +3,8 @@
 """
 from __future__ import annotations
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -38,6 +39,14 @@ class SplitRequest(BaseModel):
     random_seed: int = Field(42, ge=0)
     stratify: bool = False
     target_column: str
+    split_strategy: Literal["random", "time_series"] = Field(
+        "random",
+        description="random=随机划分；time_series=按时间列升序后前段训练、后段测试（防泄漏）",
+    )
+    time_column: Optional[str] = Field(
+        None,
+        description="split_strategy=time_series 时必填，为可排序的时间/日期列名",
+    )
 
 
 class EncodeRequest(BaseModel):
@@ -127,3 +136,5 @@ class SplitResponse(BaseModel):
     train_rows: int
     test_rows: int
     train_ratio: float
+    split_strategy: str = "random"
+    time_column: Optional[str] = None

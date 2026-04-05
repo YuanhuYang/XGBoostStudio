@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from db.database import get_db
-from schemas.model import TrainRequest
+from schemas.model import KfoldRequest, TrainRequest
 from services.training_service import (
     create_task,
     training_stream,
@@ -29,9 +29,13 @@ router = APIRouter(prefix="/api/training", tags=["training"])
 @router.post("/start")
 def start_training(body: TrainRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """创建训练任务，返回 task_id。"""
+    params = dict(body.params or {})
+    if body.use_kfold_cv:
+        params["use_kfold_cv"] = True
+    params["kfold_k"] = body.kfold_k
     task_id = create_task(
         split_id=body.split_id,
-        params=body.params or {},
+        params=params,
         db=db,
         model_name=body.model_name,
     )
@@ -63,12 +67,10 @@ def training_result(task_id: str, db: Session = Depends(get_db)) -> dict[str, An
 
 @router.post("/kfold")
 def kfold_cross_validate(
-    split_id: int,
-    k: int = 5,
-    params: dict[str, Any] | None = None,
+    body: KfoldRequest,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """
-    K-Fold 交叉验证训练集上的均値指标。
+    K-Fold 交叉验证：仅在训练集上重划分，返回各折与 summary 均值/标准差。
     """
-    return kfold_evaluate(split_id=split_id, params=params or {}, k=k, db=db)
+    return kfold_evaluate(split_id=body.split_id, params=body.params, k=body.k, db=db)

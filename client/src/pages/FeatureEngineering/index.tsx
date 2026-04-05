@@ -54,6 +54,8 @@ const FeatureEngineeringPage: React.FC = () => {
     }
   }, [allColumns, targetCol])
   const [splitResult, setSplitResult] = useState<{ split_id: number; train_rows: number; test_rows: number } | null>(null)
+  const [splitStrategy, setSplitStrategy] = useState<'random' | 'time_series'>('random')
+  const [timeColumn, setTimeColumn] = useState('')
 
   const exec = async (type: string, payload: unknown) => {
     if (!activeDatasetId) { message.warning('请先选择数据集'); return }
@@ -82,10 +84,19 @@ const FeatureEngineeringPage: React.FC = () => {
   const execSplit = async () => {
     if (!activeDatasetId) { message.warning('请先选择数据集'); return }
     if (!targetCol) { message.warning('请输入目标列名'); return }
+    if (splitStrategy === 'time_series' && !timeColumn) {
+      message.warning('时间序列划分请选择时间列')
+      return
+    }
     setLoading(true)
     try {
       const r = await apiClient.post(`/api/datasets/${activeDatasetId}/split`, {
-        train_ratio: trainRatio, random_seed: randomSeed, stratify, target_column: targetCol
+        train_ratio: trainRatio,
+        random_seed: randomSeed,
+        stratify: splitStrategy === 'time_series' ? false : stratify,
+        target_column: targetCol,
+        split_strategy: splitStrategy,
+        ...(splitStrategy === 'time_series' ? { time_column: timeColumn } : {}),
       })
       setSplitResult(r.data)
       setActiveSplitId(r.data.split_id)
@@ -107,6 +118,7 @@ const FeatureEngineeringPage: React.FC = () => {
         { title: '标签页应该按什么顺序使用？', content: '建议顺序：缺失值处理 → 异常值处理 → 编码 → 特征缩放 →（可选）PCA降维 → 数据集划分。' },
         { title: '什么时候用分层采样？', content: '分类任务建议勾选分层采样；当目标列是连续数值（回归）时系统会自动禁用分层采样。' },
         { title: '划分成功后下一步做什么？', content: '完成数据划分后会生成 Split ID，后续在「模型训练」和「智能工作流」中直接使用该 ID。' },
+        { title: '时间序列划分是什么？', content: '按选定列升序排序后，前段训练、后段测试，避免用未来信息预测过去（与 sklearn TimeSeriesSplit 的单次前向切分思想一致）。' },
       ]} />
       {!activeDatasetId && <Alert message="请先在「数据导入」页面选择数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
@@ -270,6 +282,30 @@ const FeatureEngineeringPage: React.FC = () => {
                       style={{ width: '100%' }}
                     />
                   </Form.Item>
+                  <Form.Item label={<Text style={{ color: '#94a3b8' }}>划分策略</Text>}>
+                    <Select
+                      value={splitStrategy}
+                      onChange={v => setSplitStrategy(v)}
+                      style={{ width: '100%' }}
+                      options={[
+                        { value: 'random', label: '随机划分（train_test_split）' },
+                        { value: 'time_series', label: '时间序列顺序（早训练 / 晚测试）' },
+                      ]}
+                    />
+                  </Form.Item>
+                  {splitStrategy === 'time_series' && (
+                    <Form.Item label={<Text style={{ color: '#94a3b8' }}>时间列（用于排序）</Text>}>
+                      <Select
+                        showSearch
+                        allowClear
+                        placeholder="选择日期或可排序的时间列"
+                        value={timeColumn || undefined}
+                        onChange={v => setTimeColumn(v || '')}
+                        options={allColumns.map(c => ({ value: c, label: c }))}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  )}
                   <Form.Item label={<Text style={{ color: '#94a3b8' }}>训练集比例: {(trainRatio * 100).toFixed(0)}%</Text>}>
                     <Slider min={0.5} max={0.95} step={0.05} value={trainRatio} onChange={setTrainRatio} />
                   </Form.Item>
@@ -277,13 +313,13 @@ const FeatureEngineeringPage: React.FC = () => {
                     <InputNumber value={randomSeed} onChange={v => setRandomSeed(v || 42)} />
                   </Form.Item>
                   <Form.Item>
-                    <Tooltip title={isNumericTarget ? '目标列为数值型（回归任务），不支持分层采样' : ''}>
+                    <Tooltip title={isNumericTarget ? '目标列为数值型（回归任务），不支持分层采样' : splitStrategy === 'time_series' ? '时间序列划分不使用分层' : ''}>
                       <Checkbox
                         checked={stratify}
-                        disabled={isNumericTarget}
+                        disabled={isNumericTarget || splitStrategy === 'time_series'}
                         onChange={e => setStratify(e.target.checked)}
                       >
-                        <Text style={{ color: isNumericTarget ? '#475569' : '#94a3b8' }}>分层采样（分类任务推荐）</Text>
+                        <Text style={{ color: isNumericTarget || splitStrategy === 'time_series' ? '#475569' : '#94a3b8' }}>分层采样（分类任务推荐）</Text>
                       </Checkbox>
                     </Tooltip>
                   </Form.Item>

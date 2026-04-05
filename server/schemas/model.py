@@ -13,6 +13,19 @@ class TrainRequest(BaseModel):
     split_id: int
     params: dict[str, Any] = Field(default_factory=dict)
     model_name: Optional[str] = None
+    use_kfold_cv: bool = Field(
+        False,
+        description="为 True 时在主训练前对训练集做 K 折并持久化到模型（AC-6-03）；默认关闭以兼容快速测试",
+    )
+    kfold_k: int = Field(5, ge=2, le=10, description="K 折折数，仅当 use_kfold_cv 为 True 时生效")
+
+
+class KfoldRequest(BaseModel):
+    """训练集 K 折交叉验证（G2-Auth-2）：与默认 hold-out 训练独立。"""
+
+    split_id: int
+    k: int = Field(5, ge=2, le=10)
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class TrainProgressEvent(BaseModel):

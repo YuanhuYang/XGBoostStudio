@@ -93,6 +93,12 @@ def _run_migrations():
         ("models",  "notes",           "TEXT"),
         ("reports", "report_type",     "VARCHAR(50) DEFAULT 'single'"),
         ("reports", "model_ids_json",  "TEXT"),
+        ("models",  "provenance_json", "TEXT"),
+        ("dataset_splits", "split_strategy", "VARCHAR(32) NOT NULL DEFAULT 'random'"),
+        ("dataset_splits", "time_column", "TEXT"),
+        ("models", "cv_fold_metrics_json", "TEXT"),
+        ("models", "cv_summary_json", "TEXT"),
+        ("models", "cv_k", "INTEGER"),
     ]
 
     with engine.connect() as conn:

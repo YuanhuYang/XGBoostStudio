@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from db.database import DATA_DIR, MODELS_DIR
 from db.models import Dataset, DatasetSplit, Model, TrainingTask
+from services.provenance import build_training_provenance, provenance_to_json
 
 
 def _load_split(split_id: int, db: Session) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -89,6 +90,12 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
     params = json.loads(task.params_json or "{}")
     # 提取内部元数据，不传给 XGBoost
     _model_name_from_task = params.pop("_model_name", None) or model_name
+    use_kfold_cv = bool(params.pop("use_kfold_cv", False))
+    try:
+        kfold_k = int(params.pop("kfold_k", 5) or 5)
+    except (TypeError, ValueError):
+        kfold_k = 5
+    kfold_k = max(2, min(kfold_k, 10))
     split_id = task.split_id
 
     try:
@@ -140,6 +147,13 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
                 if merged_params.get("objective") in ("multi:softmax", "multi:softprob"):
                     merged_params["objective"] = "binary:logistic"
                     merged_params["eval_metric"] = "logloss"
+
+        cv_res_stored: dict[str, Any] | None = None
+        if use_kfold_cv:
+            yield f"data: {json.dumps({'cv_phase': True, 'message': '正在运行 K 折交叉验证...'})}\n\n"
+            vp = {**merged_params, "n_estimators": n_estimators}
+            cv_res_stored = kfold_evaluate(split_id, vp, kfold_k, db)
+            yield f"data: {json.dumps({'cv_done': True, 'cv_k': cv_res_stored['k'], 'cv_summary': cv_res_stored['summary'], 'cv_fold_metrics': cv_res_stored['fold_metrics']})}\n\n"
 
         model = xgb.XGBClassifier(**merged_params) if task_type == "classification" else xgb.XGBRegressor(**merged_params)
 
@@ -218,16 +232,31 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
         model_path = MODELS_DIR / model_filename
         model.save_model(str(model_path))
 
+        final_params = {**merged_params, "n_estimators": n_estimators}
+        prov = build_training_provenance(
+            dataset_id=dataset.id if dataset else None,
+            split_id=split_id,
+            split_random_seed=split.random_seed if split else None,
+            params_final=final_params,
+            metrics=metrics,
+            source="training",
+            training_task_id=task_id,
+            training_time_s=training_time,
+        )
         # 写入数据库
         final_model = Model(
             name=_model_name_from_task or f"Model_{task_id[:8]}",
             path=model_filename,
             task_type=task_type,
             metrics_json=json.dumps(metrics),
-            params_json=json.dumps({**merged_params, "n_estimators": n_estimators}),
+            params_json=json.dumps(final_params),
+            provenance_json=provenance_to_json(prov),
             dataset_id=dataset.id if dataset else None,
             split_id=split_id,
             training_time_s=training_time,
+            cv_fold_metrics_json=json.dumps(cv_res_stored["fold_metrics"]) if cv_res_stored else None,
+            cv_summary_json=json.dumps(cv_res_stored["summary"]) if cv_res_stored else None,
+            cv_k=cv_res_stored["k"] if cv_res_stored else None,
         )
         db.add(final_model)
         db.commit()
@@ -325,6 +354,34 @@ def stop_task(task_id: str, db: Session) -> None:
         db.commit()
 
 
+def _add_cv_fold_highlights(
+    fold_metrics: list[dict[str, Any]], summary: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """AC-6-03：若某折某指标与均值的偏差 > 2×全体折该指标的标准差，则标记 outlier_highlight。"""
+    if not fold_metrics:
+        return []
+    metric_keys = [k for k in fold_metrics[0] if k != "fold"]
+    out: list[dict[str, Any]] = []
+    for fm in fold_metrics:
+        row = dict(fm)
+        bad = False
+        for mk in metric_keys:
+            mu = summary.get(f"{mk}_mean")
+            sd = summary.get(f"{mk}_std")
+            if mu is None or sd is None:
+                continue
+            sigma = float(sd) if float(sd) > 1e-12 else 1e-9
+            v = fm.get(mk)
+            if v is None:
+                continue
+            if abs(float(v) - float(mu)) > 2.0 * sigma:
+                bad = True
+                break
+        row["outlier_highlight"] = bad
+        out.append(row)
+    return out
+
+
 def kfold_evaluate(split_id: int, params: dict[str, Any], k: int, db: Session) -> dict[str, Any]:
     """
     K-Fold 交叉验证：在训练集上进行 k 折交叉验证并返回均値指标。
@@ -357,6 +414,8 @@ def kfold_evaluate(split_id: int, params: dict[str, Any], k: int, db: Session) -
     n_estimators = int(merged_params.pop("n_estimators", 100))
     merged_params.pop("early_stopping_rounds", None)
     merged_params.pop("_model_name", None)
+    merged_params.pop("use_kfold_cv", None)
+    merged_params.pop("kfold_k", None)
 
     k = max(2, min(k, 10))
     kf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42) if task_type == "classification" else KFold(n_splits=k, shuffle=True, random_state=42)
@@ -397,10 +456,12 @@ def kfold_evaluate(split_id: int, params: dict[str, Any], k: int, db: Session) -
         summary[f"{mk}_mean"] = round(float(np.mean(vals)), 4)
         summary[f"{mk}_std"] = round(float(np.std(vals)), 4)
 
+    fold_out = _add_cv_fold_highlights(fold_metrics, summary)
+
     return {
         "task_type": task_type,
         "k": k,
-        "fold_metrics": fold_metrics,
+        "fold_metrics": fold_out,
         "summary": summary,
     }
 

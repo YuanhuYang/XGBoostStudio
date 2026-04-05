@@ -180,7 +180,8 @@ const pageHelpMap: Record<PageKey, HelpItem[]> = {
   ],
   'model-eval': [
     { title: '先看哪项指标？', content: '分类任务优先 AUC/F1，回归任务优先 R2/RMSE。' },
-    { title: '如何判断过拟合？', content: '训练集与测试集指标差距过大通常表示过拟合。' },
+    { title: '单次划分与 K 折', content: '默认指标为单次 hold-out，未估计指标方差；可用「K 折交叉验证」在训练集上得到各折与 summary（均值±标准差）。' },
+    { title: '指标含义（摘要）', content: 'Accuracy=预测正确比例；AUC-ROC=正类排序区分能力（0.5≈随机）；RMSE=√(均方误差)。基线在训练集上拟合 Dummy，在测试集上对比。详见 PDF「模型评估结果」与 API evaluation_protocol。' },
     { title: '评估后下一步？', content: '可回到调参页优化，或直接生成报告。' },
   ],
   'model-tuning': [

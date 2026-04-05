@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from db.database import DATA_DIR, MODELS_DIR
 from db.models import Dataset, DatasetSplit, Model, TuningTask
+from services.provenance import build_training_provenance, provenance_to_json
 from services.training_service import _detect_task_type, _default_params, _compute_metrics
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -155,12 +156,22 @@ async def tuning_stream(task_id: str, db: Session) -> AsyncGenerator[str, None]:
         model.save_model(str(MODELS_DIR / model_filename))
 
         metrics = _compute_metrics(model, X_test, y_test, task_type)
+        prov = build_training_provenance(
+            dataset_id=dataset.id if dataset else None,
+            split_id=task.split_id,
+            split_random_seed=split.random_seed if split else None,
+            params_final=best_params,
+            metrics=metrics,
+            source="tuning",
+            tuning_task_id=task_id,
+        )
         final_model = Model(
             name=f"Tuned_{task_id[:8]}",
             path=model_filename,
             task_type=task_type,
             metrics_json=json.dumps(metrics),
             params_json=json.dumps(best_params),
+            provenance_json=provenance_to_json(prov),
             dataset_id=dataset.id if dataset else None,
             split_id=task.split_id,
         )
