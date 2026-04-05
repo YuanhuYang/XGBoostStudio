@@ -1,4 +1,4 @@
-"""E2E 验证脚本: 模型列表 → 报告生成 → PDF 下载
+﻿"""E2E 验证脚本: 模型列表 → 报告生成 → PDF 下载
 
 前置条件:
     - 后端已启动并监听 http://127.0.0.1:18899
@@ -8,7 +8,7 @@
 
     python tests/e2e_validate.py
 
-与验收文档的对应关系见 docs/验收追踪.md（e2e 行）。
+与验收文档的对应关系见 docs/product/验收追踪.md（e2e 行）。
 """
 import requests
 import sys

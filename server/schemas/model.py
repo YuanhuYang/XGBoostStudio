@@ -1,4 +1,4 @@
-"""
+﻿"""
 模型训练/评估/调优相关 Pydantic 模型
 """
 from __future__ import annotations
@@ -112,7 +112,7 @@ class ReportGenerateRequest(BaseModel):
             "shap", "tuning_history"
         ]
     )
-    # 与 report_service.ALL_SECTIONS 及 G2-R1 设计对齐；可选令牌示例：data_relations（见 docs/设计-G2-R1-数据叙事API与PDF线框.md）
+    # 与 report_service.ALL_SECTIONS 及 G2-R1 设计对齐；可选令牌示例：data_relations（见 docs/iterations/G2-R1/设计.md）
     include_sections: Optional[list[str]] = None  # 按需生成章节，None=全部
     # G2-R1b：控制 data_relations 内叙事计算深度（与 GET /data-narrative?depth= 一致）
     narrative_depth: Optional[Literal["standard", "detailed"]] = "standard"

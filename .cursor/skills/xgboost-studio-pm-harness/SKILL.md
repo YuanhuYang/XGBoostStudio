@@ -25,7 +25,7 @@ description: >-
 在 Cursor 中 **开启 Plan 模式**，或使用 **仅规划对话**（本步不写产品业务代码）：
 
 1. 加载 **`xgboost-studio-role-project-manager`**，产出 **《迭代路线图》** 草案。
-2. 可选：六角色仅对 **Backlog 优先级** 各写 **3 条以内** 意见（不必完整 A 阶段长文），PM 合并进路线图。
+2. 可选：五领域仅对 **Backlog 优先级** 各写 **3 条以内** 意见（不必完整 A 阶段长文），PM 合并进路线图。
 3. 路线图每一行即 **一个迭代**，包含下表字段。
 
 ### 《迭代路线图》字段（每行一迭代）
@@ -36,13 +36,14 @@ description: >-
 | 目标 | 一句话用户/业务价值 |
 | 范围冻结 | 明确列表（功能点/接口/页面）；**非列表内不做** |
 | 商用/交付定义 | 如何验收「可交付」（演示脚本、发布说明、无 P0 缺陷等） |
+| 目标产品版本线（可选） | 计划纳入的 **SemVer**（如 `0.3.0`）或「仅主干、不发版」；与迭代 ID 的对应见 **`xgboost-studio-release-versioning`** / [`docs/product/版本与发布.md`](../../../docs/product/版本与发布.md) |
 | 依赖 | 前置迭代或外部条件 |
-| 测试策略 | 本迭代 **必跑命令子集** + **回归用例集**（可引用 AGENTS.md） |
+| 测试策略 | 本迭代 **必跑命令子集** + **回归用例集**（可引用 `.cursor/AGENTS.md`） |
 | Agent 切分 | 每条独立 backlog 对应 **建议新开 Agent 会话** 的说明 |
 
 ### 每迭代内：小 A → B → C
 
-- **A（审视）**：仅针对 **本迭代范围** 做六角色审视（可压缩篇幅）；输出 **《迭代内优化摘要》** 或直接引用路线图若已足够。
+- **A（审视）**：仅针对 **本迭代范围** 做五领域审视（可压缩篇幅；无关领域跳过）；输出 **《迭代内优化摘要》** 或直接引用路线图若已足够。
 - **B（实现）**：**`xgboost-studio-rd-implementation`**，输入为 **本迭代《迭代章程》**（路线图该行的冻结范围）。
 - **C（测试）**：**`xgboost-studio-test-delivery`**，测试范围 **= 本迭代实现 + 章程中回归集**；DoD 满足后才可合并/发布本束。
 
@@ -55,8 +56,14 @@ description: >-
 
 仓库规则 **`plan-mode-harness.mdc`** 要求大任务 **先 Plan**；本 Skill 提供 **模板与字段**。
 
+## 仓库内快捷入口（Commands / Subagent）
+
+- **斜杠命令**：`.cursor/commands/pm-迭代启动.md` — 用户给出产品方向后，由 **项目经理** 产出路线图 + 章程骨架 + **按会话拆分的 Subagent 表**。
+- **Subagents**：`.cursor/README.md` § Subagents — 官方 `agents/*.md`（`/pm`、`/data-reproducibility` 等）与 **产出上限**（省 Token）。
+
 ## 相关 Skill
 
 - PM 角色：**`xgboost-studio-role-project-manager`**
+- 产品版本 × 迭代 ID：**`xgboost-studio-release-versioning`**
 - A 汇总格式：**`xgboost-studio-multi-agent-review`**
 - B / C：**`xgboost-studio-rd-implementation`**、**`xgboost-studio-test-delivery`**

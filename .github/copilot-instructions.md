@@ -1,10 +1,10 @@
-# XGBoost Studio Project Guidelines
+﻿# XGBoost Studio Project Guidelines
 
 ## Scope And Source Of Truth
-- 这是本仓库唯一的工作区级 AI 指令文件。不要再新增 `AGENTS.md`，避免双重指令冲突。
-- 需求与验收以 `docs/需求文档.md`、`docs/验收标准文档.md` 为准。
-- 工程流程与提交规范以 `docs/开发规范.md` 为准。
-- 部署与环境问题优先参考 `docs/部署说明.md`。
+- 这是本仓库 **GitHub Copilot** 的工作区级指令文件。与 Cursor 共用的仓库级约定、测试命令与 Skill 索引见 **[`.cursor/AGENTS.md`](../.cursor/AGENTS.md)**。
+- 需求与验收以 `docs/product/需求文档.md`、`docs/product/验收标准文档.md` 为准。
+- 工程流程与提交规范以 `docs/guides/开发规范.md` 为准。
+- 部署与环境问题优先参考 `docs/guides/部署说明.md`。
 
 ## Architecture
 - 本项目是桌面端三层结构：`client/electron`（Electron 主进程）+ `client/src`（React 渲染进程）+ `server`（FastAPI 服务）。
@@ -40,8 +40,8 @@
 
 ## Link-First References
 - 总览与快速开始：`README.md`
-- 开发流程与提交规范：`docs/开发规范.md`
-- 功能规格：`docs/需求文档.md`
-- 验收标准：`docs/验收标准文档.md`
-- 部署、镜像与常见问题：`docs/部署说明.md`
-- 历史自动化上下文（仅参考，不作为当前事实来源）：`docs/AGENT_PROMPT.md`
+- 开发流程与提交规范：`docs/guides/开发规范.md`
+- 功能规格：`docs/product/需求文档.md`
+- 验收标准：`docs/product/验收标准文档.md`
+- 部署、镜像与常见问题：`docs/guides/部署说明.md`
+- 历史自动化上下文（仅参考，不作为当前事实来源）：`docs/guides/AGENT_PROMPT.md`

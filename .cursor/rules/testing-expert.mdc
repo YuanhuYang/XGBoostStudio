@@ -24,4 +24,4 @@ alwaysApply: true
 - 日常测点与清单：**`xgboost-studio-testing`**。
 - 评审后的实现阶段：**`xgboost-studio-rd-implementation`**（范围以 **迭代章程** 或指南为准）。  
 - 必须实测与 DoD（防假完成）：**`xgboost-studio-test-delivery`**（Harness 下可为 **子集 + 回归**，须写进章程）。
-- 六角色审视：**`xgboost-studio-multi-agent-review`**；分角 **`xgboost-studio-role-*`**（见 `.cursor/README.md`）；提示词见 `.cursor/prompts/multi-agent-review-and-test.md`。
+- 五领域审视：**`xgboost-studio-multi-agent-review`**；分角 **`xgboost-studio-role-*`**（见 `.cursor/README.md`）；提示词见 `.cursor/prompts/multi-agent-review-and-test.md`。

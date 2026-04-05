@@ -1,4 +1,4 @@
-# XGBoost Studio
+﻿# XGBoost Studio
 
 <p align="center">
   <strong>无需编写代码，全流程可视化完成 XGBoost 建模、调优、解释与预测</strong>
@@ -132,7 +132,7 @@ bash scripts/start.sh --server
 bash scripts/start.sh --client
 ```
 
-详见 [📖 快速开始指南](docs/quick-start.md)
+详见 [📖 快速开始指南](docs/guides/quick-start.md)
 
 ---
 
@@ -140,11 +140,11 @@ bash scripts/start.sh --client
 
 | 文档 | 读者 | 内容 |
 |------|------|------|
-| 🚀 [快速开始](docs/quick-start.md) | 所有人 | 三种启动方式 + 常见问题 |
-| 👨‍💻 [开发者指南](docs/developers-guide.md) | 工程师 | 环境配置、代码规范、跨平台开发 |
-| 📋 [功能需求](docs/需求文档.md) | 产品 | 完整功能规格与 API 设计 |
-| ✅ [验收标准](docs/验收标准文档.md) | QA | 测试用例与验收条件 |
-| 🐳 [部署说明](docs/部署说明.md) | DevOps | 生产部署、常见问题排查 |
+| 🚀 [快速开始](docs/guides/quick-start.md) | 所有人 | 三种启动方式 + 常见问题 |
+| 👨‍💻 [开发者指南](docs/guides/developers-guide.md) | 工程师 | 环境配置、代码规范、跨平台开发 |
+| 📋 [功能需求](docs/product/需求文档.md) | 产品 | 完整功能规格与 API 设计 |
+| ✅ [验收标准](docs/product/验收标准文档.md) | QA | 测试用例与验收条件 |
+| 🐳 [部署说明](docs/guides/部署说明.md) | DevOps | 生产部署、常见问题排查 |
 
 ---
 
@@ -183,13 +183,13 @@ A: `%APPDATA%\XGBoostStudio\` (Windows) 或 `~/.xgbooststudio/` (macOS/Linux)
 **Q: 支持多用户协作吗？**  
 A: 目前为单机本地应用。可修改源码切换数据库为 PostgreSQL。
 
-更多 → [快速开始 FAQ](docs/quick-start.md#常见问题) 或 [开发者 FAQ](docs/developers-guide.md#常见问题)
+更多 → [快速开始 FAQ](docs/guides/quick-start.md#常见问题) 或 [开发者 FAQ](docs/guides/developers-guide.md#常见问题)
 
 ---
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！请遵循 [开发规范](docs/developers-guide.md)
+欢迎提交 Issue 和 Pull Request！请遵循 [开发规范](docs/guides/developers-guide.md)
 
 ---
 

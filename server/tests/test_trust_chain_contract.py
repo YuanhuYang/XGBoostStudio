@@ -1,6 +1,6 @@
-"""
+﻿"""
 G1 信任链：quick-config → validate → 训练 → 评估 API 与模型记录一致；叙事行数与划分一致。
-对齐 docs/迭代章程-G1-信任链与权威数据.md
+对齐 docs/iterations/G1/章程.md
 """
 from __future__ import annotations
 

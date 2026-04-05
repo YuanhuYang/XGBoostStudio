@@ -2,7 +2,7 @@
 核心 API 回归：系统端点、数据集上传/列表、向导摘要、训练任务创建（不重跑完整训练流）。
 
 含 AC-0-01 的 **HTTP 等效路径**（上传 Titanic → 划分 → 训练至完成 → 生成并下载 PDF），
-用于无 UI 会话时的验收证据；完整 SmartWorkflow 点选仍见 docs/验收执行记录。
+用于无 UI 会话时的验收证据；完整 SmartWorkflow 点选仍见 `docs/iterations/` 下各迭代 **`执行记录.md`**。
 """
 from __future__ import annotations
 
