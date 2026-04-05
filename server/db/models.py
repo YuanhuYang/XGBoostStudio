@@ -1,7 +1,7 @@
 """
 SQLAlchemy ORM 模型定义
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Integer, String, Text, DateTime, Float, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,8 +22,8 @@ class Dataset(Base):
     cols: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_column: Mapped[str | None] = mapped_column(String(100), nullable=True)
     task_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # classification/regression
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class DatasetSplit(Base):
@@ -41,7 +41,7 @@ class DatasetSplit(Base):
     test_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     split_strategy: Mapped[str] = mapped_column(String(32), nullable=False, default="random")
     time_column: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class Model(Base):
@@ -61,12 +61,12 @@ class Model(Base):
     dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("datasets.id"), nullable=True)
     split_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("dataset_splits.id"), nullable=True)
     tags: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 逗号分隔的标签
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)  # 用户备注
     training_time_s: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)  # 软删除标志
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)  # 用户备注
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class TrainingTask(Base):
@@ -80,7 +80,7 @@ class TrainingTask(Base):
     params_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("models.id"), nullable=True)
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -101,7 +101,7 @@ class TuningTask(Base):
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
     # G2-Auth-3：trial 历史、失败计数、收敛序列（JSON）
     tuning_diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -116,4 +116,18 @@ class Report(Base):
     config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     report_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default="single")  # single/comparison
     model_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 多模型对比时的 model_ids JSON
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class ReportTemplate(Base):
+    """报表模板表：保存用户自定义报表模板和内置模板"""
+    __tablename__ = "report_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)  # 模板名称
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)  # 模板描述
+    is_builtin: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)  # 是否内置模板
+    sections: Mapped[str] = mapped_column(Text, nullable=False)  # JSON 字符串：选中章节列表
+    format_style: Mapped[str] = mapped_column(String(50), nullable=False, default="default")  # default/apa
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)

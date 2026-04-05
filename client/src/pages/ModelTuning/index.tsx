@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  Card, Row, Col, Button, Typography, Space,
+  Card, Row, Col, Button, Typography, Space, Steps,
   Slider, Select, Alert, message, Statistic, Progress, Form, Popconfirm
 } from 'antd'
-import { RocketOutlined, StopOutlined } from '@ant-design/icons'
+import { RocketOutlined, StopOutlined, DatabaseOutlined, BarChartOutlined, ToolOutlined, SettingOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { getRequestErrorMessage } from '../../utils/apiError'
@@ -219,16 +219,41 @@ const ModelTuningPage: React.FC = () => {
 
   const pct = chartPoints.length > 0 ? Math.round((chartPoints.length / nTrials) * 100) : 0
 
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const activeModelId = useAppStore(s => s.activeModelId)
+  // activeSplitId already declared at top
+
+  const expertSteps = [
+    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '特征分析', icon: <BarChartOutlined /> },
+    { title: '特征工程', icon: <ToolOutlined /> },
+    { title: '参数配置', icon: <SettingOutlined /> },
+    { title: '模型训练', icon: <PlayCircleOutlined /> },
+  ]
+
+  // 计算当前进度：找到第一个未完成的步骤
+  const currentStep = (() => {
+    if (!activeDatasetId) return 0
+    if (!activeSplitId) return 2
+    if (!activeModelId) return 4
+    return 4 // 调优在训练之后
+  })()
+
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
+      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
         <RocketOutlined /> 超参数调优
       </Title>
       <HelpButton pageTitle="超参数调优" items={[
-        { title: 'TPE 策略与随机搜索何受？', content: 'TPE（Tree Parzen）是智能调优，会从历史 trial 學习并聚焦在好区域，通常 50 轮内收敛。' },
+        { title: 'TPE 策略与随机搜索何优？', content: 'TPE（Tree Parzen）是智能调优，会从历史 trial 学习并聚焦在好区域，通常 50 轮内收敛。' },
         { title: '调优Trials设置多少合适？', content: '建议 30-100；超过 200 收益递减明显，同时训练时间把控在 10 分钟内。' },
         { title: '调优完成后如何使用最优参数？', content: '点击「应用最优参数＋训练」，系统自动用最优参数训练最终模型。' },
       ]} />
+
+      {/* 专家流程进度概览 */}
+      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
+        <Steps current={currentStep} size="small" items={expertSteps} />
+      </Card>
 
       <Row gutter={16}>
         <Col span={7}>

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Card, Row, Col, Button, Typography, Space,
+  Card, Row, Col, Button, Typography, Space, Steps,
   InputNumber, Tag, Alert, message,
   Statistic, Badge, Divider, Collapse
 } from 'antd'
-import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, DownOutlined, ThunderboltOutlined, AimOutlined, ExperimentOutlined } from '@ant-design/icons'
+import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, DownOutlined, ThunderboltOutlined, AimOutlined, ExperimentOutlined, DatabaseOutlined, BarChartOutlined, ToolOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import ParamExplainCard from '../../components/ParamExplainCard'
@@ -134,9 +134,29 @@ const ParamConfigPage: React.FC = () => {
   const coreSchema = schema.filter(p => CORE_PARAM_NAMES.includes(p.name))
   const advancedSchema = schema.filter(p => !CORE_PARAM_NAMES.includes(p.name))
 
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const activeModelId = useAppStore(s => s.activeModelId)
+  // activeSplitId already declared at top
+
+  const expertSteps = [
+    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '特征分析', icon: <BarChartOutlined /> },
+    { title: '特征工程', icon: <ToolOutlined /> },
+    { title: '参数配置', icon: <SettingOutlined /> },
+    { title: '模型训练', icon: <PlayCircleOutlined /> },
+  ]
+
+  // 计算当前进度：找到第一个未完成的步骤
+  const currentStep = (() => {
+    if (!activeDatasetId) return 0
+    if (!activeSplitId) return 2
+    if (!activeModelId) return 3
+    return 4
+  })()
+
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
+      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
         <SettingOutlined /> 超参数配置
       </Title>
       <HelpButton pageTitle="超参数配置" items={[
@@ -144,6 +164,11 @@ const ParamConfigPage: React.FC = () => {
         { title: '最重要的参数是哪些？', content: 'n_estimators（迭代次数）、max_depth（树深）、learning_rate（学习率）是最关键的三个参数。' },
         { title: '参数配置好后如何使用？', content: '点击「下载 JSON」保存当前配置，其内容可直接粘贴到「模型训练」页面的参数输入框。' },
       ]} />
+
+      {/* 专家流程进度概览 */}
+      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
+        <Steps current={currentStep} size="small" items={expertSteps} />
+      </Card>
 
       {/* 预设方案快捷入口 */}
       <Row gutter={12} style={{ marginBottom: 20 }}>

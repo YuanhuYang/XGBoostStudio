@@ -70,3 +70,20 @@ server/tests/e2e_test_report.pdf
 
 client/out/
 client/dist-electron/
+
+# Playwright E2E 截图产物（文档用图除外，保留 .gitkeep）
+client/e2e/screenshots/**/*.png
+!client/e2e/screenshots/.gitkeep
+
+# 文档中临时截图，仅保留固定文档用图
+docs/assets/screenshots/**/*
+!docs/assets/screenshots/**/.gitkeep
+
+# Playwright E2E GIF 录制品（文档用GIF除外，保留 .gitkeep）
+client/e2e/recordings/**/*.webm
+client/e2e/recordings/**/*.gif
+!client/e2e/recordings/.gitkeep
+
+# 文档中临时 GIF，仅保留固定文档用 GIF
+docs/assets/gifs/**/*
+!docs/assets/gifs/**/.gitkeep

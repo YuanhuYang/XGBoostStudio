@@ -4,7 +4,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ── 训练 ──────────────────────────────────────────────────────────────────────
@@ -52,8 +52,7 @@ class ModelResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ── 参数配置 ──────────────────────────────────────────────────────────────────
@@ -116,8 +115,31 @@ class ReportGenerateRequest(BaseModel):
     include_sections: Optional[list[str]] = None  # 按需生成章节，None=全部
     # G2-R1b：控制 data_relations 内叙事计算深度（与 GET /data-narrative?depth= 一致）
     narrative_depth: Optional[Literal["standard", "detailed"]] = "standard"
+    # I3: 格式样式选择 - default/apa
+    format_style: Optional[str] = "default"
 
 
 class ReportCompareRequest(BaseModel):
     model_ids: list[int] = Field(..., min_length=2, description="至少选择2个模型")
     title: Optional[str] = None
+
+
+# ── 报表模板 ───────────────────────────────────────────────────────────────────
+
+class ReportTemplateCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    sections: list[str]
+    format_style: str = "default"  # default/apa
+
+
+class ReportTemplateResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    is_builtin: bool
+    sections: list[str]
+    format_style: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

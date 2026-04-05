@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Card, Row, Col, Button, Typography, Space, Select,
+  Card, Row, Col, Button, Typography, Space, Select, Steps,
   Tabs, Table, Tag, Alert, message, Statistic, Divider, Slider, Progress,
 } from 'antd'
-import { ExperimentOutlined, BarChartOutlined, SafetyOutlined } from '@ant-design/icons'
+import { ExperimentOutlined, BarChartOutlined, SafetyOutlined, DatabaseOutlined, ToolOutlined, SettingOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { getLearningCurve } from '../../api/models'
 import { useAppStore } from '../../store/appStore'
+import HelpButton, { HelpItem } from '../../components/HelpButton'
 const { Title, Text } = Typography
 
 const ModelEvalPage: React.FC = () => {
@@ -290,11 +291,62 @@ const ModelEvalPage: React.FC = () => {
     return { color: '#94a3b8', label: '' }
   }
 
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  // activeModelId already declared at top
+
+  const expertSteps = [
+    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '特征分析', icon: <BarChartOutlined /> },
+    { title: '特征工程', icon: <ToolOutlined /> },
+    { title: '参数配置', icon: <SettingOutlined /> },
+    { title: '模型训练', icon: <PlayCircleOutlined /> },
+  ]
+
+  // 计算当前进度：找到第一个未完成的步骤
+  const currentStep = (() => {
+    if (!activeDatasetId) return 0
+    if (!activeSplitId) return 2
+    if (!activeModelId) return 4
+    return 4 // 模型评估在训练之后
+  })()
+
+  const helpItems: HelpItem[] = [
+    {
+      title: '如何理解模型准确性？',
+      content: '模型准确性通过多个指标综合衡量：分类任务看 Accuracy 和 AUC，回归任务看 RMSE 和 R²。每个指标都有评级标准（优秀/良好/尚可/待提升），帮助你快速判断模型水平。置信区间表示估计的不确定性，区间越窄结果越可靠。',
+    },
+    {
+      title: '结果准确性如何证明？',
+      content: 'XGBoost Studio 使用独立测试集评估（从未见过的数据），这种方法能 unbiased 估计泛化能力。如果启用 K-Fold 交叉验证，会给出多次评估的均值和标准差，结果更稳定。Bootstrap 方法为每个指标计算 95% 置信区间。',
+    },
+    {
+      title: '过拟合诊断怎么看？',
+      content: '过拟合就是训练集表现好，但测试集表现差。系统通过训练集和验证集的性能差距自动诊断：差距越大过拟合越严重。解决方法：增加正则化（调大 reg_lambda）、减小 max_depth、增加训练数据、早停。',
+    },
+    {
+      title: 'SHAP 特征重要性说明',
+      content: 'SHAP 是一种先进的可解释性方法，它量化每个特征对预测结果的平均贡献。绝对值越大，特征对模型预测的影响越大。XGBoost 内置重要性和 SHAP 结论互补，可以交叉验证。',
+    },
+    {
+      title: '更多文档在哪里？',
+      content: '完整的报告解读指南请看项目文档 docs/guides/report-interpretation.md，包含各个指标详细定义和评级标准。',
+    },
+  ]
+
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
-        <ExperimentOutlined /> 模型评估
-      </Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={4} style={{ color: '#60a5fa', margin: 0 }}>
+          <ExperimentOutlined /> 模型评估
+        </Title>
+        <HelpButton pageTitle="模型评估" items={helpItems} inHeader={true} />
+      </div>
+
+      {/* 专家流程进度概览 */}
+      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
+        <Steps current={currentStep} size="small" items={expertSteps} />
+      </Card>
 
       <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
         <Space>

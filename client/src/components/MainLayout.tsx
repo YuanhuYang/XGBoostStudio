@@ -53,7 +53,46 @@ type PageKey =
   | 'report'
   | 'prediction'
 
-const menuItems: MenuProps['items'] = [
+// 页面操作顺序（专家模式推荐流程）
+const pageOrder: PageKey[] = [
+  'data-import',
+  'feature-analysis',
+  'feature-engineering',
+  'param-config',
+  'model-training',
+  'model-eval',
+  'model-tuning',
+  'model-management',
+  'report',
+  'prediction',
+]
+
+// 定义页面依赖关系：每个页面完成的条件是什么
+const pageCompletion: Record<PageKey, (state: {
+  activeDatasetId: number | null
+  activeSplitId: number | null
+  activeModelId: number | null
+}) => boolean> = {
+  welcome: () => true,
+  'smart-workflow': () => true,
+  'data-import': s => s.activeDatasetId !== null,
+  'feature-analysis': s => s.activeDatasetId !== null,
+  'feature-engineering': s => s.activeSplitId !== null,
+  'param-config': s => s.activeSplitId !== null,
+  'model-training': s => s.activeSplitId !== null,
+  'model-eval': s => s.activeModelId !== null,
+  'model-tuning': s => s.activeModelId !== null,
+  'model-management': s => s.activeModelId !== null,
+  report: s => s.activeModelId !== null,
+  prediction: s => s.activeModelId !== null,
+}
+
+// 生成菜单项（带状态指示器）
+const buildMenuItems = (state: {
+  activeDatasetId: number | null
+  activeSplitId: number | null
+  activeModelId: number | null
+}): MenuProps['items'] => [
   {
     key: 'smart-workflow',
     icon: <Badge dot offset={[4, -2]}><BulbOutlined /></Badge>,
@@ -61,54 +100,89 @@ const menuItems: MenuProps['items'] = [
   },
   { type: 'divider' },
   {
-    key: 'data-import',
-    icon: <DatabaseOutlined />,
-    label: '数据导入',
+    key: 'group-data',
+    label: '📊 数据准备',
+    type: 'group',
+    children: [
+      {
+        key: 'data-import',
+        icon: <DatabaseOutlined />,
+        label: pageCompletion['data-import'](state) ? '✓ 数据导入' : '○ 数据导入',
+      },
+      {
+        key: 'feature-analysis',
+        icon: <BarChartOutlined />,
+        label: pageCompletion['feature-analysis'](state) ? '✓ 特征分析' : '○ 特征分析',
+      },
+      {
+        key: 'feature-engineering',
+        icon: <ToolOutlined />,
+        label: pageCompletion['feature-engineering'](state) ? '✓ 特征工程' : '○ 特征工程',
+      },
+    ],
   },
   {
-    key: 'feature-analysis',
-    icon: <BarChartOutlined />,
-    label: '特征分析',
+    key: 'group-model-build',
+    label: '⚙️ 模型构建',
+    type: 'group',
+    children: [
+      {
+        key: 'param-config',
+        icon: <SettingOutlined />,
+        label: pageCompletion['param-config'](state) ? '✓ 参数配置' : '○ 参数配置',
+      },
+      {
+        key: 'model-training',
+        icon: <PlayCircleOutlined />,
+        label: pageCompletion['model-training'](state) ? '✓ 模型训练' : '○ 模型训练',
+      },
+    ],
   },
   {
-    key: 'feature-engineering',
-    icon: <ToolOutlined />,
-    label: '特征工程',
+    key: 'group-model-optimize',
+    label: '📈 模型优化',
+    type: 'group',
+    children: [
+      {
+        key: 'model-eval',
+        icon: <LineChartOutlined />,
+        label: pageCompletion['model-eval'](state) ? '✓ 模型评估' : '○ 模型评估',
+      },
+      {
+        key: 'model-tuning',
+        icon: <ThunderboltOutlined />,
+        label: pageCompletion['model-tuning'](state) ? '✓ 模型调优' : '○ 模型调优',
+      },
+    ],
   },
   {
-    key: 'param-config',
-    icon: <SettingOutlined />,
-    label: '参数配置',
+    key: 'group-model-management',
+    label: '📦 模型管理',
+    type: 'group',
+    children: [
+      {
+        key: 'model-management',
+        icon: <AppstoreOutlined />,
+        label: pageCompletion['model-management'](state) ? '✓ 模型管理' : '○ 模型管理',
+      },
+    ],
   },
   {
-    key: 'model-training',
-    icon: <PlayCircleOutlined />,
-    label: '模型训练',
-  },
-  {
-    key: 'model-eval',
-    icon: <LineChartOutlined />,
-    label: '模型评估',
-  },
-  {
-    key: 'model-tuning',
-    icon: <ThunderboltOutlined />,
-    label: '模型调优',
-  },
-  {
-    key: 'model-management',
-    icon: <AppstoreOutlined />,
-    label: '模型管理',
-  },
-  {
-    key: 'report',
-    icon: <FileTextOutlined />,
-    label: '分析报告',
-  },
-  {
-    key: 'prediction',
-    icon: <RocketOutlined />,
-    label: '交互预测',
+    key: 'group-output',
+    label: '📄 结果输出',
+    type: 'group',
+    children: [
+      {
+        key: 'report',
+        icon: <FileTextOutlined />,
+        label: pageCompletion['report'](state) ? '✓ 分析报告' : '○ 分析报告',
+      },
+      {
+        key: 'prediction',
+        icon: <RocketOutlined />,
+        label: pageCompletion['prediction'](state) ? '✓ 交互预测' : '○ 交互预测',
+      },
+    ],
   },
 ]
 
@@ -233,6 +307,33 @@ const MainLayout: React.FC = () => {
   const serverReady = useAppStore(s => s.serverReady)
   const isOffline = useAppStore(s => s.isOffline)
 
+  // 根据当前状态动态生成菜单项（带状态指示器）
+  const menuItems = buildMenuItems({ activeDatasetId, activeSplitId, activeModelId })
+
+  // 找到推荐的下一步：第一个未完成的页面
+  const recommendedNextStep = pageOrder.find(page => !pageCompletion[page]({ activeDatasetId, activeSplitId, activeModelId }))
+
+  // 默认打开所有分组（用户可以手动折叠）
+  const defaultOpenKeys = ['group-data', 'group-model-build', 'group-model-optimize', 'group-model-management', 'group-output']
+
+  // 如果有推荐下一步，确保它的分组是打开的
+  const getGroupKey = (pageKey: PageKey): string | null => {
+    if (['data-import', 'feature-analysis', 'feature-engineering'].includes(pageKey)) return 'group-data'
+    if (['param-config', 'model-training'].includes(pageKey)) return 'group-model-build'
+    if (['model-eval', 'model-tuning'].includes(pageKey)) return 'group-model-optimize'
+    if (['model-management'].includes(pageKey)) return 'group-model-management'
+    if (['report', 'prediction'].includes(pageKey)) return 'group-output'
+    return null
+  }
+
+  // 使用推荐高亮：如果有下一步，将它加入高亮
+  const selectedKeys = recommendedNextStep && currentPage === 'welcome'
+    ? [currentPage, recommendedNextStep]
+    : [currentPage]
+
+  // 保持所有分组打开
+  const openKeys = defaultOpenKeys
+
   // 监听页面内导航事件（由 SmartWorkflow 触发）
   useEffect(() => {
     const handler = (e: Event) => {
@@ -289,7 +390,8 @@ const MainLayout: React.FC = () => {
         {/* 导航菜单 */}
         <Menu
           mode="inline"
-          selectedKeys={[currentPage]}
+          selectedKeys={selectedKeys}
+          openKeys={openKeys}
           items={menuItems}
           style={{ background: 'transparent', border: 'none', marginTop: 8 }}
           theme="dark"
@@ -323,9 +425,7 @@ const MainLayout: React.FC = () => {
             />
           </Tooltip>
           <Text style={{ color: '#94a3b8', fontSize: 13 }}>
-            {menuItems?.find((m) => m?.key === currentPage)
-              ? (menuItems.find((m) => m?.key === currentPage) as { label: string }).label
-              : ''}
+            {pageTitles[currentPage] || ''}
           </Text>
 
           {/* 右侧上下文状态栏 */}

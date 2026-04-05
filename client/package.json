@@ -1,6 +1,6 @@
 {
   "name": "xgboost-studio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "XGBoost Studio - 可视化 XGBoost 建模平台",
   "main": "dist-electron/main.js",
   "author": "XGBoost Studio Team",
@@ -15,7 +15,14 @@
     "preview": "electron-vite preview",
     "preview:web": "vite preview --config vite.config.web.ts --port 5173",
     "typecheck": "tsc --noEmit",
-    "test": "vitest"
+    "test": "vitest",
+    "test:unit": "vitest run",
+    "test:e2e:web": "playwright test --headed",
+    "test:e2e:electron": "playwright test --project=electron",
+    "test:e2e:ci": "playwright test",
+    "build-poc": "tsc --project e2e/poc-demo/tsconfig.json",
+    "clean-poc": "rm -rf e2e/poc-demo/dist",
+    "poc": "npm run build-poc && node e2e/poc-demo/dist/cli.js"
   },
   "dependencies": {
     "antd": "^5.22.0",
@@ -34,16 +41,24 @@
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "@playwright/test": "^1.59.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.17.10",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^3.2.4",
     "electron": "^28.3.3",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "jsdom": "^29.0.1",
+    "playwright": "^1.59.1",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "ts-node": "^10.9.2"
   },
   "build": {
     "appId": "com.xgbooststudio.app",

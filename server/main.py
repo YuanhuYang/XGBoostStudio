@@ -73,6 +73,9 @@ app.include_router(training.router)
 app.include_router(models.router)
 app.include_router(tuning.router)
 app.include_router(reports.router)
+# 报表模板独立到 /api/report-templates，避免路由冲突
+from routers.reports import template_router
+app.include_router(template_router)
 app.include_router(prediction.router)
 app.include_router(wizard.router)
 

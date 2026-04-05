@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Card, Select, Button, Tabs, Typography,
+  Card, Select, Button, Tabs, Typography, Steps,
   Checkbox, Slider, InputNumber, message, Alert, Form, Tooltip
 } from 'antd'
-import { ToolOutlined } from '@ant-design/icons'
+import { ToolOutlined, DatabaseOutlined, BarChartOutlined, SettingOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import { useDatasetColumns } from '../../hooks/useDatasetColumns'
@@ -109,9 +109,28 @@ const FeatureEngineeringPage: React.FC = () => {
     }
   }
 
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const activeModelId = useAppStore(s => s.activeModelId)
+
+  const expertSteps = [
+    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '特征分析', icon: <BarChartOutlined /> },
+    { title: '特征工程', icon: <ToolOutlined /> },
+    { title: '参数配置', icon: <SettingOutlined /> },
+    { title: '模型训练', icon: <PlayCircleOutlined /> },
+  ]
+
+  // 计算当前进度：找到第一个未完成的步骤
+  const currentStep = (() => {
+    if (!activeDatasetId) return 0
+    if (!activeSplitId) return 2
+    if (!activeModelId) return 3
+    return 4
+  })()
+
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
+      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
         <ToolOutlined /> 特征工程
       </Title>
       <HelpButton pageTitle="特征工程" items={[
@@ -120,6 +139,12 @@ const FeatureEngineeringPage: React.FC = () => {
         { title: '划分成功后下一步做什么？', content: '完成数据划分后会生成 Split ID，后续在「模型训练」和「智能工作流」中直接使用该 ID。' },
         { title: '时间序列划分是什么？', content: '按选定列升序排序后，前段训练、后段测试，避免用未来信息预测过去（与 sklearn TimeSeriesSplit 的单次前向切分思想一致）。' },
       ]} />
+
+      {/* 专家流程进度概览 */}
+      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
+        <Steps current={currentStep} size="small" items={expertSteps} />
+      </Card>
+
       {!activeDatasetId && <Alert message="请先在「数据导入」页面选择数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
       <Tabs

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  Card, Row, Col, Button, Typography, Space, Tag, Alert,
+  Card, Row, Col, Button, Typography, Space, Tag, Alert, Steps,
   InputNumber, Progress, Statistic, message, Divider, Badge,
   Popconfirm, Empty, Tooltip, Checkbox,
 } from 'antd'
 import {
   PlayCircleOutlined, StopOutlined, ThunderboltOutlined,
   ExclamationCircleOutlined, CheckCircleOutlined,
+  DatabaseOutlined, BarChartOutlined, ToolOutlined, SettingOutlined,
 } from '@ant-design/icons'
 import apiClient from '../../api/client'
 import { getRequestErrorMessage } from '../../utils/apiError'
@@ -60,6 +61,25 @@ const ModelTrainingPage: React.FC = () => {
   const PORT = 18899
   const [useKfoldCv, setUseKfoldCv] = useState(true)
   const [kfoldK, setKfoldK] = useState(5)
+
+  const helpItems = [
+    {
+      title: '建模思路和训练过程',
+      content: '标准训练流程：1) 根据参数配置初始化 XGBoost 模型；2) 迭代训练每一轮树；3) 每轮结束后在验证集上评估；4) 如果验证指标连续多轮不提升，触发早停；5) 训练完成保存模型，计算评估指标。早停能自动防止过拟合。',
+    },
+    {
+      title: '早停机制说明',
+      content: '早停是防止过拟合的有效方法：当验证集性能连续 N 轮不提升时，自动停止训练，保留最优轮次。默认 N = 50，可以在参数配置中修改。',
+    },
+    {
+      title: 'K-Fold 交叉验证作用',
+      content: 'K-Fold 将训练集分成 K 份，轮流用 K-1 份训练、1 份验证。这样能更稳定估计模型性能，减少单次划分带来的随机性。交叉验证结果会在评估页展示。',
+    },
+    {
+      title: '过拟合诊断怎么看',
+      content: '系统自动比较训练集和验证集指标差距。差距大提示过拟合。解决：增大 reg_lambda（L2 正则）、减小 max_depth（树深度）、增加训练数据。',
+    },
+  ]
 
   // SSE 清理（测试专家：防止组件卸载后连接泄漏）
   useEffect(() => {
@@ -209,16 +229,44 @@ const ModelTrainingPage: React.FC = () => {
   const overfittingColor = overfittingLevel === 'high' ? '#ef4444' : overfittingLevel === 'medium' ? '#f59e0b' : '#52c41a'
   const overfittingLabel = overfittingLevel === 'high' ? '过拟合' : overfittingLevel === 'medium' ? '轻微过拟合' : '泛化良好'
 
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const activeModelId = useAppStore(s => s.activeModelId)
+  // activeSplitId already declared at top
+
+  const expertSteps = [
+    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '特征分析', icon: <BarChartOutlined /> },
+    { title: '特征工程', icon: <ToolOutlined /> },
+    { title: '参数配置', icon: <SettingOutlined /> },
+    { title: '模型训练', icon: <PlayCircleOutlined /> },
+  ]
+
+  // 计算当前进度：找到第一个未完成的步骤
+  const currentStep = (() => {
+    if (!activeDatasetId) return 0
+    if (!activeSplitId) return 2
+    if (!activeModelId) return 4
+    return 4
+  })()
+
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
-        <ThunderboltOutlined /> 模型训练
-      </Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={4} style={{ color: '#60a5fa', margin: 0 }}>
+          <ThunderboltOutlined /> 模型训练
+        </Title>
+        <HelpButton pageTitle="模型训练" items={helpItems} inHeader={true} />
+      </div>
       <HelpButton pageTitle="模型训练" items={[
         { title: '训练前需要什么？', content: '必须先完成「特征工程」页面的数据划分，获取 Split ID 后填入左侧输入框。' },
         { title: '训练很慢怎么办？', content: '尝试将 n_estimators 降低至 100，或在参数配置页选右测快速预设。' },
-        { title: '训练完成后如何查睟效果？', content: '点击左产「查看详细」跳转到「模型评估」页面，可查看 ROC 曲线、混淆矩阵、SHAP 等。' },
+        { title: '训练完成后如何查看效果？', content: '点击左侧「查看详细」跳转到「模型评估」页面，可查看 ROC 曲线、混淆矩阵、SHAP 等。' },
       ]} />
+
+      {/* 专家流程进度概览 */}
+      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
+        <Steps current={currentStep} size="small" items={expertSteps} />
+      </Card>
 
       <Row gutter={16}>
         <Col span={8}>

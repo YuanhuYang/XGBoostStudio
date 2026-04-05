@@ -110,3 +110,66 @@ def _run_migrations():
             if col not in existing_cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
                 conn.commit()
+
+    # 检查 report_templates 表是否存在，若不存在则创建（并初始化内置模板）
+    # 创建表会由 Base.metadata.create_all 自动完成，这里只检查是否需要初始化内置模板
+    from sqlalchemy import inspect
+    from db.models import ReportTemplate
+    inspector = inspect(engine)
+    if "report_templates" in inspector.get_table_names():
+        # 检查表已存在，检查是否已有内置模板
+        with SessionLocal() as sess:
+            count = sess.query(ReportTemplate).filter(ReportTemplate.is_builtin == True).count()
+            if count == 0:
+                _init_builtin_templates(sess)
+                sess.commit()
+    else:
+        # 新建表时自动创建并初始化
+        with SessionLocal() as sess:
+            _init_builtin_templates(sess)
+            sess.commit()
+
+
+def _init_builtin_templates(db):
+    """初始化内置模板：精简汇报、完整存档"""
+    import json
+    from db.models import ReportTemplate
+
+    # 1. 精简汇报模板 - 只保留核心评估信息
+    compact_sections = [
+        "executive_summary",
+        "data_overview",
+        "evaluation",
+        "business_advice",
+    ]
+    compact = ReportTemplate(
+        name="精简汇报",
+        description="只包含执行摘要、数据概览、评估指标和业务建议，适合快速汇报",
+        is_builtin=True,
+        sections=json.dumps(compact_sections),
+        format_style="default",
+    )
+    db.add(compact)
+
+    # 2. 完整存档模板 - 包含所有章节
+    full_sections = [
+        "methodology",
+        "executive_summary",
+        "data_relations",
+        "data_overview",
+        "model_params",
+        "evaluation",
+        "shap",
+        "learning_curve",
+        "overfitting",
+        "baseline",
+        "business_advice",
+    ]
+    full = ReportTemplate(
+        name="完整存档",
+        description="包含所有分析章节，适合完整存档和深入分析",
+        is_builtin=True,
+        sections=json.dumps(full_sections),
+        format_style="default",
+    )
+    db.add(full)

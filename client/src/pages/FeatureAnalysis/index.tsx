@@ -2,8 +2,9 @@ import React, { useState, useCallback } from 'react'
 import {
   Card, Row, Col, Select, Button, Tabs, Table, Typography, Space,
   Tag, Spin, message, Statistic, Progress, Alert, Divider, Descriptions,
+  Steps,
 } from 'antd'
-import { BarChartOutlined, ExperimentOutlined, ApartmentOutlined } from '@ant-design/icons'
+import { BarChartOutlined, ExperimentOutlined, ApartmentOutlined, DatabaseOutlined, ToolOutlined, SettingOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
@@ -121,9 +122,28 @@ const FeatureAnalysisPage: React.FC = () => {
     { title: '缺失率', dataIndex: 'missing_rate', key: 'missing_rate', render: (v: number) => v != null ? `${(v * 100).toFixed(1)}%` : '-', sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => ((a.missing_rate as number) ?? 0) - ((b.missing_rate as number) ?? 0) }
   ]
 
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const activeModelId = useAppStore(s => s.activeModelId)
+
+  const expertSteps = [
+    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '特征分析', icon: <BarChartOutlined /> },
+    { title: '特征工程', icon: <ToolOutlined /> },
+    { title: '参数配置', icon: <SettingOutlined /> },
+    { title: '模型训练', icon: <PlayCircleOutlined /> },
+  ]
+
+  // 计算当前进度：找到第一个未完成的步骤
+  const currentStep = (() => {
+    if (!activeDatasetId) return 0
+    if (!activeSplitId) return 1
+    if (!activeModelId) return 3
+    return 4
+  })()
+
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
+      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
         <BarChartOutlined /> 特征分析
       </Title>
       <HelpButton pageTitle="特征分析" items={[
@@ -131,6 +151,12 @@ const FeatureAnalysisPage: React.FC = () => {
         { title: '相关性分析有个使用建议？', content: '相关系数 |r| > 0.7 考虑删除其中一个;相关系数 > 0.5 且与目标列相关的特征通常更重要。' },
         { title: 'SHAP 与特征重要性有何区别？', content: 'SHAP 基于模型预测计算特征贡献，相比统计相关性更准确地反映模型真实依赖。' },
       ]} />
+
+      {/* 专家流程进度概览 */}
+      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
+        <Steps current={currentStep} size="small" items={expertSteps} />
+      </Card>
+
       {!activeDatasetId && <Alert message="请先在「数据导入」页面选择并设置目标列的数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
       <Tabs

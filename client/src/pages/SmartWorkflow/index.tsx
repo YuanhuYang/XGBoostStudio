@@ -6,6 +6,7 @@ import {
 import {
   RocketOutlined, CheckCircleOutlined, BookOutlined,
   FileTextOutlined, ThunderboltOutlined, BarChartOutlined, ExperimentOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
 import HelpButton from '../../components/HelpButton'
 import ReactECharts from 'echarts-for-react'
@@ -1279,6 +1280,16 @@ const SmartWorkflow: React.FC = () => {
               }}
             >
               查看评估详情
+            </Button>
+            <Button
+              type="default"
+              icon={<EditOutlined />}
+              onClick={() => {
+                // 进入专家模式继续调优，导航到模型评估页
+                window.dispatchEvent(new CustomEvent('navigate', { detail: 'model-eval' }))
+              }}
+            >
+              进入专家模式继续调优
             </Button>
             {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
               <>

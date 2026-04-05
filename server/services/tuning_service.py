@@ -8,7 +8,7 @@ import json
 import math
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
 import numpy as np
@@ -253,7 +253,7 @@ async def tuning_stream(task_id: str, db: Session) -> AsyncGenerator[str, None]:
             task.status = "failed"
             task.error_msg = "全部 trial 失败或未正常完成，请检查数据、搜索空间或查看 trial 错误信息"
             task.tuning_diagnostics_json = json.dumps(diag)
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(timezone.utc)
             db.commit()
             yield f"data: {json.dumps({'error': task.error_msg, 'diagnostics': diag})}\n\n"
             yield "event: done\ndata: {}\n\n"
@@ -295,7 +295,7 @@ async def tuning_stream(task_id: str, db: Session) -> AsyncGenerator[str, None]:
         task.best_score = float(best_score)
         task.model_id = final_model.id
         task.tuning_diagnostics_json = json.dumps(diag)
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
         db.commit()
 
         yield f"data: {json.dumps({'completed': True, 'best_params': study.best_params, 'best_score': round(float(best_score), 4), 'model_id': final_model.id, 'diagnostics': diag})}\n\n"
@@ -304,7 +304,7 @@ async def tuning_stream(task_id: str, db: Session) -> AsyncGenerator[str, None]:
     except Exception as e:  # type: ignore[broad-exception-caught]  # async generator needs broad catch
         task.status = "failed"
         task.error_msg = str(e)
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
         db.commit()
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield "event: done\ndata: {}\n\n"

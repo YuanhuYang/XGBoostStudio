@@ -2,12 +2,12 @@ import React, { useState, useCallback, useEffect } from 'react'
 import {
   Upload, Table, Button, Space, Tag, Modal, Form, Select, Typography,
   Card, Statistic, Row, Col, Progress, message, Popconfirm, Tooltip,
-  Badge, Divider, List
+  Badge, Divider, List, Steps
 } from 'antd'
 import {
   InboxOutlined, DatabaseOutlined, EyeOutlined, DeleteOutlined,
   CheckCircleOutlined, WarningOutlined, FileTextOutlined, SafetyOutlined,
-  ImportOutlined,
+  ImportOutlined, BarChartOutlined, ToolOutlined, SettingOutlined, PlayCircleOutlined,
 } from '@ant-design/icons'
 import type { UploadProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -259,9 +259,30 @@ const DataImportPage: React.FC = () => {
     render: (v: unknown) => v === null || v === undefined ? <Text type="secondary">-</Text> : String(v)
   })) || []
 
+  // 专家模式流程进度
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const activeModelId = useAppStore(s => s.activeModelId)
+
+  const expertSteps = [
+    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '特征分析', icon: <BarChartOutlined /> },
+    { title: '特征工程', icon: <ToolOutlined /> },
+    { title: '参数配置', icon: <SettingOutlined /> },
+    { title: '模型训练', icon: <PlayCircleOutlined /> },
+  ]
+
+  // 计算当前进度：找到第一个未完成的步骤
+  const currentStep = (() => {
+    if (!activeDatasetId) return 0
+    if (!activeSplitId) return 2
+    if (!activeModelId) return 4
+    return 4
+  })()
+
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
+      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
         <DatabaseOutlined /> 数据导入
       </Title>
       <HelpButton pageTitle="数据导入" items={[
@@ -269,6 +290,11 @@ const DataImportPage: React.FC = () => {
         { title: '上传后必须设置目标列', content: '目标列（要预测的列）是模型训练的必要条件，上传后系统会自动弹出设置对话框。' },
         { title: '数据质量检测是什么？', content: '点击表格中的「检测」按鈕，系统会评分缺失率、异常率、重复行等指标。' },
       ]} />
+
+      {/* 专家流程进度概览 */}
+      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
+        <Steps current={currentStep} size="small" items={expertSteps} />
+      </Card>
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={6}>

@@ -216,7 +216,7 @@ def scale_features(dataset: Dataset, columns: Optional[list[str]], method: str, 
 
     df = _load_df(dataset)
     if columns:
-        valid_cols = [c for c in columns if c in df.columns]
+        valid_cols = [c for c in columns if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
     else:
         valid_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if not valid_cols:

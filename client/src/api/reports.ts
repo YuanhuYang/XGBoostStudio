@@ -58,3 +58,39 @@ export async function downloadReport(id: number): Promise<Blob> {
 export async function deleteReport(id: number): Promise<void> {
   await apiClient.delete(`/api/reports/${id}`)
 }
+
+// ==== 报表模板 API ====
+
+export interface ReportTemplate {
+  id: number
+  name: string
+  description?: string
+  is_builtin: boolean
+  sections: string[]
+  format_style: 'default' | 'apa'
+  created_at: string
+}
+
+export interface ReportTemplateCreatePayload {
+  name: string
+  description?: string
+  sections: string[]
+  format_style?: 'default' | 'apa'
+}
+
+/** 获取所有模板（内置 + 用户自定义） */
+export async function listReportTemplates(): Promise<ReportTemplate[]> {
+  const res = await apiClient.get('/api/report-templates')
+  return res.data
+}
+
+/** 创建用户自定义模板 */
+export async function createReportTemplate(payload: ReportTemplateCreatePayload): Promise<ReportTemplate> {
+  const res = await apiClient.post('/api/report-templates', payload)
+  return res.data
+}
+
+/** 删除用户自定义模板（内置不能删除） */
+export async function deleteReportTemplate(id: number): Promise<void> {
+  await apiClient.delete(`/api/report-templates/${id}`)
+}

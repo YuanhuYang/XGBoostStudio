@@ -12,5 +12,7 @@
 | [`harness-D2/`](harness-D2/) | Harness D2 抽样与双轨记录 |
 | [`CQ-1/`](CQ-1/) | 质量基线（全量测试与失败清单，商用化路线第一束） |
 | [`CQ-2/`](CQ-2/) | 回归、脚本验收与 B 档安装包构建证据（商用化路线第二束） |
+| [`I5-Frontend-Test-Research/`](I5-Frontend-Test-Research/) | 前端UI自动化测试方案调研（I5第一束） |
+| [`I5-Frontend-Test-Infra/`](I5-Frontend-Test-Infra/) | 测试基础设施搭建（I5第二束） |
 
 各目录内优先使用 **`章程.md`**、**`设计.md`**（如有）、**`执行记录.md`**。
