@@ -43,6 +43,8 @@ desktop.ini
 # IDE
 .vscode/
 .idea/
+
+# Cursor：`.cursor/`（规则、Skills、提示词）**纳入版本库**供克隆协作者共享；请勿将 `.cursor/` 加入忽略。
 *.suo
 *.user
 
