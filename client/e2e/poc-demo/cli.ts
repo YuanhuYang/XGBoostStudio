@@ -1,6 +1,6 @@
 /**
- * POC??CLI??
- * ??????????????POC??
+ * POC 演示 CLI 工具
+ * 允许从命令行直接运行指定的 POC 演示场景
  */
 
 const { chromium } = require('playwright');
@@ -8,7 +8,7 @@ const { listScenarios, runPOCScenario } = require('./runner');
 const { findDataFiles } = require('./utils');
 
 /**
- * ??????
+ * 打印帮助信息
  */
 function printHelp(): void {
   console.log(`
@@ -42,7 +42,7 @@ Examples:
 }
 
 /**
- * ???????
+ * 解析命令行参数
  */
 function parseArgs(): {
   command: string;
@@ -82,7 +82,7 @@ function parseArgs(): {
 }
 
 /**
- * ???
+ * 主入口
  */
 async function main(): Promise<void> {
   const { command, options, args } = parseArgs();
