@@ -282,6 +282,109 @@ def pca_analysis(
     return feat_svc.get_pca_analysis(ds, n_components)
 
 
+# ── G3-A：XGBoost 专属分析（IV/KS/PSI/单调性/标签分析/泄露检测）────────────
+
+@router.get("/{dataset_id}/feature-analysis/iv-ks-psi")
+def iv_ks_psi_analysis(
+    dataset_id: int,
+    target_column: str = Query(..., description="目标列名"),
+    db: Session = Depends(get_db),
+):
+    """
+    XGBoost 适配性特征效力分析：
+    - 分类任务：每个特征的 IV（信息价值）、KS（判别力）、单特征 AUC
+    - 回归任务：Pearson 相关系数、F 检验值、单特征 R²
+    大数据集自动采样 50000 行。
+    """
+    ds = _get_dataset(dataset_id, db)
+    return feat_svc.calc_iv_ks_auc(ds, target_column)
+
+
+@router.get("/{dataset_id}/feature-analysis/psi")
+def psi_analysis(
+    dataset_id: int,
+    time_column: str = Query(..., description="用于分期的时间/排序列"),
+    target_column: Optional[str] = Query(None, description="目标列（排除在外）"),
+    db: Session = Depends(get_db),
+):
+    """
+    特征时序稳定性分析（PSI）：
+    按时间列将数据分为基准期（前60%）和对比期（后40%），计算每个特征的 PSI。
+    PSI < 0.1：稳定；0.1-0.25：轻微变化；> 0.25：不稳定。
+    """
+    ds = _get_dataset(dataset_id, db)
+    return feat_svc.calc_psi_all(ds, time_column, target_column)
+
+
+@router.get("/{dataset_id}/feature-analysis/monotonicity")
+def monotonicity_analysis(
+    dataset_id: int,
+    target_column: str = Query(..., description="目标列名"),
+    db: Session = Depends(get_db),
+):
+    """
+    特征业务单调性分析：
+    分析每个特征与目标变量的 Spearman 趋势相关性，
+    为 XGBoost monotone_constraints 参数提供建议（1=递增, -1=递减, 0=无约束）。
+    """
+    ds = _get_dataset(dataset_id, db)
+    return feat_svc.calc_monotonicity(ds, target_column)
+
+
+@router.get("/{dataset_id}/label-analysis")
+def label_analysis(
+    dataset_id: int,
+    target_column: str = Query(..., description="目标列名"),
+    db: Session = Depends(get_db),
+):
+    """
+    标签专项分析：
+    - 任务类型推断（二分类/多分类/回归）
+    - 标签分布、正负样本比例
+    - scale_pos_weight 基准值自动计算
+    - 异常标签值识别
+    - 类别不均衡预警
+    """
+    ds = _get_dataset(dataset_id, db)
+    return feat_svc.get_label_analysis(ds, target_column)
+
+
+from pydantic import BaseModel as _LeakageBaseModel
+
+
+class _LeakageRequest(_LeakageBaseModel):
+    target_column: str
+    label_time_col: Optional[str] = None
+    feature_time_map: Optional[dict[str, str]] = None
+    pipeline_steps: Optional[list[dict]] = None
+    correlation_threshold: float = 0.9
+
+
+@router.post("/{dataset_id}/leakage-detection")
+def leakage_detection(
+    dataset_id: int,
+    body: _LeakageRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    全链路数据泄露自动化检测（三类核心场景）：
+    1. 标签泄露检测：特征与标签高度相关（|corr| > threshold）
+    2. 时间穿越泄露检测：特征时间戳晚于标签时间戳（需提供 label_time_col）
+    3. 拟合泄露检测：特征工程在全集 fit（需提供 pipeline_steps 日志）
+
+    输出：风险等级 / 风险位置 / 根因分析 / 修复方案
+    """
+    import services.leakage_service as leak_svc
+    ds = _get_dataset(dataset_id, db)
+    return leak_svc.run_full_leakage_detection(
+        ds,
+        target_column=body.target_column,
+        label_time_col=body.label_time_col,
+        feature_time_map=body.feature_time_map,
+        pipeline_steps=body.pipeline_steps,
+        correlation_threshold=body.correlation_threshold,
+    )
+
 
 # ── 特征工程（模块3） ─────────────────────────────────────────────────────────
 

@@ -21,7 +21,11 @@ from sqlalchemy.orm import Session
 
 from db.database import get_db, MODELS_DIR
 from db.models import DatasetSplit, Model
-from services.eval_service import get_evaluation, get_shap_detail, get_learning_curve
+from services.eval_service import (
+    get_evaluation, get_shap_detail, get_learning_curve,
+    get_pdp_ice, get_oot_evaluation, get_robustness_test,
+    get_bad_sample_diagnosis, get_fairness_analysis,
+)
 from services.provenance import legacy_provenance_from_model_row
 
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -186,6 +190,84 @@ def shap_detail(model_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.get("/{model_id}/learning-curve")
 def learning_curve(model_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     return get_learning_curve(model_id, db)
+
+
+# ── G3-B：新增评估端点 ────────────────────────────────────────────────────────
+
+@router.get("/{model_id}/pdp-ice/{feature_name}")
+def pdp_ice(
+    model_id: int,
+    feature_name: str,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    偏依赖图（PDP）与个体条件期望（ICE）曲线。
+    揭示特征对预测结果的边际影响趋势，支持业务单调性一致性校验。
+    """
+    return get_pdp_ice(model_id, feature_name, db)
+
+
+@router.post("/{model_id}/oot-evaluation")
+def oot_evaluation(
+    model_id: int,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    OOT（Out-of-Time）跨时间集全维度评估。
+    body: {"oot_split_id": int}
+    对比原始测试集与 OOT 集的全维度准确性指标，量化模型时间衰减幅度。
+    """
+    oot_split_id = body.get("oot_split_id")
+    if not oot_split_id:
+        raise HTTPException(status_code=422, detail="body 中必须提供 oot_split_id")
+    return get_oot_evaluation(model_id, int(oot_split_id), db)
+
+
+@router.post("/{model_id}/robustness-test")
+def robustness_test(
+    model_id: int,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    鲁棒性压力测试。
+    body: {"test_type": "feature_perturbation" | "sample_perturbation" | "extreme"}
+    - feature_perturbation：特征扰动（高斯噪声 + 随机缺失）
+    - sample_perturbation：样本扰动（随机剔除部分测试样本）
+    - extreme：极端值样本测试
+    """
+    test_type = body.get("test_type", "feature_perturbation")
+    return get_robustness_test(model_id, test_type, db)
+
+
+@router.get("/{model_id}/bad-sample-diagnosis")
+def bad_sample_diagnosis(
+    model_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    FP/FN 坏样本自动聚类根因诊断。
+    仅支持分类任务。对错误预测样本进行 K-Means 聚类，输出共性特征与根因分析。
+    """
+    return get_bad_sample_diagnosis(model_id, db)
+
+
+@router.post("/{model_id}/fairness-analysis")
+def fairness_analysis(
+    model_id: int,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    算法公平性分析。
+    body: {"group_col": str}
+    按分组字段计算各子群的预测准确性偏差，输出人口统计公平差异（DPD）。
+    """
+    group_col = body.get("group_col")
+    if not group_col:
+        raise HTTPException(status_code=422, detail="body 中必须提供 group_col")
+    return get_fairness_analysis(model_id, group_col, db)
 
 
 @router.post("/{model_id}/export")

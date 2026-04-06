@@ -1,0 +1,37 @@
+# XGBoost Studio · 知识库
+
+> **版本对应**：本目录内容与产品版本 **v0.3.0** 同步，每次产品迭代后增量更新。  
+> **阅读入口**：根据你的角色选择对应文档，所有文档互有交叉引用，可按需跳转。
+
+---
+
+## 文档索引
+
+| 文件 | 内容摘要 | 适合读者 |
+|------|----------|----------|
+| [`01-product-overview.md`](01-product-overview.md) | 产品定位、三类用户画像、三种体验模式、核心价值主张 | 产品经理、新入职成员、商务 |
+| [`02-architecture.md`](02-architecture.md) | 技术栈全景、模块划分、进程模型、数据存储、API 契约边界 | 后端/前端工程师、架构师 |
+| [`03-data-analysis.md`](03-data-analysis.md) | XGBoost专属数据分析全流程：标签分析、特征效力、PSI、单调性、泄露检测 | 数据分析师、算法工程师 |
+| [`04-model-training.md`](04-model-training.md) | 模型训练流程：划分策略、训练执行、K折交叉验证、过拟合防控 | 算法工程师 |
+| [`05-auto-tuning.md`](05-auto-tuning.md) | 5阶段分层调优方法论：每阶段目标、参数范围、调优轨迹解读 | 算法工程师、数据科学家 |
+| [`06-model-evaluation.md`](06-model-evaluation.md) | 模型评估全维度：准确性、泛化能力、可解释性、鲁棒性、公平性 | 算法工程师、风险合规 |
+| [`07-pdf-report.md`](07-pdf-report.md) | PDF报告12章结构、4种预设模板、品牌定制、内容自动生成逻辑 | 产品经理、数据分析师、合规审计 |
+
+---
+
+## 快速导航
+
+- **我是新用户，想快速上手** → [`01-product-overview.md`](01-product-overview.md) §三种模式
+- **我要做数据分析** → [`03-data-analysis.md`](03-data-analysis.md)
+- **我要训练并调优模型** → [`04-model-training.md`](04-model-training.md) + [`05-auto-tuning.md`](05-auto-tuning.md)
+- **我要生成专业报告** → [`07-pdf-report.md`](07-pdf-report.md)
+- **我要了解系统架构** → [`02-architecture.md`](02-architecture.md)
+
+---
+
+## 更新规范
+
+- 文档以**中文**撰写，技术术语保留英文（如 `XGBoostClassifier`、`SHAP`）
+- 每次产品迭代后在相关文档顶部更新 `版本对应` 字段，并在文档末尾 `## 版本历史` 追加一行变更摘要
+- **不新增文档**，除非有全新的功能域产生；优先在现有文档内增加章节
+- 图表以 Mermaid 流程图为主，复杂数据用表格，代码示例用代码块
