@@ -6,6 +6,7 @@
   "author": "XGBoost Studio Team",
   "license": "MIT",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
     "dev:web": "vite --config vite.config.web.ts",

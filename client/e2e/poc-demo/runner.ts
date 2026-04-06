@@ -1,6 +1,6 @@
 /**
- * POC??????
- * ?????POC????????GIF??
+ * POC 运行器
+ * 用于批量运行 POC 场景并生成截图/GIF
  */
 
 import { Browser, Page } from '@playwright/test';
@@ -68,8 +68,8 @@ export async function runPOCScenario(
         screenshotPaths: [],
         durationMs: Date.now() - startTime,
         error: {
-          step: '????',
-          message: `?????ID: ${options.scenario}`,
+          step: '查找场景',
+          message: `找不到场景ID: ${options.scenario}`,
         },
       };
     }
@@ -86,7 +86,7 @@ export async function runPOCScenario(
       screenshotPaths: [],
       durationMs: Date.now() - startTime,
       error: {
-        step: '????',
+        step: '验证场景',
         message: validation.error!,
       },
     };
@@ -103,7 +103,7 @@ export async function runPOCScenario(
       screenshotPaths: [],
       durationMs: Date.now() - startTime,
       error: {
-        step: '??????',
+        step: '验证数据文件',
         message: fileValidation.error!,
       },
     };
@@ -161,10 +161,10 @@ export async function runPOCScenario(
     }
 
     const durationMs = Date.now() - startTime;
-    console.log(`POC?? "${scenario.name}" ??????? ${(durationMs / 1000).toFixed(2)} ?`);
-    console.log(`????: ${screenshotPaths.length}`);
+    console.log(`POC 场景 "${scenario.name}" 完成，耗时 ${(durationMs / 1000).toFixed(2)} 秒`);
+    console.log(`截图数量: ${screenshotPaths.length}`);
     if (gifPath) {
-      console.log(`GIF??: ${gifPath}`);
+      console.log(`GIF 路径: ${gifPath}`);
     }
 
     await context.close();
@@ -186,7 +186,7 @@ export async function runPOCScenario(
       gifPath,
       durationMs,
       error: {
-        step: '????',
+        step: '执行场景',
         message: e instanceof Error ? e.message : String(e),
         originalError: e,
       },
@@ -239,7 +239,7 @@ async function executeScenarioSteps(
       await executeReportExport();
       break;
     default:
-      throw new Error(`????ID: ${scenario.id}`);
+      throw new Error(`未知场景ID: ${scenario.id}`);
   }
 
   async function takeStepScreenshot(stepName: string): Promise<void> {
@@ -278,8 +278,8 @@ async function executeScenarioSteps(
       await wait(500);
     }
 
-    await page.click('button[type="submit"], button:has-text("??"), button:has-text("Import")');
-    await page.waitForSelector('text=????', { timeout: 15000 });
+    await page.click('button[type="submit"], button:has-text("提交"), button:has-text("Import")');
+    await page.waitForSelector('text=导入成功', { timeout: 15000 });
     await takeStepScreenshot('import-success');
     await wait(1000);
   }
@@ -288,30 +288,30 @@ async function executeScenarioSteps(
     await uploadDataFile();
 
     await navigateTo('/feature-analysis');
-    await page.waitForSelector('text=????', { timeout: 10000 });
+    await page.waitForSelector('text=特征分析', { timeout: 10000 });
     await wait(2000);
     await takeStepScreenshot('feature-analysis');
 
     await navigateTo('/param-config');
-    await page.waitForSelector('text=????', { timeout: 10000 });
+    await page.waitForSelector('text=参数配置', { timeout: 10000 });
     await takeStepScreenshot('param-config');
     await wait(500);
 
     await navigateTo('/model-training');
-    await page.waitForSelector('text=????', { timeout: 10000 });
+    await page.waitForSelector('text=模型训练', { timeout: 10000 });
     await takeStepScreenshot('before-training');
-    await page.click('button:has-text("????")');
-    await page.waitForSelector('text=????', { timeout });
+    await page.click('button:has-text("开始训练")');
+    await page.waitForSelector('text=训练完成', { timeout });
     await takeStepScreenshot('training-complete');
     await wait(1000);
 
     await navigateTo('/model-eval');
-    await page.waitForSelector('text=????', { timeout: 10000 });
+    await page.waitForSelector('text=模型评估', { timeout: 10000 });
     await wait(3000);
     await takeStepScreenshot('model-eval');
 
     await navigateTo('/report');
-    await page.waitForSelector('text=??', { timeout: 10000 });
+    await page.waitForSelector('text=报告', { timeout: 10000 });
     await wait(3000);
     await takeStepScreenshot('report-final');
   }
@@ -323,7 +323,7 @@ async function executeScenarioSteps(
   async function executeFeatureAnalysis(): Promise<void> {
     await uploadDataFile();
     await navigateTo('/feature-analysis');
-    await page.waitForSelector('text=???', { timeout: 10000 });
+    await page.waitForSelector('text=特征', { timeout: 10000 });
     await wait(3000);
     await takeStepScreenshot('correlation-heatmap');
     await wait(1000);
@@ -333,23 +333,23 @@ async function executeScenarioSteps(
   async function executeModelTraining(): Promise<void> {
     await uploadDataFile();
     await navigateTo('/param-config');
-    await page.waitForSelector('text=????', { timeout: 10000 });
+    await page.waitForSelector('text=参数配置', { timeout: 10000 });
     await page.fill('input[name="n_estimators"]', '50');
     await wait(500);
     await takeStepScreenshot('params-set');
     await navigateTo('/model-training');
-    await page.waitForSelector('text=????', { timeout: 10000 });
+    await page.waitForSelector('text=模型训练', { timeout: 10000 });
     await takeStepScreenshot('before-start');
-    await page.click('button:has-text("????")');
-    await page.waitForSelector('text=??', { timeout: 10000 });
+    await page.click('button:has-text("开始训练")');
+    await page.waitForSelector('text=训练', { timeout: 10000 });
     await takeStepScreenshot('training-in-progress');
-    await page.waitForSelector('text=????', { timeout });
+    await page.waitForSelector('text=训练完成', { timeout });
     await takeStepScreenshot('training-completed');
   }
 
   async function executeReportExport(): Promise<void> {
     await navigateTo('/report');
-    await page.waitForSelector('text=??', { timeout: 10000 });
+    await page.waitForSelector('text=报告', { timeout: 10000 });
     await wait(3000);
     await takeStepScreenshot('report-overview');
     await takeStepScreenshot('metrics-summary');
