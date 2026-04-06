@@ -28,6 +28,7 @@
 | **项目 Skill（文档管家）** | `docs/` 目录结构、命名、链接与迭代目录对齐 [`CONVENTIONS.md`](../docs/CONVENTIONS.md) | `.cursor/skills/xs-doc-steward/SKILL.md` |
 | **项目 Skill（版本与发布）** | 产品版本号（SemVer）与迭代 ID、[`版本与发布.md`](../docs/product/版本与发布.md) | `.cursor/skills/xs-release-versioning/SKILL.md` |
 | **项目 Skill（迭代方向分流）** | 方向意图 → Subagent / Skill 选路 | `.cursor/skills/xs-iteration-intents/SKILL.md` |
+| **项目 Skill（流程闸口）** | 防文档-only 空转、算法误改、架构无 ADR、UTF-8/首屏损坏 | `.cursor/skills/xs-skill-guardrails/SKILL.md` |
 | **可复制提示词** | Plan + PM + 多迭代 A/B/C（分段 0/A/B/C/D） | `.cursor/prompts/multi-agent-review-and-test.md` |
 | **`.cursor` 索引** | Skill / Rule / Prompt / Commands / Subagent 手卡 | `.cursor/README.md` |
 | **斜杠命令：PM 迭代启动** | 给项目经理一个方向 → 路线图 + 章程骨架 + Subagent 执行表 | `.cursor/commands/pm-迭代启动.md` |
