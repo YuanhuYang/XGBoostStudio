@@ -70,7 +70,7 @@ def _train_titanic_model(client, split_id: int, n_estimators: int = 5) -> int:
 
 def test_models_list_and_filter_after_train(client):
     split_id = _titanic_split_id(client)
-    _train_titanic_model(client, split_id)
+    mid = _train_titanic_model(client, split_id)
 
     r = client.get("/api/models")
     assert r.status_code == 200
@@ -83,6 +83,14 @@ def test_models_list_and_filter_after_train(client):
     assert r2.status_code == 200
     for m in r2.json():
         assert m["task_type"] == "classification"
+
+    rs = client.get("/api/models", params={"split_id": split_id})
+    assert rs.status_code == 200
+    split_models = rs.json()
+    ids = {m["id"] for m in split_models}
+    assert mid in ids
+    for m in split_models:
+        assert m["split_id"] == split_id or m["split_id"] is None
 
 
 def test_models_compare_query_and_comparison_report_pdf(client):

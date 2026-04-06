@@ -221,6 +221,23 @@ class TestCalcMonotonicity:
         assert "bin_means" in result[0]
         assert len(result[0]["bin_means"]) >= 2
 
+    def test_categorical_string_target(self):
+        """字符串类别目标 + 数值特征时应能产出单调性结果（factorize 后聚合）"""
+        np.random.seed(7)
+        n = 400
+        x = np.linspace(0, 10, n)
+        p_pos = 1 / (1 + np.exp(-(x - 5)))
+        y_bin = np.random.binomial(1, p_pos)
+        df = pd.DataFrame({"x": x, "target": np.where(y_bin == 1, "pos", "neg")})
+        ds = _make_dataset(df)
+        result = feature_service.calc_monotonicity(ds, "target")
+        assert len(result) >= 1
+        row = result[0]
+        assert row["column"] == "x"
+        assert "spearman_rho" in row
+        assert "bin_means" in row
+        assert len(row["bin_means"]) >= 2
+
 
 # ─── 标签专项分析测试 ──────────────────────────────────────────────────────────
 

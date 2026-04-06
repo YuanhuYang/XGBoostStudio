@@ -77,6 +77,19 @@ bash scripts/start.sh --client
 
 验证后端正常：`curl http://127.0.0.1:18899/health` 应返回 `{"status":"ok"}`
 
+### 可选：命令行全自动建模（xs-studio）
+
+适合需要 **脚本化**、**无图形界面** 或与 **浏览器前端并行** 打开同一项目的场景：在 `server` 目录使用 `uv run python -m cli.main` 进入交互 REPL（默认会拉起本机 uvicorn），或使用 `run` 一键上传数据文件并跑 AutoML。
+
+```bash
+cd server
+uv sync
+uv run python -m cli.main
+# 或：uv run python -m cli.main run /path/to/data.csv --skip-tuning
+```
+
+完整命令、PowerShell/macOS/Linux 差异、`--base-url` / `--keep-server`、前端深链说明见 **[xs-studio CLI 指南](xs-studio-cli.md)**；产品与 Wiki 侧说明见 [全自动建模与向导](../wiki/08-automl-wizard.md)（§2.2 命令行模式）。
+
 ---
 
 ## 📦 终端用户快速开始
@@ -146,9 +159,9 @@ cd ../client && npm run dev:web
 
 ## 🔗 后续步骤
 
-- **开发类**：[开发者指南](developers-guide.md)
-- **功能类**：[功能需求文档](需求文档.md)
-- **验收类**：[验收标准](验收标准文档.md)
+- **开发类**：[开发者指南](developers-guide.md) · [xs-studio 命令行](xs-studio-cli.md)
+- **产品/功能类**：[产品概览（三模式、顶栏上下文、向导默认教学）](../wiki/01-product-overview.md) · [全自动建模 AutoML（含命令行）](../wiki/08-automl-wizard.md)
+- **归档需求/验收**（历史权威副本）：[`../archive/legacy-product/需求文档.md`](../archive/legacy-product/需求文档.md) · [`../archive/legacy-product/验收标准文档.md`](../archive/legacy-product/验收标准文档.md)
 - **部署类**：[部署说明](部署说明.md)
 
 ---

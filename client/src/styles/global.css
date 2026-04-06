@@ -67,6 +67,31 @@ body,
   background: rgba(0, 0, 0, 0.4);
 }
 
+/* 主内容区：暗色背景下默认滚动条拇指过淡，易被误认为「没有滚动条却能滚」 */
+.main-layout-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) rgba(30, 41, 59, 0.5);
+}
+
+.main-layout-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.main-layout-scroll::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.45);
+  border-radius: 4px;
+}
+
+.main-layout-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 4px;
+}
+
+.main-layout-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(203, 213, 225, 0.55);
+}
+
 /* 启动加载页 */
 .loading-screen {
   display: flex;
@@ -100,4 +125,101 @@ body,
   font-size: 13px;
   color: #64748b;
   margin-top: 16px;
+}
+
+/* 顶栏模式切换：未选中弱化、选中高亮（与深色顶栏对比清晰） */
+.mode-switcher-segmented.ant-segmented {
+  user-select: none;
+}
+.mode-switcher-segmented .ant-segmented-item:not(:has(input:checked)) {
+  color: #64748b !important;
+  font-weight: 400;
+}
+.mode-switcher-segmented .ant-segmented-item:not(:has(input:checked)):hover {
+  color: #94a3b8 !important;
+}
+.mode-switcher-segmented .ant-segmented-item:has(input:checked) {
+  color: #f8fafc !important;
+  font-weight: 600;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.mode-switcher-segmented .ant-segmented-thumb {
+  background: linear-gradient(135deg, #2563eb 0%, #6366f1 55%, #7c3aed 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(129, 140, 248, 0.55),
+    0 2px 10px rgba(37, 99, 235, 0.35) !important;
+}
+.mode-switcher-segmented .ant-segmented-item:not(:has(input:checked)):hover::after {
+  background-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+/* 顶栏专家模式：主模型选择器（高对比、整区可点） */
+.main-layout-primary-model-select.ant-select {
+  min-width: 240px;
+  max-width: min(360px, 42vw);
+  cursor: pointer;
+}
+.main-layout-primary-model-select--no-split .ant-select-selector {
+  opacity: 0.88;
+  border-color: #475569 !important;
+}
+.main-layout-primary-model-select .ant-select-selector {
+  background: #0f172a !important;
+  border: 1px solid #64748b !important;
+  border-radius: 999px !important;
+  min-height: 32px !important;
+  align-items: center !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+}
+/* showSearch 在关闭时仍会聚焦隐藏输入框，隐藏插入光标以免像可编辑文本框 */
+.main-layout-primary-model-select:not(.ant-select-open) .ant-select-selection-search-input {
+  caret-color: transparent !important;
+}
+/* 展开后搜索：恢复光标与 I 形指针 */
+.main-layout-primary-model-select.ant-select-open .ant-select-selection-search-input {
+  caret-color: #e2e8f0 !important;
+  cursor: text !important;
+}
+.main-layout-primary-model-select:hover .ant-select-selector,
+.main-layout-primary-model-select.ant-select-focused .ant-select-selector {
+  border-color: #94a3b8 !important;
+}
+.main-layout-primary-model-select .ant-select-selection-item,
+.main-layout-primary-model-select .ant-select-selection-placeholder,
+.main-layout-primary-model-select .ant-select-selection-search-input {
+  color: #e2e8f0 !important;
+  font-weight: 500;
+  font-size: 13px;
+}
+.main-layout-primary-model-select .ant-select-selection-placeholder {
+  color: #cbd5e1 !important;
+}
+.main-layout-model-select-dropdown.ant-select-dropdown {
+  background: #1e293b;
+  border: 1px solid #475569;
+}
+.main-layout-model-select-dropdown .ant-select-item {
+  color: #e2e8f0;
+}
+.main-layout-model-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(59, 130, 246, 0.2) !important;
+}
+.main-layout-model-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(99, 102, 241, 0.25) !important;
+  font-weight: 600;
+}
+
+/* Ant Design Message：默认顶部水平居中（left 50% + translateX），改为视口右上角，减少遮挡主内容区。
+   必须同时写 right，仅 left:auto + inset-inline-end 在部分环境下会回退成「贴左」静态位。 */
+.ant-message.ant-message-top {
+  left: auto !important;
+  right: 16px !important;
+  transform: none !important;
+}
+
+.ant-message .ant-message-notice {
+  text-align: start !important;
 }

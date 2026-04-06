@@ -17,6 +17,7 @@ import {
   REPORT_SECTION_OPTIONS, CHAPTERS_12, REPORT_TEMPLATES, type ReportTemplate as G3Template,
 } from '../../constants/reportSections'
 import { listReportTemplates, createReportTemplate, deleteReportTemplate, type ReportTemplate } from '../../api/reports'
+import { formatUtcToBeijing } from '../../utils/datetime'
 
 const { Title, Text } = Typography
 
@@ -218,7 +219,7 @@ const ReportPage: React.FC = () => {
   const columns: ColumnsType<ReportRecord> = [
     { title: '报告名称', dataIndex: 'name', key: 'name', render: v => <Text strong style={{ color: '#60a5fa' }}>{v}</Text> },
     { title: '关联模型 ID', dataIndex: 'model_id', key: 'model_id', render: v => v ? <Tag color="blue">Model #{v}</Tag> : '-' },
-    { title: '生成时间', dataIndex: 'created_at', key: 'created_at', render: v => v?.slice(0, 19) },
+    { title: '生成时间', dataIndex: 'created_at', key: 'created_at', render: v => formatUtcToBeijing(v) },
     {
       title: '操作', key: 'action',
       render: (_, r) => (

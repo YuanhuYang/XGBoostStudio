@@ -1,19 +1,25 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   Card, Row, Col, Select, Button, Tabs, Table, Typography, Space,
-  Tag, Spin, message, Statistic, Progress, Alert, Divider, Descriptions,
-  Steps, Badge, Tooltip,
+  Tag, Spin, message, Statistic, Progress, Alert,
+  Steps, Badge, Tooltip, Popover, Collapse, Checkbox,
 } from 'antd'
+import { ReadOutlined } from '@ant-design/icons'
 import {
-  BarChartOutlined, ExperimentOutlined, ApartmentOutlined, DatabaseOutlined,
+  BarChartOutlined, ApartmentOutlined, DatabaseOutlined,
   ToolOutlined, SettingOutlined, PlayCircleOutlined, SafetyOutlined,
   LineChartOutlined, BulbOutlined, WarningOutlined, CheckCircleOutlined,
+  RocketOutlined, StopOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
+import { getDataset, getDatasetStats } from '../../api/datasets'
+import { getDatasetSummary, type CandidateTarget } from '../../api/wizard'
 import { useAppStore } from '../../store/appStore'
 import { useDatasetColumns } from '../../hooks/useDatasetColumns'
 import HelpButton from '../../components/HelpButton'
+import type { ColumnStat } from '../../types'
+import { showTeachingUi } from '../../utils/teachingUi'
 
 const { Title, Text } = Typography
 
@@ -77,10 +83,104 @@ const riskColor = (risk: string) => {
   return 'default'
 }
 
+function extractApiError(e: unknown): string {
+  const err = e as { response?: { data?: { detail?: unknown } } }
+  const d = err.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    return d
+      .map(x => (typeof x === 'object' && x && 'msg' in x ? String((x as { msg: string }).msg) : String(x)))
+      .join('；')
+  }
+  return ''
+}
+
+// 向导/模型调优：IV/KS/PSI 概念卡片按钮
+const conceptCards: Record<string, { title: string; content: React.ReactNode }> = {
+  iv: {
+    title: 'IV（信息价值）',
+    content: (
+      <div style={{ maxWidth: 280 }}>
+        <p><strong>什么是 IV？</strong> Information Value（信息价值）衡量一个特征对目标变量的预测能力。</p>
+        <p><strong>判断标准：</strong></p>
+        <ul style={{ paddingLeft: 16, margin: '4px 0' }}>
+          <li>IV &lt; 0.02：无预测价值</li>
+          <li>0.02 ~ 0.1：弱预测能力</li>
+          <li>0.1 ~ 0.3：中等预测能力</li>
+          <li>0.3 ~ 0.5：强预测能力</li>
+          <li>IV &gt; 0.5：疑似数据泄露</li>
+        </ul>
+        <p><strong>计算原理：</strong> 基于 WoE（证据权重）对各分组正负样本比率的加权差值。</p>
+      </div>
+    ),
+  },
+  ks: {
+    title: 'KS（K-S 统计量）',
+    content: (
+      <div style={{ maxWidth: 280 }}>
+        <p><strong>什么是 KS？</strong> Kolmogorov-Smirnov 统计量，衡量模型区分正负样本的能力。</p>
+        <p><strong>判断标准：</strong></p>
+        <ul style={{ paddingLeft: 16, margin: '4px 0' }}>
+          <li>KS &lt; 0.2：区分能力差</li>
+          <li>0.2 ~ 0.3：一般</li>
+          <li>0.3 ~ 0.5：良好</li>
+          <li>KS &gt; 0.5：优秀</li>
+        </ul>
+        <p><strong>几何意义：</strong> 在累计正负样本曲线图中，两条曲线最大垂直距离即为 KS 值。</p>
+      </div>
+    ),
+  },
+  psi: {
+    title: 'PSI（群体稳定性指数）',
+    content: (
+      <div style={{ maxWidth: 280 }}>
+        <p><strong>什么是 PSI？</strong> Population Stability Index，衡量特征分布随时间的稳定性。</p>
+        <p><strong>判断标准：</strong></p>
+        <ul style={{ paddingLeft: 16, margin: '4px 0' }}>
+          <li>PSI &lt; 0.1：分布稳定，可放心使用</li>
+          <li>0.1 ~ 0.25：轻微变化，需关注</li>
+          <li>PSI &gt; 0.25：分布显著变化，建议重新训练模型</li>
+        </ul>
+        <p><strong>用途：</strong> 模型上线后监控特征是否发生分布漂移（Data Drift）。</p>
+      </div>
+    ),
+  },
+}
+
+function ConceptCardButton({ conceptKey }: { conceptKey: string }) {
+  const card = conceptCards[conceptKey]
+  if (!card) return null
+  return (
+    <Popover title={<><ReadOutlined style={{ color: '#a78bfa' }} /> {card.title}</>} content={card.content} trigger="click">
+      <Tag
+        color="purple"
+        style={{ cursor: 'pointer', fontSize: 10, marginLeft: 4, verticalAlign: 'middle' }}
+      >
+        📖 概念
+      </Tag>
+    </Popover>
+  )
+}
+
 const FeatureAnalysisPage: React.FC = () => {
   const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const workflowMode = useAppStore(s => s.workflowMode)
+  const showTeaching = showTeachingUi(workflowMode)
+  const isExpert = workflowMode === 'expert'
   const { allColumns, numericColumns } = useDatasetColumns(activeDatasetId)
   const [loading, setLoading] = useState<string | null>(null)
+  const [columnStats, setColumnStats] = useState<ColumnStat[]>([])
+  const psiSuggestDoneForDataset = useRef<number | null>(null)
+  const batchCancelRef = useRef(false)
+
+  const [monoAttempted, setMonoAttempted] = useState(false)
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchStepLabel, setBatchStepLabel] = useState<string | null>(null)
+  const [includeLeakageInBatch, setIncludeLeakageInBatch] = useState(true)
+  const [lastBatchSummary, setLastBatchSummary] = useState<{
+    ok: string[]
+    fail: { step: string; message: string }[]
+  } | null>(null)
 
   // 原有状态
   const [distributions, setDistributions] = useState<Record<string, unknown>[]>([])
@@ -89,6 +189,7 @@ const FeatureAnalysisPage: React.FC = () => {
   const [vif, setVif] = useState<{ column: string; vif: number; level: string }[]>([])
   const [importance, setImportance] = useState<{ column: string; importance: number }[]>([])
   const [targetCol, setTargetCol] = useState('')
+  const [candidateTargets, setCandidateTargets] = useState<CandidateTarget[]>([])
   const [distTestCol, setDistTestCol] = useState('')
   const [distTestResult, setDistTestResult] = useState<DistTestResult | null>(null)
   const [pcaResult, setPcaResult] = useState<PcaResult | null>(null)
@@ -106,8 +207,98 @@ const FeatureAnalysisPage: React.FC = () => {
   const activeSplitId = useAppStore(s => s.activeSplitId)
   const activeModelId = useAppStore(s => s.activeModelId)
 
-  const load = useCallback(async (type: string) => {
-    if (!activeDatasetId) { message.warning('请先在数据导入页面选择数据集'); return }
+  useEffect(() => {
+    if (!activeDatasetId) {
+      setColumnStats([])
+      psiSuggestDoneForDataset.current = null
+      return
+    }
+    getDatasetStats(activeDatasetId)
+      .then(s => setColumnStats(s.columns ?? []))
+      .catch(() => setColumnStats([]))
+  }, [activeDatasetId])
+
+  useEffect(() => {
+    if (!activeDatasetId) {
+      setTargetCol('')
+      setCandidateTargets([])
+      setLeakageTarget('')
+      setPsiTimeCol('')
+      setMonoAttempted(false)
+      setLastBatchSummary(null)
+      psiSuggestDoneForDataset.current = null
+      return
+    }
+    setPsiTimeCol('')
+    psiSuggestDoneForDataset.current = null
+    let cancelled = false
+    getDataset(activeDatasetId)
+      .then(d => {
+        if (cancelled || !d.target_column) return
+        setTargetCol(prev => (prev === '' ? d.target_column! : prev))
+        setLeakageTarget(prev => (prev === '' ? d.target_column! : prev))
+      })
+      .catch(() => {})
+    getDatasetSummary(activeDatasetId)
+      .then(s => { if (!cancelled) setCandidateTargets(s.candidate_targets ?? []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [activeDatasetId])
+
+  useEffect(() => {
+    if (targetCol && allColumns.length > 0 && !allColumns.includes(targetCol)) {
+      setTargetCol('')
+    }
+  }, [allColumns, targetCol])
+
+  useEffect(() => {
+    if (leakageTarget && allColumns.length > 0 && !allColumns.includes(leakageTarget)) {
+      setLeakageTarget('')
+    }
+  }, [allColumns, leakageTarget])
+
+  useEffect(() => {
+    if (!activeDatasetId || !columnStats.length || psiTimeCol) return
+    if (psiSuggestDoneForDataset.current === activeDatasetId) return
+    const hit = columnStats.find(
+      c => /datetime/i.test(c.dtype) || /date|time|timestamp/i.test(c.name)
+    )
+    if (hit) setPsiTimeCol(hit.name)
+    psiSuggestDoneForDataset.current = activeDatasetId
+  }, [activeDatasetId, columnStats, psiTimeCol])
+
+  const caps = useMemo(() => {
+    const hasTarget = Boolean(targetCol)
+    const numericFeaturesForMono = numericColumns.filter(c => c !== targetCol)
+    const monoOk = hasTarget && numericFeaturesForMono.length > 0
+    const psiOk = Boolean(psiTimeCol)
+    return {
+      hasTarget,
+      monoOk,
+      psiOk,
+      targetMissingHint: '请先在上方选择建模目标列（已自动同步数据导入中的目标列，可改选）。',
+      monoMissingHint: '单调性需要至少一个数值型特征作为自变量，且目标列不能与唯一数值列重合。',
+      psiMissingHint: 'PSI 需要时间/排序列；已尝试按列名或类型自动推荐，也可手动选择。',
+    }
+  }, [targetCol, numericColumns, psiTimeCol])
+
+  useEffect(() => {
+    if (targetCol) setLeakageTarget(targetCol)
+    else setLeakageTarget('')
+  }, [targetCol])
+
+  useEffect(() => {
+    setMonoAttempted(false)
+  }, [targetCol])
+
+  const executeAnalysis = useCallback(async (
+    type: string,
+    opts?: { suppressErrorToast?: boolean; leakageTargetOverride?: string }
+  ): Promise<boolean> => {
+    if (!activeDatasetId) {
+      if (!opts?.suppressErrorToast) message.warning('请先在数据导入页面选择数据集')
+      return false
+    }
     setLoading(type)
     try {
       if (type === 'dist') {
@@ -120,47 +311,120 @@ const FeatureAnalysisPage: React.FC = () => {
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/vif`)
         setVif((r.data as { column: string; vif: number; level: string }[]) || [])
       } else if (type === 'imp') {
+        if (!targetCol) { if (!opts?.suppressErrorToast) message.warning('请选择目标列'); setLoading(null); return false }
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/importance-preliminary`, { params: { target_column: targetCol } })
         setImportance((r.data as { column: string; importance: number }[]) || [])
       } else if (type === 'disttest') {
-        if (!distTestCol) { message.warning('请选择要检验的列'); setLoading(null); return }
+        if (!distTestCol) { if (!opts?.suppressErrorToast) message.warning('请选择要检验的列'); setLoading(null); return false }
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/distribution-test`, { params: { column: distTestCol } })
         setDistTestResult(r.data as DistTestResult)
       } else if (type === 'pca') {
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/pca`)
         setPcaResult(r.data as PcaResult)
       } else if (type === 'ivks') {
-        if (!targetCol) { message.warning('请选择目标列'); setLoading(null); return }
+        if (!targetCol) { if (!opts?.suppressErrorToast) message.warning('请选择目标列'); setLoading(null); return false }
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/iv-ks-psi`, { params: { target_column: targetCol } })
         setIvKsData((r.data as IvKsRow[]) || [])
       } else if (type === 'psi') {
-        if (!psiTimeCol) { message.warning('请选择时间/排序列'); setLoading(null); return }
+        if (!psiTimeCol) { if (!opts?.suppressErrorToast) message.warning('请选择时间/排序列'); setLoading(null); return false }
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/psi`, { params: { time_column: psiTimeCol, target_column: targetCol || undefined } })
         setPsiData((r.data as PsiRow[]) || [])
       } else if (type === 'mono') {
-        if (!targetCol) { message.warning('请选择目标列'); setLoading(null); return }
+        if (!targetCol) { if (!opts?.suppressErrorToast) message.warning('请选择目标列'); setLoading(null); return false }
+        if (!caps.monoOk) { if (!opts?.suppressErrorToast) message.warning(caps.monoMissingHint); setLoading(null); return false }
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/monotonicity`, { params: { target_column: targetCol } })
-        setMonoData((r.data as MonotonicityRow[]) || [])
+        const rows = (r.data as MonotonicityRow[]) || []
+        setMonoData(rows)
+        setMonoAttempted(true)
       } else if (type === 'label') {
-        if (!targetCol) { message.warning('请选择目标列'); setLoading(null); return }
+        if (!targetCol) { if (!opts?.suppressErrorToast) message.warning('请选择目标列'); setLoading(null); return false }
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/label-analysis`, { params: { target_column: targetCol } })
         setLabelData(r.data as LabelAnalysis)
       } else if (type === 'leakage') {
-        if (!leakageTarget) { message.warning('请选择目标列'); setLoading(null); return }
+        const lt = opts?.leakageTargetOverride ?? leakageTarget
+        if (!lt) { if (!opts?.suppressErrorToast) message.warning('请选择目标列'); setLoading(null); return false }
         const r = await apiClient.post(`/api/datasets/${activeDatasetId}/leakage-detection`, {
-          target_column: leakageTarget,
+          target_column: lt,
           label_time_col: leakageTimeCol || null,
           correlation_threshold: 0.9,
         })
         setLeakageData(r.data as LeakageResult)
+      } else {
+        setLoading(null)
+        return false
       }
+      return true
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || `${type} 分析失败`)
+      const msg = extractApiError(e) || `${type} 分析失败`
+      if (!opts?.suppressErrorToast) message.error(msg)
+      throw new Error(msg)
     } finally {
       setLoading(null)
     }
-  }, [activeDatasetId, corrMethod, targetCol, distTestCol, psiTimeCol, leakageTarget, leakageTimeCol])
+  }, [activeDatasetId, corrMethod, targetCol, distTestCol, psiTimeCol, leakageTarget, leakageTimeCol, caps.monoOk, caps.monoMissingHint])
+
+  const load = useCallback(async (type: string) => {
+    try {
+      await executeAnalysis(type)
+    } catch {
+      /* message 已在 executeAnalysis */
+    }
+  }, [executeAnalysis])
+
+  const runBatchAnalysis = useCallback(async () => {
+    if (!activeDatasetId) {
+      message.warning('请先在数据导入页面选择数据集')
+      return
+    }
+    if (!caps.hasTarget) {
+      message.warning(caps.targetMissingHint)
+      return
+    }
+    batchCancelRef.current = false
+    setBatchRunning(true)
+    setLastBatchSummary(null)
+    const ok: string[] = []
+    const fail: { step: string; message: string }[] = []
+
+    const step = async (
+      label: string,
+      type: string,
+      skip?: boolean,
+      extra?: { leakageTargetOverride?: string }
+    ) => {
+      if (batchCancelRef.current || skip) return
+      setBatchStepLabel(label)
+      try {
+        const success = await executeAnalysis(type, { suppressErrorToast: true, ...extra })
+        if (success) ok.push(label)
+      } catch (e) {
+        fail.push({ step: label, message: e instanceof Error ? e.message : '失败' })
+      }
+    }
+
+    try {
+      await step('分布统计', 'dist')
+      await step('相关性矩阵', 'corr')
+      await step('VIF 共线性', 'vif')
+      await step('PCA', 'pca')
+      await step('标签专项分析', 'label')
+      await step('IV/KS 效力', 'ivks')
+      await step('初筛重要性', 'imp')
+      await step('单调性分析', 'mono', !caps.monoOk)
+      await step('泄露检测', 'leakage', !includeLeakageInBatch, { leakageTargetOverride: targetCol })
+      await step('PSI 稳定性', 'psi', !caps.psiOk)
+
+      setLastBatchSummary({ ok, fail })
+      if (fail.length === 0) {
+        message.success(`一键分析完成（${ok.length} 步）`)
+      } else {
+        message.warning(`一键分析结束：${ok.length} 步成功，${fail.length} 步失败（见下方汇总）`)
+      }
+    } finally {
+      setBatchStepLabel(null)
+      setBatchRunning(false)
+    }
+  }, [activeDatasetId, caps.hasTarget, caps.monoOk, caps.psiOk, caps.targetMissingHint, executeAnalysis, includeLeakageInBatch, targetCol])
 
   const corrOption = correlation ? {
     tooltip: { trigger: 'item' },
@@ -204,10 +468,30 @@ const FeatureAnalysisPage: React.FC = () => {
   })()
 
   const targetSelector = (
-    <Space>
+    <Space wrap>
       <Text style={{ color: '#94a3b8' }}>目标列：</Text>
       <Select showSearch placeholder="选择目标列" value={targetCol || undefined} onChange={v => setTargetCol(v)}
-        options={allColumns.map(c => ({ value: c, label: c }))} style={{ width: 200 }} allowClear />
+        style={{ width: 260 }} allowClear
+        filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+      >
+        {allColumns.map(c => {
+          const cand = candidateTargets.find(ct => ct.col === c)
+          return (
+            <Select.Option key={c} value={c}>
+              <Space>
+                <span>{c}</span>
+                {cand && <Tag color="blue" style={{ fontSize: 10 }}>推荐 {Math.round(cand.confidence * 100)}%</Tag>}
+              </Space>
+            </Select.Option>
+          )
+        })}
+      </Select>
+      {candidateTargets.length > 0 && !targetCol && (
+        <Text type="secondary" style={{ fontSize: 12 }}>AI 推荐：{candidateTargets[0].col}</Text>
+      )}
+      {!caps.hasTarget && activeDatasetId ? (
+        <Text type="warning" style={{ fontSize: 12 }}>未选目标列时，依赖目标的分析不可用</Text>
+      ) : null}
     </Space>
   )
 
@@ -229,6 +513,80 @@ const FeatureAnalysisPage: React.FC = () => {
 
       {!activeDatasetId && <Alert message="请先在「数据导入」页面选择并设置目标列的数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
+      {activeDatasetId && (
+        <Card style={{ marginBottom: 16, background: '#1e293b', border: '1px solid #334155' }}>
+          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            <Space wrap align="center">
+              <Text strong style={{ color: '#e2e8f0' }}>分析上下文</Text>
+              {targetSelector}
+              <Tooltip title={!caps.hasTarget ? caps.targetMissingHint : isExpert ? '按顺序跑分布、相关、VIF、PCA、标签、效力、重要性、单调性、泄露与 PSI（缺前置的步会自动跳过）' : '一键填充各 Tab 结果，便于对照查看'}>
+                <Button
+                  type={isExpert ? 'primary' : 'default'}
+                  icon={<RocketOutlined />}
+                  disabled={!caps.hasTarget || batchRunning}
+                  loading={batchRunning}
+                  onClick={() => void runBatchAnalysis()}
+                >
+                  一键分析全流程
+                </Button>
+              </Tooltip>
+              {batchRunning && (
+                <Button icon={<StopOutlined />} onClick={() => { batchCancelRef.current = true }}>
+                  停止后续步骤
+                </Button>
+              )}
+              <Checkbox
+                checked={includeLeakageInBatch}
+                disabled={batchRunning}
+                onChange={e => setIncludeLeakageInBatch(e.target.checked)}
+              >
+                包含泄露检测
+              </Checkbox>
+              {batchStepLabel && (
+                <Text style={{ color: '#94a3b8' }}><Spin size="small" style={{ marginRight: 8 }} />{batchStepLabel}</Text>
+              )}
+            </Space>
+            {!isExpert && (
+              <Text type="secondary" style={{ fontSize: 12 }}>学习/向导模式下也可使用一键分析；专家模式下更建议先确认目标列与时间列。</Text>
+            )}
+            {lastBatchSummary && (
+              <Collapse
+                bordered={false}
+                style={{ background: 'transparent' }}
+                items={[{
+                  key: 'batch-sum',
+                  label: <Text style={{ color: '#94a3b8' }}>上次一键分析汇总（{lastBatchSummary.ok.length} 成功 / {lastBatchSummary.fail.length} 失败）</Text>,
+                  children: (
+                    <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                      {lastBatchSummary.ok.length > 0 && (
+                        <Alert type="success" showIcon message={`成功：${lastBatchSummary.ok.join('、')}`} />
+                      )}
+                      {lastBatchSummary.fail.length > 0 && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          message="失败步骤"
+                          description={
+                            <ul style={{ margin: 0, paddingLeft: 18 }}>
+                              {lastBatchSummary.fail.map((f, i) => (
+                                <li key={i}><Text strong>{f.step}</Text>：{f.message}</li>
+                              ))}
+                            </ul>
+                          }
+                        />
+                      )}
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        初筛重要性等指标已写入页面状态，可在各 Tab 查看图表与表格（部分 Tab 无独立入口时数据仍可用于后续建模参考）。
+                      </Text>
+                    </Space>
+                  ),
+                }]}
+              />
+            )}
+          </Space>
+        </Card>
+      )}
+
       <Tabs
         items={[
           // ─── Tab 1：标签分析 ─────────────────────────────────────────────
@@ -238,7 +596,12 @@ const FeatureAnalysisPage: React.FC = () => {
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Space style={{ marginBottom: 16 }} wrap>
                   {targetSelector}
-                  <Button type="primary" icon={<BulbOutlined />} onClick={() => load('label')} loading={loading === 'label'}>分析标签</Button>
+                  <Tooltip title={!caps.hasTarget ? caps.targetMissingHint : ''}>
+                    <span>
+                      <Button type="primary" icon={<BulbOutlined />} onClick={() => load('label')} loading={loading === 'label'}
+                        disabled={!caps.hasTarget || batchRunning}>分析标签</Button>
+                    </span>
+                  </Tooltip>
                 </Space>
                 {labelData && (
                   <Space direction="vertical" style={{ width: '100%' }} size={16}>
@@ -291,14 +654,19 @@ const FeatureAnalysisPage: React.FC = () => {
 
           // ─── Tab 2：IV/KS/AUC 效力排名 ───────────────────────────────────
           {
-            key: 'ivks', label: <span><LineChartOutlined /> IV/KS效力排名</span>,
+            key: 'ivks', label: <span><LineChartOutlined /> IV/KS效力排名{showTeaching && <ConceptCardButton conceptKey="iv" />}{showTeaching && <ConceptCardButton conceptKey="ks" />}</span>,
             children: (
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }}
                   message="XGBoost 适配性特征效力分析：分类任务输出 IV（信息价值）、KS（判别力）、单特征AUC；回归任务输出相关系数、F值、R²。大数据集自动采样 5 万行。" />
                 <Space style={{ marginBottom: 16 }} wrap>
                   {targetSelector}
-                  <Button type="primary" icon={<LineChartOutlined />} onClick={() => load('ivks')} loading={loading === 'ivks'}>计算特征效力</Button>
+                  <Tooltip title={!caps.hasTarget ? caps.targetMissingHint : ''}>
+                    <span>
+                      <Button type="primary" icon={<LineChartOutlined />} onClick={() => load('ivks')} loading={loading === 'ivks'}
+                        disabled={!caps.hasTarget || batchRunning}>计算特征效力</Button>
+                    </span>
+                  </Tooltip>
                 </Space>
                 {ivKsData.length > 0 && (
                   <>
@@ -345,7 +713,7 @@ const FeatureAnalysisPage: React.FC = () => {
 
           // ─── Tab 3：PSI 稳定性 ────────────────────────────────────────────
           {
-            key: 'psi', label: <span><ApartmentOutlined /> PSI稳定性</span>,
+            key: 'psi', label: <span><ApartmentOutlined /> PSI稳定性{showTeaching && <ConceptCardButton conceptKey="psi" />}</span>,
             children: (
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }}
@@ -355,7 +723,12 @@ const FeatureAnalysisPage: React.FC = () => {
                   <Select showSearch placeholder="选择时间列" value={psiTimeCol || undefined} onChange={v => setPsiTimeCol(v)}
                     options={allColumns.map(c => ({ value: c, label: c }))} style={{ width: 200 }} allowClear />
                   {targetSelector}
-                  <Button type="primary" onClick={() => load('psi')} loading={loading === 'psi'}>计算PSI</Button>
+                  <Tooltip title={!caps.psiOk ? caps.psiMissingHint : ''}>
+                    <span>
+                      <Button type="primary" onClick={() => load('psi')} loading={loading === 'psi'}
+                        disabled={!caps.psiOk || batchRunning}>计算PSI</Button>
+                    </span>
+                  </Tooltip>
                 </Space>
                 {psiData.length > 0 && (
                   <>
@@ -403,8 +776,18 @@ const FeatureAnalysisPage: React.FC = () => {
                   message="特征业务单调性分析：分析特征与目标的 Spearman 趋势相关性，输出 XGBoost monotone_constraints 建议。单调递增→1，单调递减→-1，无约束→0。" />
                 <Space style={{ marginBottom: 16 }} wrap>
                   {targetSelector}
-                  <Button type="primary" onClick={() => load('mono')} loading={loading === 'mono'}>分析单调性</Button>
+                  <Tooltip title={!caps.hasTarget ? caps.targetMissingHint : !caps.monoOk ? caps.monoMissingHint : ''}>
+                    <span>
+                      <Button type="primary" onClick={() => load('mono')} loading={loading === 'mono'}
+                        disabled={!caps.hasTarget || !caps.monoOk || batchRunning}>分析单调性</Button>
+                    </span>
+                  </Tooltip>
                 </Space>
+                {monoAttempted && monoData.length === 0 && (
+                  <Alert type="info" showIcon style={{ marginBottom: 12 }}
+                    message="未得到单调性结果"
+                    description="可能原因：除目标外无足够样本的数值特征，或特征与目标在分箱上无法形成有效趋势。可尝试更换建模目标列或检查数据类型（目标可为类别，自变量需为数值）。" />
+                )}
                 {monoData.length > 0 && (
                   <>
                     <Alert type="success" showIcon style={{ marginBottom: 12 }}
@@ -460,7 +843,12 @@ const FeatureAnalysisPage: React.FC = () => {
                   <Text style={{ color: '#94a3b8' }}>时间列（可选）：</Text>
                   <Select showSearch placeholder="选择时间列（可选）" value={leakageTimeCol || undefined} onChange={v => setLeakageTimeCol(v)}
                     options={allColumns.map(c => ({ value: c, label: c }))} style={{ width: 200 }} allowClear />
-                  <Button type="primary" danger icon={<SafetyOutlined />} onClick={() => load('leakage')} loading={loading === 'leakage'}>开始泄露检测</Button>
+                  <Tooltip title={!leakageTarget ? caps.targetMissingHint : ''}>
+                    <span>
+                      <Button type="primary" danger icon={<SafetyOutlined />} onClick={() => load('leakage')} loading={loading === 'leakage'}
+                        disabled={!leakageTarget || batchRunning}>开始泄露检测</Button>
+                    </span>
+                  </Tooltip>
                 </Space>
                 {leakageData && (
                   <Space direction="vertical" style={{ width: '100%' }} size={16}>
@@ -510,7 +898,7 @@ const FeatureAnalysisPage: React.FC = () => {
             children: (
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Space style={{ marginBottom: 12 }}>
-                  <Button type="primary" onClick={() => load('dist')} loading={loading === 'dist'}>分析分布</Button>
+                  <Button type="primary" onClick={() => load('dist')} loading={loading === 'dist'} disabled={batchRunning}>分析分布</Button>
                 </Space>
                 <Table columns={distCols} dataSource={distributions.map((d, i) => ({ ...d, key: i }))} size="small"
                   pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (t) => `共 ${t} 个特征` }} />
@@ -527,7 +915,7 @@ const FeatureAnalysisPage: React.FC = () => {
                   <Select value={corrMethod} onChange={setCorrMethod}
                     options={[{ value: 'pearson', label: 'Pearson' }, { value: 'spearman', label: 'Spearman' }, { value: 'kendall', label: 'Kendall' }]}
                     style={{ width: 140 }} />
-                  <Button type="primary" onClick={() => load('corr')} loading={loading === 'corr'}>计算相关性</Button>
+                  <Button type="primary" onClick={() => load('corr')} loading={loading === 'corr'} disabled={batchRunning}>计算相关性</Button>
                 </Space>
                 {corrOption && <ReactECharts option={corrOption} style={{ height: 500 }} />}
               </Card>
@@ -541,7 +929,7 @@ const FeatureAnalysisPage: React.FC = () => {
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }}
                   message="XGBoost 对共线性有一定鲁棒性。VIF > 10 为高共线性，但树模型中不必无脑剔除，需结合 IV/效力综合判断。" />
-                <Button type="primary" onClick={() => load('vif')} loading={loading === 'vif'} style={{ marginBottom: 12 }}>计算VIF</Button>
+                <Button type="primary" onClick={() => load('vif')} loading={loading === 'vif'} style={{ marginBottom: 12 }} disabled={batchRunning}>计算VIF</Button>
                 <Table size="small" pagination={{ defaultPageSize: 50, showSizeChanger: true }}
                   dataSource={vif.map((d, i) => ({ ...d, key: i }))}
                   columns={[
@@ -562,7 +950,12 @@ const FeatureAnalysisPage: React.FC = () => {
                   <Text style={{ color: '#94a3b8' }}>列名：</Text>
                   <Select showSearch placeholder="选择要检验的列" value={distTestCol || undefined} onChange={v => setDistTestCol(v)}
                     options={numericColumns.map(c => ({ value: c, label: c }))} style={{ width: 220 }} allowClear />
-                  <Button type="primary" onClick={() => load('disttest')} loading={loading === 'disttest'}>分布拟合检验</Button>
+                  <Tooltip title={!distTestCol ? '请先选择要检验的数值列' : ''}>
+                    <span>
+                      <Button type="primary" onClick={() => load('disttest')} loading={loading === 'disttest'}
+                        disabled={!distTestCol || batchRunning}>分布拟合检验</Button>
+                    </span>
+                  </Tooltip>
                 </Space>
                 {distTestResult && (
                   <Space direction="vertical" style={{ width: '100%' }} size={16}>
@@ -591,7 +984,7 @@ const FeatureAnalysisPage: React.FC = () => {
             key: 'pca', label: 'PCA 降维分析',
             children: (
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
-                <Button type="primary" onClick={() => load('pca')} loading={loading === 'pca'} style={{ marginBottom: 16 }}>运行 PCA 分析</Button>
+                <Button type="primary" onClick={() => load('pca')} loading={loading === 'pca'} style={{ marginBottom: 16 }} disabled={batchRunning}>运行 PCA 分析</Button>
                 {pcaResult && (
                   <Space direction="vertical" style={{ width: '100%' }} size={16}>
                     <Alert type="info" message={pcaResult.recommendation} showIcon />

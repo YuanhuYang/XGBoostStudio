@@ -114,6 +114,17 @@ class QualityScoreResponse(BaseModel):
     suggestions: list[str]
 
 
+class BuiltinSampleResponse(BaseModel):
+    """内置示例数据集目录项（与 import-sample 的 key 对应）。"""
+
+    key: str
+    title: str
+    task: str
+    difficulty: str
+    scenario: str
+    suggested_target: Optional[str] = None
+
+
 class DatasetResponse(BaseModel):
     id: int
     name: str

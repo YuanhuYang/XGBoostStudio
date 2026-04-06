@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Typography, Tooltip, Button, Badge, Tag, Space, Alert } from 'antd'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Layout, Menu, Typography, Tooltip, Button, Tag, Space, Alert, Modal, Input, message, Select } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   DatabaseOutlined,
@@ -14,13 +14,17 @@ import {
   RocketOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  BulbOutlined,
-  CheckCircleFilled,
-  CloseCircleFilled,
-  EditOutlined,
+  CompassOutlined,
+  ScissorOutlined,
+  RobotOutlined,
+  SearchOutlined,
+  HomeOutlined,
 } from '@ant-design/icons'
-import { useAppStore } from '../store/appStore'
-import HelpButton, { type HelpItem } from './HelpButton'
+import { useAppStore, type WorkflowMode } from '../store/appStore'
+import apiClient from '../api/client'
+import ModeSwitcher from './ModeSwitcher'
+import ModeTransitionModal from './ModeTransitionModal'
+import ModeOnboardingModal from './ModeOnboardingModal'
 
 // 页面懒加载
 import DataImportPage from '../pages/DataImport'
@@ -35,12 +39,29 @@ import ReportPage from '../pages/Report'
 import PredictionPage from '../pages/Prediction'
 import SmartWorkflowPage from '../pages/SmartWorkflow'
 import WelcomePage from '../pages/Welcome'
+import ExpertWorkbenchPage from '../pages/ExpertWorkbench'
+import LearningWorkbenchPage from '../pages/LearningWorkbench'
 
 const { Sider, Content, Header } = Layout
 const { Text } = Typography
 
-type PageKey =
+/** 顶栏主模型下拉与 /api/models 对齐的轻量行类型 */
+type ExpertModelRow = { id: number; name: string }
+
+/** 顶栏训练划分下拉（与 GET /api/datasets/splits/list 对齐） */
+type HeaderSplitRow = {
+  id: number
+  dataset_id: number
+  dataset_name: string
+  train_rows: number | null
+  test_rows: number | null
+  created_at: string | null
+}
+
+export type PageKey =
   | 'welcome'
+  | 'expert-hub'
+  | 'learning-hub'
   | 'smart-workflow'
   | 'data-import'
   | 'feature-analysis'
@@ -67,13 +88,15 @@ const pageOrder: PageKey[] = [
   'prediction',
 ]
 
-// 定义页面依赖关系：每个页面完成的条件是什么
+// 定义页面依赖关系
 const pageCompletion: Record<PageKey, (state: {
   activeDatasetId: number | null
   activeSplitId: number | null
   activeModelId: number | null
 }) => boolean> = {
   welcome: () => true,
+  'expert-hub': () => true,
+  'learning-hub': () => true,
   'smart-workflow': () => true,
   'data-import': s => s.activeDatasetId !== null,
   'feature-analysis': s => s.activeDatasetId !== null,
@@ -87,107 +110,114 @@ const pageCompletion: Record<PageKey, (state: {
   prediction: s => s.activeModelId !== null,
 }
 
-// 生成菜单项（带状态指示器）
-const buildMenuItems = (state: {
+const pageLabels: Partial<Record<PageKey, string>> = {
+  'data-import': '数据导入',
+  'feature-analysis': '特征分析',
+  'feature-engineering': '特征工程',
+  'param-config': '参数配置',
+  'model-training': '模型训练',
+  'model-eval': '模型评估',
+  'model-tuning': '超参数调优',
+  'model-management': '模型管理',
+  report: '分析报告',
+  prediction: '交互预测',
+}
+
+/** 智能向导侧栏仅含工作台；在此页外切换侧栏目标时弹出「暂离向导」 */
+const GUIDED_MODULE_PAGE_KEYS: PageKey[] = ['smart-workflow']
+
+/** 数据处理模式侧栏页面；离开去其他模块时弹出确认 */
+const PREPROCESS_MODULE_PAGE_KEYS: PageKey[] = [
+  'data-import',
+  'feature-analysis',
+  'feature-engineering',
+]
+
+/** 从数据处理离开到其他功能页时，应同步切换的顶栏模式 */
+function workflowModeForPageKey(pageKey: PageKey): WorkflowMode {
+  if (
+    ['learning-hub', 'param-config', 'model-training', 'model-tuning', 'model-management'].includes(
+      pageKey,
+    )
+  ) {
+    return 'learning'
+  }
+  if (pageKey === 'smart-workflow') return 'guided'
+  if (['expert-hub', 'model-eval', 'report', 'prediction'].includes(pageKey)) return 'expert'
+  if (PREPROCESS_MODULE_PAGE_KEYS.includes(pageKey)) return 'preprocess'
+  return 'guided'
+}
+
+/** 专家分析模式不提供：数据处理页、向导工作台、训练与超参相关页 */
+const EXPERT_NAV_EXCLUDED_PAGE_KEYS: PageKey[] = [
+  ...PREPROCESS_MODULE_PAGE_KEYS,
+  'smart-workflow',
+  'learning-hub',
+  'param-config',
+  'model-training',
+  'model-tuning',
+]
+
+// ── 数据处理模式菜单 ─────────────────────────────────────────────────────────
+const buildPreprocessMenu = (): MenuProps['items'] => [
+  { key: 'data-import', icon: <DatabaseOutlined />, label: '数据导入' },
+  { key: 'feature-analysis', icon: <BarChartOutlined />, label: '特征分析' },
+  { key: 'feature-engineering', icon: <ToolOutlined />, label: '特征工程' },
+]
+
+// ── 智能向导模式菜单（仅六步工作台）────────────────────────────────────────────
+const buildGuidedMenu = (): MenuProps['items'] => [
+  { key: 'smart-workflow', icon: <CompassOutlined />, label: '向导工作台' },
+]
+
+// ── 模型调优模式菜单（工作台与四项子模块之间含 divider，与专家/向导一致）──────────────
+const buildLearningMenu = (state: {
   activeDatasetId: number | null
   activeSplitId: number | null
   activeModelId: number | null
-}): MenuProps['items'] => [
+}): MenuProps['items'] => {
+  const done = (key: PageKey) => pageCompletion[key](state)
+  const label = (key: PageKey, text: string) => (
+    <span>
+      {text}
+      {done(key) && (
+        <Tag
+          color="purple"
+          style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', marginLeft: 4, verticalAlign: 'middle' }}
+        >
+          已学
+        </Tag>
+      )}
+    </span>
+  )
+  return [
+    { key: 'learning-hub', icon: <HomeOutlined />, label: '调优工作台' },
+    { type: 'divider' },
+    { key: 'param-config', icon: <SettingOutlined />, label: label('param-config', '参数配置') },
+    { key: 'model-training', icon: <PlayCircleOutlined />, label: label('model-training', '模型训练') },
+    { key: 'model-tuning', icon: <ThunderboltOutlined />, label: label('model-tuning', '超参数调优') },
+    { key: 'model-management', icon: <AppstoreOutlined />, label: label('model-management', '模型管理') },
+  ]
+}
+
+// ── 专家分析模式菜单（不含训练与超参调优）──────────────────────────────────────
+const buildExpertMenu = (): MenuProps['items'] => [
   {
-    key: 'smart-workflow',
-    icon: <Badge dot offset={[4, -2]}><BulbOutlined /></Badge>,
-    label: '智能向导',
+    key: 'expert-hub',
+    icon: <HomeOutlined />,
+    label: '模型工作台',
   },
   { type: 'divider' },
-  {
-    key: 'group-data',
-    label: '📊 数据准备',
-    type: 'group',
-    children: [
-      {
-        key: 'data-import',
-        icon: <DatabaseOutlined />,
-        label: pageCompletion['data-import'](state) ? '✓ 数据导入' : '○ 数据导入',
-      },
-      {
-        key: 'feature-analysis',
-        icon: <BarChartOutlined />,
-        label: pageCompletion['feature-analysis'](state) ? '✓ 特征分析' : '○ 特征分析',
-      },
-      {
-        key: 'feature-engineering',
-        icon: <ToolOutlined />,
-        label: pageCompletion['feature-engineering'](state) ? '✓ 特征工程' : '○ 特征工程',
-      },
-    ],
-  },
-  {
-    key: 'group-model-build',
-    label: '⚙️ 模型构建',
-    type: 'group',
-    children: [
-      {
-        key: 'param-config',
-        icon: <SettingOutlined />,
-        label: pageCompletion['param-config'](state) ? '✓ 参数配置' : '○ 参数配置',
-      },
-      {
-        key: 'model-training',
-        icon: <PlayCircleOutlined />,
-        label: pageCompletion['model-training'](state) ? '✓ 模型训练' : '○ 模型训练',
-      },
-    ],
-  },
-  {
-    key: 'group-model-optimize',
-    label: '📈 模型优化',
-    type: 'group',
-    children: [
-      {
-        key: 'model-eval',
-        icon: <LineChartOutlined />,
-        label: pageCompletion['model-eval'](state) ? '✓ 模型评估' : '○ 模型评估',
-      },
-      {
-        key: 'model-tuning',
-        icon: <ThunderboltOutlined />,
-        label: pageCompletion['model-tuning'](state) ? '✓ 模型调优' : '○ 模型调优',
-      },
-    ],
-  },
-  {
-    key: 'group-model-management',
-    label: '📦 模型管理',
-    type: 'group',
-    children: [
-      {
-        key: 'model-management',
-        icon: <AppstoreOutlined />,
-        label: pageCompletion['model-management'](state) ? '✓ 模型管理' : '○ 模型管理',
-      },
-    ],
-  },
-  {
-    key: 'group-output',
-    label: '📄 结果输出',
-    type: 'group',
-    children: [
-      {
-        key: 'report',
-        icon: <FileTextOutlined />,
-        label: pageCompletion['report'](state) ? '✓ 分析报告' : '○ 分析报告',
-      },
-      {
-        key: 'prediction',
-        icon: <RocketOutlined />,
-        label: pageCompletion['prediction'](state) ? '✓ 交互预测' : '○ 交互预测',
-      },
-    ],
-  },
+  { key: 'model-eval', icon: <LineChartOutlined />, label: '模型评估' },
+  { key: 'model-management', icon: <AppstoreOutlined />, label: '模型管理' },
+  { key: 'report', icon: <FileTextOutlined />, label: '分析报告' },
+  { key: 'prediction', icon: <RocketOutlined />, label: '交互预测' },
 ]
 
 const pageMap: Record<PageKey, React.ReactNode> = {
   welcome: <WelcomePage />,
+  'expert-hub': <ExpertWorkbenchPage />,
+  'learning-hub': <LearningWorkbenchPage />,
   'smart-workflow': <SmartWorkflowPage />,
   'data-import': <DataImportPage />,
   'feature-analysis': <FeatureAnalysisPage />,
@@ -201,151 +231,487 @@ const pageMap: Record<PageKey, React.ReactNode> = {
   prediction: <PredictionPage />,
 }
 
-const pageTitles: Record<PageKey, string> = {
-  welcome: '欢迎页',
-  'smart-workflow': '智能工作流',
-  'data-import': '数据导入',
-  'feature-analysis': '特征分析',
-  'feature-engineering': '特征工程',
-  'param-config': '超参数配置',
-  'model-training': '模型训练',
-  'model-eval': '模型评估',
-  'model-tuning': '超参数调优',
-  'model-management': '模型管理',
-  report: '分析报告',
-  prediction: '交互预测',
-}
+// 所有可搜索页面（用于 Ctrl+K 命令面板）
+const searchablePages: { key: PageKey; label: string; group: string }[] = [
+  { key: 'expert-hub', label: '模型工作台', group: '入口' },
+  { key: 'learning-hub', label: '调优工作台', group: '入口' },
+  { key: 'smart-workflow', label: '向导工作台', group: '入口' },
+  { key: 'data-import', label: '数据导入', group: '数据处理' },
+  { key: 'feature-analysis', label: '特征分析', group: '数据处理' },
+  { key: 'feature-engineering', label: '特征工程', group: '数据处理' },
+  { key: 'param-config', label: '超参数配置', group: '模型构建' },
+  { key: 'model-training', label: '模型训练', group: '模型构建' },
+  { key: 'model-eval', label: '模型评估', group: '模型优化' },
+  { key: 'model-tuning', label: '超参数调优', group: '模型优化' },
+  { key: 'model-management', label: '模型管理', group: '模型管理' },
+  { key: 'report', label: '分析报告', group: '结果输出' },
+  { key: 'prediction', label: '交互预测', group: '结果输出' },
+]
 
-const pageHelpMap: Record<PageKey, HelpItem[]> = {
-  welcome: [
-    { title: '如何开始？', content: '建议先完成数据导入，再按特征工程、模型训练、模型评估、报告导出的顺序推进。' },
-    { title: '内置示例（离线）', content: '欢迎页可一键导入 Titanic / Boston Housing / Iris，数据来自后端随包 CSV（server/tests/data/），无需联网。导入后会跳转数据导入并弹出目标列设置。' },
-    {
-      title: '最佳实践文档',
-      content:
-        '完整步骤、指标解读与进阶练习见项目 docs/best-practices/ 目录（README 与 01～03 篇）。'
-        + ' 开发克隆仓库即可在本地打开；安装版若附带文档请以安装目录或发行说明为准。',
-    },
-    { title: '必须按流程吗？', content: '不强制，你可以从左侧菜单直接跳转到任意模块。' },
-    { title: '看不到数据怎么办？', content: '请先在数据导入中激活数据集，顶部上下文标签会显示当前状态。' },
-  ],
-  'smart-workflow': [
-    { title: '模式如何选择？', content: '导向模式适合快速完成流程；学习模式会显示更多参数解释。' },
-    { title: '推荐流程顺序', content: '选择数据集 → 自动预处理 → 快速配置 → 训练模型 → 查看评估 → 导出报告。' },
-    { title: '实验模式用途', content: '可并行对比多组参数，快速找到更优配置。' },
-  ],
-  'data-import': [
-    { title: '支持哪些文件？', content: '支持 CSV/XLSX，建议优先使用 UTF-8 编码。' },
-    {
-      title: '内置示例与最佳实践',
-      content:
-        '「一键导入」使用后端本地 CSV（server/tests/data/），离线可用。'
-        + ' 分步说明与验收指标见 docs/best-practices/（源码 docs 目录；安装版以附带文档为准）。',
-    },
-    { title: '导入后下一步？', content: '先在特征分析查看数据质量，再进入特征工程处理。' },
-    { title: '数据过大怎么办？', content: '先抽样验证流程，再用完整数据训练。' },
-  ],
-  'feature-analysis': [
-    { title: '先看哪几个指标？', content: '优先看缺失率、分布偏度、与目标列相关性。' },
-    { title: '相关性怎么用？', content: '高度相关特征可考虑删一保一，减少冗余。' },
-    { title: '统计结果用于什么？', content: '用于指导缺失值处理、编码与缩放策略。' },
-  ],
-  'feature-engineering': [
-    { title: '标签页建议顺序', content: '缺失值处理 → 异常值处理 → 编码 → 缩放 → PCA（可选）→ 数据划分。' },
-    { title: '分层采样何时使用？', content: '分类任务建议开启；回归任务会自动禁用。' },
-    { title: '划分完成后做什么？', content: '记录 Split ID，并在模型训练/智能工作流中使用。' },
-  ],
-  'param-config': [
-    { title: '预设怎么选？', content: '默认推荐均衡推荐；快速验证适合试跑；深度训练适合追求极致指标。' },
-    { title: '关键参数有哪些？', content: 'n_estimators、max_depth、learning_rate 是最核心三项。' },
-    { title: '如何复用参数？', content: '可复制当前 JSON 到模型训练页直接使用。' },
-  ],
-  'model-training': [
-    { title: '训练前置条件', content: '需先有有效 Split ID。' },
-    { title: '训练慢怎么调？', content: '先降低 n_estimators 和 max_depth 做快速试验。' },
-    { title: '训练后去哪看结果？', content: '进入模型评估查看 AUC、混淆矩阵、SHAP 等。' },
-  ],
-  'model-eval': [
-    { title: '先看哪项指标？', content: '分类任务优先 AUC/F1，回归任务优先 R2/RMSE。' },
-    { title: '单次划分与 K 折', content: '默认指标为单次 hold-out，未估计指标方差；可用「K 折交叉验证」在训练集上得到各折与 summary（均值±标准差）。' },
-    { title: '指标含义（摘要）', content: 'Accuracy=预测正确比例；AUC-ROC=正类排序区分能力（0.5≈随机）；RMSE=√(均方误差)。基线在训练集上拟合 Dummy，在测试集上对比。详见 PDF「模型评估结果」与 API evaluation_protocol。' },
-    { title: '评估后下一步？', content: '可回到调参页优化，或直接生成报告。' },
-  ],
-  'model-tuning': [
-    { title: 'Trials 设多少？', content: '建议从 30-100 开始，先快速收敛再扩大搜索。' },
-    { title: '调参目标怎么选？', content: '分类建议 AUC/F1，回归建议 R2 或 RMSE。' },
-    { title: '最优参数如何落地？', content: '直接应用最优参数并重新训练最终模型。' },
-  ],
-  'model-management': [
-    { title: '主要指标色块含义', content: '优秀/良好/尚可/待提升用于快速判断模型可用性。' },
-    { title: '如何添加备注？', content: '点击编辑按钮可修改模型名称和备注。' },
-    { title: '对比功能怎么用？', content: '勾选多个模型后点击对比，查看指标与统计检验差异。' },
-  ],
-  report: [
-    { title: '报告内容如何选择？', content: '可按需勾选章节，生成定制 PDF。' },
-    { title: '报告失败如何排查？', content: '先确认模型评估数据完整，再重新生成。' },
-    { title: '报告用于什么？', content: '可直接用于项目汇报与结果留档。' },
-  ],
-  prediction: [
-    { title: '支持批量预测吗？', content: '支持 CSV/XLSX 批量预测并导出结果。' },
-    { title: '能看概率吗？', content: '分类任务可输出每个类别的概率列。' },
-    { title: '结果异常怎么办？', content: '先核对输入字段与训练时特征是否一致。' },
-  ],
+function readInitialPageKey(): PageKey {
+  try {
+    if (!localStorage.getItem('xgb_launched_before')) return 'welcome'
+    const m = localStorage.getItem('xgbs_workflow_mode')
+    if (m === 'expert') return 'expert-hub'
+    if (m === 'learning') return 'learning-hub'
+    if (m === 'preprocess') return 'data-import'
+    return 'smart-workflow'
+  } catch {
+    return 'smart-workflow'
+  }
 }
 
 const MainLayout: React.FC = () => {
-  // 首次启动展示欢迎页
-  const isFirstLaunch = !localStorage.getItem('xgb_launched_before')
-  const [currentPage, setCurrentPage] = useState<PageKey>(isFirstLaunch ? 'welcome' : 'smart-workflow')
-  const { sidebarCollapsed, toggleSidebar } = useAppStore()
-  const activeDatasetName = useAppStore(s => s.activeDatasetName)
-  const activeDatasetId = useAppStore(s => s.activeDatasetId)
-  const activeSplitId = useAppStore(s => s.activeSplitId)
-  const activeModelId = useAppStore(s => s.activeModelId)
-  const globalError = useAppStore(s => s.globalError)
-  const setGlobalError = useAppStore(s => s.setGlobalError)
-  const serverReady = useAppStore(s => s.serverReady)
-  const isOffline = useAppStore(s => s.isOffline)
+  const [currentPage, setCurrentPage] = useState<PageKey>(readInitialPageKey)
 
-  // 根据当前状态动态生成菜单项（带状态指示器）
-  const menuItems = buildMenuItems({ activeDatasetId, activeSplitId, activeModelId })
+  const {
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    toggleSidebar,
+    activeDatasetName,
+    activeDatasetId,
+    activeSplitId,
+    activeModelId,
+    globalError,
+    setGlobalError,
+    serverReady,
+    isOffline,
+    workflowMode,
+    setWorkflowMode,
+    workflowStep,
+    isTraining,
+    modeFirstVisit,
+    setActiveDatasetId,
+    setActiveSplitId,
+    setActiveModelId,
+    setActiveDatasetName,
+    setExpertCompareModelIds,
+  } = useAppStore()
 
-  // 找到推荐的下一步：第一个未完成的页面
-  const recommendedNextStep = pageOrder.find(page => !pageCompletion[page]({ activeDatasetId, activeSplitId, activeModelId }))
+  // Ctrl+K 命令面板状态
+  const [cmdOpen, setCmdOpen] = useState(false)
+  const [cmdQuery, setCmdQuery] = useState('')
+  const cmdInputRef = useRef<HTMLInputElement | null>(null)
 
-  // 默认打开所有分组（用户可以手动折叠）
-  const defaultOpenKeys = ['group-data', 'group-model-build', 'group-model-optimize', 'group-model-management', 'group-output']
+  // 模式切换弹窗状态
+  const [pendingMode, setPendingMode] = useState<WorkflowMode | null>(null)
+  const [transitionOpen, setTransitionOpen] = useState(false)
 
-  // 如果有推荐下一步，确保它的分组是打开的
-  const getGroupKey = (pageKey: PageKey): string | null => {
-    if (['data-import', 'feature-analysis', 'feature-engineering'].includes(pageKey)) return 'group-data'
-    if (['param-config', 'model-training'].includes(pageKey)) return 'group-model-build'
-    if (['model-eval', 'model-tuning'].includes(pageKey)) return 'group-model-optimize'
-    if (['model-management'].includes(pageKey)) return 'group-model-management'
-    if (['report', 'prediction'].includes(pageKey)) return 'group-output'
-    return null
-  }
+  // 专家模式接管提示：用 message 浮层，避免与 Sider 并列参与 Layout 横向排版导致整页左挤
+  const expertTakeoverShown = useRef(false)
 
-  // 使用推荐高亮：如果有下一步，将它加入高亮
-  const selectedKeys = recommendedNextStep && currentPage === 'welcome'
-    ? [currentPage, recommendedNextStep]
-    : [currentPage]
+  // 向导模式离开确认
+  const [guidedLeaveTarget, setGuidedLeaveTarget] = useState<PageKey | null>(null)
+  const [guidedLeaveOpen, setGuidedLeaveOpen] = useState(false)
 
-  // 保持所有分组打开
-  const openKeys = defaultOpenKeys
+  const [preprocessLeaveTarget, setPreprocessLeaveTarget] = useState<PageKey | null>(null)
+  const [preprocessLeaveOpen, setPreprocessLeaveOpen] = useState(false)
 
-  // 监听页面内导航事件（由 SmartWorkflow 触发）
+  // 新手引导弹窗
+  const [onboardingMode, setOnboardingMode] = useState<WorkflowMode | null>(null)
+
+  /** 顶栏训练划分下拉 */
+  const [headerSplits, setHeaderSplits] = useState<HeaderSplitRow[]>([])
+  const [headerSplitsLoading, setHeaderSplitsLoading] = useState(false)
+
+  /** 顶栏主模型下拉：按当前激活划分的 split_id 拉取 /api/models */
+  const [expertModels, setExpertModels] = useState<ExpertModelRow[]>([])
+  const [expertModelsLoading, setExpertModelsLoading] = useState(false)
+  const [primaryModelDropdownOpen, setPrimaryModelDropdownOpen] = useState(false)
+
+  const fetchHeaderSplits = useCallback(async () => {
+    if (!serverReady) return
+    setHeaderSplitsLoading(true)
+    try {
+      const r = await apiClient.get<HeaderSplitRow[]>('/api/datasets/splits/list')
+      const list = Array.isArray(r.data) ? r.data : []
+      setHeaderSplits(list)
+    } catch {
+      /* 顶栏静默失败；打开下拉时会再试 */
+    } finally {
+      setHeaderSplitsLoading(false)
+    }
+  }, [serverReady])
+
+  useEffect(() => {
+    if (serverReady) void fetchHeaderSplits()
+  }, [serverReady, fetchHeaderSplits])
+
+  const fetchPrimaryModelsForSplit = useCallback(async () => {
+    if (!serverReady || activeSplitId === null) return
+    setExpertModelsLoading(true)
+    try {
+      const r = await apiClient.get<ExpertModelRow[]>('/api/models', {
+        params: { split_id: activeSplitId },
+      })
+      const list = Array.isArray(r.data) ? r.data : []
+      setExpertModels(list)
+      setActiveModelId(cur => (cur != null && !list.some(m => m.id === cur) ? null : cur))
+    } catch {
+      /* 顶栏静默失败；打开下拉时会再次请求 */
+    } finally {
+      setExpertModelsLoading(false)
+    }
+  }, [serverReady, activeSplitId, setActiveModelId])
+
+  useEffect(() => {
+    setPrimaryModelDropdownOpen(false)
+    if (activeSplitId === null) {
+      setExpertModels([])
+      setActiveModelId(null)
+      return
+    }
+    if (!serverReady) return
+    void fetchPrimaryModelsForSplit()
+  }, [activeSplitId, serverReady, fetchPrimaryModelsForSplit, setActiveModelId])
+
+  // 专家模式首次进入且有 activeModel → 顶部短时 message（不占布局）
+  useEffect(() => {
+    if (workflowMode === 'expert' && activeModelId && !expertTakeoverShown.current) {
+      expertTakeoverShown.current = true
+      const tip = `已接管向导进度：训练划分#${activeSplitId ?? '—'}${activeDatasetName ? `（${activeDatasetName}）` : ''} / 主模型#${activeModelId ?? '—'}`
+      message.info({ content: tip, duration: 3 })
+    }
+    if (workflowMode !== 'expert') {
+      expertTakeoverShown.current = false
+    }
+  }, [workflowMode, activeModelId, activeDatasetName, activeSplitId])
+
+  // 新手引导：模式首次进入时弹窗
+  useEffect(() => {
+    if (modeFirstVisit[workflowMode]) {
+      setOnboardingMode(workflowMode)
+    }
+  }, [workflowMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 专家模式进入时展开侧边栏（菜单项多）；向导/模型调优模式不强制折叠，避免布局在模式间大幅跳动
+  useEffect(() => {
+    if (workflowMode === 'expert') {
+      setSidebarCollapsed(false)
+    }
+  }, [workflowMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const urlBootstrapDone = useRef(false)
+  const prevWorkflowMode = useRef(workflowMode)
+
+  // 非专家 → 专家：若仍停留在向导模块页，则落到模型工作台
+  useEffect(() => {
+    const prev = prevWorkflowMode.current
+    if (prev !== workflowMode && workflowMode === 'expert') {
+      setCurrentPage(p => (EXPERT_NAV_EXCLUDED_PAGE_KEYS.includes(p) ? 'expert-hub' : p))
+    }
+    prevWorkflowMode.current = workflowMode
+  }, [workflowMode])
+
+  // 专家分析模式不承载数据准备与训练页：深链或 navigate 落到这些路由则回工作台
+  useEffect(() => {
+    if (workflowMode === 'expert' && EXPERT_NAV_EXCLUDED_PAGE_KEYS.includes(currentPage)) {
+      setCurrentPage('expert-hub')
+    }
+  }, [workflowMode, currentPage])
+
+  // CLI / 书签深链：datasetId、splitId、modelId(s)、primaryModelId、xsMode、xsPage（仅首次就绪时应用一次）
+  useEffect(() => {
+    if (!serverReady || urlBootstrapDone.current) return
+    const params = new URLSearchParams(window.location.search)
+    const ds = params.get('datasetId')
+    const sp = params.get('splitId')
+    const md = params.get('modelId')
+    const pg = params.get('xsPage')
+    const xsMode = params.get('xsMode')
+    const midsRaw = params.get('modelIds')
+    const pmdRaw = params.get('primaryModelId')
+    if (!ds && !sp && !md && !pg && !xsMode && !midsRaw && !pmdRaw) return
+    urlBootstrapDone.current = true
+
+    const n = (s: string | null) => {
+      if (s === null || s === '') return null
+      const x = Number(s)
+      return Number.isFinite(x) ? x : null
+    }
+    const parseIds = (s: string | null): number[] => {
+      if (!s?.trim()) return []
+      const seen = new Set<number>()
+      const out: number[] = []
+      for (const part of s.split(',')) {
+        const x = Number(part.trim())
+        if (Number.isFinite(x) && !seen.has(x)) {
+          seen.add(x)
+          out.push(x)
+        }
+      }
+      return out
+    }
+
+    const did = n(ds)
+    const sid = n(sp)
+    const mid = n(md)
+    const pmd = n(pmdRaw)
+    let ids = parseIds(midsRaw)
+    if (ids.length === 0 && mid !== null) ids = [mid]
+    if (pmd !== null && !ids.includes(pmd)) ids = [pmd, ...ids]
+    else if (ids.length === 0 && pmd !== null) ids = [pmd]
+
+    const primary = pmd ?? mid ?? (ids[0] ?? null)
+
+    const shouldSetExpertCompareIds =
+      Boolean(midsRaw?.trim()) || xsMode === 'expert' || pg === 'expert-hub'
+
+    if (did !== null) setActiveDatasetId(did)
+    if (sid !== null) setActiveSplitId(sid)
+    if (xsMode === 'expert') setWorkflowMode('expert')
+    if (xsMode === 'preprocess') setWorkflowMode('preprocess')
+    if (shouldSetExpertCompareIds && ids.length > 0) {
+      setExpertCompareModelIds(ids)
+      setActiveModelId(primary ?? ids[0])
+    } else if (mid !== null) {
+      setActiveModelId(mid)
+    }
+
+    if (pg && Object.prototype.hasOwnProperty.call(pageMap, pg)) {
+      setCurrentPage(pg as PageKey)
+      localStorage.setItem('xgb_launched_before', '1')
+    }
+    if (xsMode === 'preprocess') {
+      setCurrentPage(p => (PREPROCESS_MODULE_PAGE_KEYS.includes(p) ? p : 'data-import'))
+      localStorage.setItem('xgb_launched_before', '1')
+    }
+    if (did !== null) {
+      void apiClient.get(`/api/datasets/${did}`).then(res => {
+        const name = (res.data as { name?: string }).name
+        if (name) setActiveDatasetName(name)
+      }).catch(() => { /* 忽略 */ })
+    }
+    if (sid !== null && did === null) {
+      void apiClient.get<HeaderSplitRow[]>('/api/datasets/splits/list').then(res => {
+        const list = Array.isArray(res.data) ? res.data : []
+        const row = list.find(x => x.id === sid)
+        if (row) {
+          setActiveDatasetId(row.dataset_id)
+          setActiveDatasetName(row.dataset_name)
+        }
+      }).catch(() => { /* 忽略 */ })
+    }
+  }, [serverReady, setActiveDatasetId, setActiveSplitId, setActiveModelId, setActiveDatasetName, setExpertCompareModelIds, setWorkflowMode])
+
+  // Ctrl+K 全局命令面板监听
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setCmdOpen(prev => !prev)
+        setCmdQuery('')
+      }
+      if (e.key === 'Escape') setCmdOpen(false)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  // Ctrl+K 弹窗打开后自动聚焦输入框
+  useEffect(() => {
+    if (cmdOpen) {
+      setTimeout(() => cmdInputRef.current?.focus(), 50)
+    }
+  }, [cmdOpen])
+
+  // 监听页面内导航事件（数据处理模式下跨模块导航时同步切换顶栏模式）
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail
-      if (detail && Object.keys(pageMap).includes(detail)) {
-        setCurrentPage(detail as PageKey)
-        localStorage.setItem('xgb_launched_before', '1')
+      if (!detail || !Object.prototype.hasOwnProperty.call(pageMap, detail)) return
+      const pageKey = detail as PageKey
+      const { workflowMode, setWorkflowMode, activeSplitId } = useAppStore.getState()
+      if (workflowMode === 'preprocess' && !PREPROCESS_MODULE_PAGE_KEYS.includes(pageKey)) {
+        const nextMode = workflowModeForPageKey(pageKey)
+        if (nextMode === 'learning' && activeSplitId === null) {
+          Modal.warning({
+            title: '无法进入模型调优模式',
+            content: '请先在顶栏选择「训练划分」，或在「数据处理 → 特征工程」完成划分后再进入。',
+          })
+          return
+        }
+        setWorkflowMode(nextMode)
       }
+      setCurrentPage(pageKey)
+      localStorage.setItem('xgb_launched_before', '1')
     }
     window.addEventListener('navigate', handler)
     return () => window.removeEventListener('navigate', handler)
   }, [])
+
+  /** 切换到向导模式时，若有保存进度则弹出 toast 提示 */
+  const notifyGuidedRestore = useCallback(() => {
+    try {
+      const raw = localStorage.getItem('xgbs_workflow_state')
+      if (raw) {
+        const s = JSON.parse(raw) as { currentStep?: number }
+        if (typeof s.currentStep === 'number' && s.currentStep > 0) {
+          const stepNames = ['选择数据集', '数据分析', '数据划分', '参数配置', '一键训练', '结果总结']
+          message.info(`已恢复向导进度：第 ${s.currentStep + 1}/6 步 · ${stepNames[s.currentStep] ?? ''}`, 3)
+        }
+      }
+    } catch { /* 忽略 */ }
+  }, [])
+
+  const warnLearningPrereqs = useCallback(() => {
+    if (activeSplitId === null) {
+      Modal.warning({
+        title: '无法进入模型调优模式',
+        content: '请先在顶栏选择「训练划分」，或在「数据处理 → 特征工程」完成划分后再进入。',
+      })
+      return false
+    }
+    return true
+  }, [activeSplitId])
+
+  const applyModeAfterSwitch = useCallback((mode: WorkflowMode) => {
+    if (mode === 'preprocess') {
+      setCurrentPage('data-import')
+      localStorage.setItem('xgb_launched_before', '1')
+    } else if (mode === 'guided') {
+      setCurrentPage('smart-workflow')
+      notifyGuidedRestore()
+    } else if (mode === 'expert') {
+      setCurrentPage(p => (EXPERT_NAV_EXCLUDED_PAGE_KEYS.includes(p) ? 'expert-hub' : p))
+    } else if (mode === 'learning') {
+      setCurrentPage('learning-hub')
+      localStorage.setItem('xgb_launched_before', '1')
+    }
+  }, [notifyGuidedRestore])
+
+  // 模式切换（来自 ModeSwitcher；训练中先确认，进入调优前校验已选训练划分）
+  const handleWorkflowModeChange = useCallback((mode: WorkflowMode) => {
+    if (isTraining) {
+      setPendingMode(mode)
+      setTransitionOpen(true)
+      return
+    }
+    if (mode === 'learning' && !warnLearningPrereqs()) {
+      return
+    }
+    setWorkflowMode(mode)
+    applyModeAfterSwitch(mode)
+  }, [isTraining, warnLearningPrereqs, setWorkflowMode, applyModeAfterSwitch])
+
+  const confirmModeTransition = useCallback((mode: WorkflowMode) => {
+    if (mode === 'learning' && !warnLearningPrereqs()) {
+      setTransitionOpen(false)
+      setPendingMode(null)
+      return
+    }
+    setWorkflowMode(mode)
+    setTransitionOpen(false)
+    setPendingMode(null)
+    applyModeAfterSwitch(mode)
+  }, [setWorkflowMode, warnLearningPrereqs, applyModeAfterSwitch])
+
+  // 向导模式下点击侧栏外的目标页需确认（分步引导与数据准备四页互跳不确认）
+  const handleMenuClick = useCallback(({ key }: { key: string }) => {
+    const pageKey = key as PageKey
+    if (workflowMode === 'guided' && !GUIDED_MODULE_PAGE_KEYS.includes(pageKey)) {
+      setGuidedLeaveTarget(pageKey)
+      setGuidedLeaveOpen(true)
+      return
+    }
+    if (workflowMode === 'preprocess' && !PREPROCESS_MODULE_PAGE_KEYS.includes(pageKey)) {
+      setPreprocessLeaveTarget(pageKey)
+      setPreprocessLeaveOpen(true)
+      return
+    }
+    setCurrentPage(pageKey)
+    localStorage.setItem('xgb_launched_before', '1')
+  }, [workflowMode, setWorkflowMode, notifyGuidedRestore])
+
+  // 动态菜单：根据模式
+  const menuItems = workflowMode === 'preprocess'
+    ? buildPreprocessMenu()
+    : workflowMode === 'guided'
+      ? buildGuidedMenu()
+      : workflowMode === 'learning'
+        ? buildLearningMenu({ activeDatasetId, activeSplitId, activeModelId })
+        : buildExpertMenu()
+
+  const recommendedNextStep = pageOrder.find(
+    page => !pageCompletion[page]({ activeDatasetId, activeSplitId, activeModelId })
+  )
+
+  const selectedKeys = recommendedNextStep && currentPage === 'welcome'
+    ? [currentPage, recommendedNextStep]
+    : [currentPage]
+
+  // Ctrl+K：专家模式不列出训练类页；数据处理模式仅列出三数据页
+  const commandPages = useMemo(() => {
+    if (workflowMode === 'expert') {
+      return searchablePages.filter(p => !EXPERT_NAV_EXCLUDED_PAGE_KEYS.includes(p.key))
+    }
+    if (workflowMode === 'preprocess') {
+      return searchablePages.filter(p => PREPROCESS_MODULE_PAGE_KEYS.includes(p.key))
+    }
+    return searchablePages
+  }, [workflowMode])
+
+  const filteredPages = cmdQuery.trim()
+    ? commandPages.filter(p =>
+        p.label.includes(cmdQuery) || p.group.includes(cmdQuery) || p.key.includes(cmdQuery)
+      )
+    : commandPages
+
+  const expertModelSelectOptions = useMemo(
+    () =>
+      expertModels.map(m => ({
+        value: m.id,
+        label: `${m.name} (#${m.id})`,
+      })),
+    [expertModels],
+  )
+
+  const splitSelectOptions = useMemo(
+    () =>
+      headerSplits.map(s => ({
+        value: s.id,
+        label: `${s.dataset_name} / 划分 #${s.id}（训练 ${s.train_rows ?? '?'} 行）`,
+      })),
+    [headerSplits],
+  )
+
+  const handleSplitSelectChange = useCallback(
+    (id: number | null) => {
+      if (id === null) {
+        setActiveSplitId(null)
+        setActiveModelId(null)
+        message.success('已清除训练划分')
+        return
+      }
+      const row = headerSplits.find(s => s.id === id)
+      const label = row
+        ? `${row.dataset_name} / 划分 #${id}`
+        : `划分 #${id}`
+      setActiveSplitId(id)
+      if (row) {
+        setActiveDatasetId(row.dataset_id)
+        setActiveDatasetName(row.dataset_name)
+      }
+      message.success(`已选择训练划分：${label}`)
+    },
+    [headerSplits, setActiveSplitId, setActiveDatasetId, setActiveDatasetName, setActiveModelId],
+  )
+
+  const handlePrimaryModelChange = useCallback(
+    (v: number | null) => {
+      setActiveModelId(v)
+      if (v === null) {
+        message.success('已清除主模型')
+        return
+      }
+      const opt = expertModelSelectOptions.find(o => o.value === v)
+      message.success(`已选择主模型：${opt?.label ?? `#${v}`}`)
+    },
+    [expertModelSelectOptions, setActiveModelId],
+  )
+
+  // 侧边栏宽度：各模式统一，避免切换时主内容区横向跳动
+  const siderWidth = 220
 
   return (
     <Layout style={{ height: '100vh', background: '#0f172a' }}>
@@ -359,61 +725,120 @@ const MainLayout: React.FC = () => {
           style={{ borderRadius: 0, zIndex: 1000 }}
         />
       )}
+
       {/* 侧边栏 */}
       <Sider
         collapsed={sidebarCollapsed}
-        width={200}
-        collapsedWidth={56}
+        width={siderWidth}
+        collapsedWidth={64}
         style={{
           background: '#1e293b',
           borderRight: '1px solid #334155',
+          transition: 'width 300ms ease-in-out',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100vh',
         }}
       >
-        {/* Logo 区 */}
+        {/* Logo 区：左侧产品图标 + 与启动页一致的渐变标题 */}
         <div
           style={{
             height: 48,
             display: 'flex',
             alignItems: 'center',
             justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-            padding: sidebarCollapsed ? 0 : '0 16px',
+            gap: sidebarCollapsed ? 0 : 10,
+            padding: sidebarCollapsed ? 0 : '0 14px',
             borderBottom: '1px solid #334155',
+            flexShrink: 0,
           }}
         >
-          {sidebarCollapsed ? (
-            <Text style={{ color: '#3b82f6', fontWeight: 700, fontSize: 16 }}>XG</Text>
-          ) : (
-            <Text style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>XGBoost Studio</Text>
+          <div
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 45%, #8b5cf6 100%)',
+              boxShadow: '0 1px 5px rgba(59, 130, 246, 0.28)',
+            }}
+            aria-hidden
+          >
+            <LineChartOutlined style={{ color: '#fff', fontSize: 13 }} />
+          </div>
+          {!sidebarCollapsed && (
+            <span
+              style={{
+                fontWeight: 700,
+                fontSize: 20,
+                letterSpacing: '-0.32px',
+                lineHeight: '24px',
+                background: 'linear-gradient(90deg, #60a5fa, #a78bfa)',
+                WebkitBackgroundClip: 'text',
+                backgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              XGBoost Studio
+            </span>
           )}
         </div>
 
-        {/* 导航菜单 */}
-        <Menu
-          mode="inline"
-          selectedKeys={selectedKeys}
-          openKeys={openKeys}
-          items={menuItems}
-          style={{ background: 'transparent', border: 'none', marginTop: 8 }}
-          theme="dark"
-          onClick={({ key }) => {
-            setCurrentPage(key as PageKey)
-            localStorage.setItem('xgb_launched_before', '1')
+
+        {/* 导航菜单：各模式侧栏为扁平项 */}
+        <div
+          style={{
+            overflow: 'hidden auto',
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
           }}
-        />
+        >
+          <Menu
+            mode="inline"
+            selectedKeys={selectedKeys}
+            items={menuItems}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              marginTop: 8,
+              flexShrink: 0,
+              transition: 'all 300ms ease-in-out',
+            }}
+            theme="dark"
+            onClick={handleMenuClick}
+          />
+        </div>
+
       </Sider>
 
-      <Layout style={{ background: '#0f172a' }}>
+      <Layout
+        style={{
+          background: '#0f172a',
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+        }}
+      >
         {/* 顶部 Header */}
         <Header
           style={{
             background: '#1e293b',
             borderBottom: '1px solid #334155',
             height: 48,
-            lineHeight: '48px',
+            lineHeight: 'normal',
             padding: '0 16px',
             display: 'flex',
             alignItems: 'center',
             gap: 12,
+            flexShrink: 0,
           }}
         >
           <Tooltip title={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}>
@@ -421,113 +846,288 @@ const MainLayout: React.FC = () => {
               type="text"
               icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={toggleSidebar}
-              style={{ color: '#94a3b8' }}
+              style={{ color: '#94a3b8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             />
           </Tooltip>
-          <Text style={{ color: '#94a3b8', fontSize: 13 }}>
-            {pageTitles[currentPage] || ''}
-          </Text>
 
-          {/* 右侧上下文状态栏 */}
-          <div style={{ marginLeft: 'auto' }}>
-            <Space size={4}>
-              <HelpButton
-                inHeader
-                pageTitle={pageTitles[currentPage]}
-                items={pageHelpMap[currentPage]}
+          {/* 顶栏左侧：模式切换、上下文（连接状态仅在底部状态栏展示） */}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 10,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <ModeSwitcher
+                isTraining={isTraining}
+                onSwitchRequest={handleWorkflowModeChange}
               />
-              {/* 后端连接状态 */}
-              <Tooltip title={serverReady ? '后端服务已连接' : '后端服务未连接'}>
-                {serverReady && !isOffline
-                  ? <CheckCircleFilled style={{ color: '#52c41a', fontSize: 14 }} />
-                  : <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 14 }} />}
-              </Tooltip>
-              {(activeDatasetId || activeDatasetName) ? (
-                <Tooltip title="点击跳转至数据导入">
-                  <Tag
-                    color="blue"
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => setCurrentPage('data-import')}
-                  >
-                    📊 {activeDatasetName ?? `DS#${activeDatasetId}`}
-                  </Tag>
-                </Tooltip>
-              ) : (
-                <Tooltip title="点击前往「数据导入」选择并激活数据集">
-                  <Tag
-                    color="default"
-                    style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => setCurrentPage('data-import')}
-                  >📊 — 未设置 — <EditOutlined style={{ fontSize: 10 }} /></Tag>
-                </Tooltip>
-              )}
-              {activeSplitId ? (
-                <Tooltip title="点击跳转至特征工程">
-                  <Tag
-                    color="cyan"
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => setCurrentPage('feature-engineering')}
-                  >
-                    ✂️ 划分#{activeSplitId}
-                  </Tag>
-                </Tooltip>
-              ) : (
-                <Tooltip title="点击前往「特征工程」完成数据划分">
-                  <Tag
-                    color="default"
-                    style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => setCurrentPage('feature-engineering')}
-                  >✂️ — 未设置 — <EditOutlined style={{ fontSize: 10 }} /></Tag>
-                </Tooltip>
-              )}
-              {activeModelId ? (
-                <Tooltip title="点击跳转至模型评估">
-                  <Tag
-                    color="green"
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => setCurrentPage('model-eval')}
-                  >
-                    🤖 模型#{activeModelId}
-                  </Tag>
-                </Tooltip>
-              ) : (
-                <Tooltip title="点击前往「模型训练」完成训练后激活模型">
-                  <Tag
-                    color="default"
-                    style={{ color: '#475569', cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => setCurrentPage('model-training')}
-                  >🤖 — 未设置 — <EditOutlined style={{ fontSize: 10 }} /></Tag>
-                </Tooltip>
-              )}
-            </Space>
+            </div>
+            <Tooltip
+              title="选择用于训练/评估的数据划分；新建划分请打开「数据处理 → 特征工程」。上传原始数据请打开「数据导入」。"
+            >
+              <Select
+                className="main-layout-primary-model-select"
+                popupClassName="main-layout-model-select-dropdown"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="训练划分 — 点击选择 —"
+                loading={headerSplitsLoading}
+                value={activeSplitId ?? undefined}
+                options={splitSelectOptions}
+                onChange={v => handleSplitSelectChange(v ?? null)}
+                onOpenChange={open => {
+                  if (open) void fetchHeaderSplits()
+                }}
+                prefix={<ScissorOutlined style={{ color: '#94a3b8', fontSize: 14 }} />}
+                notFoundContent={
+                  headerSplitsLoading
+                    ? '加载中…'
+                    : '暂无训练划分，请前往「数据处理 → 特征工程」完成划分'
+                }
+              />
+            </Tooltip>
+            <Tooltip title={activeSplitId ? '仅列出当前训练划分下可用的模型（含同数据集 legacy 模型）；可搜索名称。' : '请先在顶栏选择「训练划分」，再选择主模型。'}>
+              <Select
+                className={`main-layout-primary-model-select${activeSplitId ? '' : ' main-layout-primary-model-select--no-split'}`}
+                popupClassName="main-layout-model-select-dropdown"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                open={primaryModelDropdownOpen}
+                placeholder={activeSplitId ? '主模型 — 点击选择 —' : '主模型 — 请先选择训练划分 —'}
+                loading={expertModelsLoading}
+                value={activeModelId ?? undefined}
+                options={expertModelSelectOptions}
+                onChange={v => handlePrimaryModelChange(v ?? null)}
+                onOpenChange={open => {
+                  if (open && activeSplitId === null) {
+                    message.warning('请先在顶栏选择「训练划分」，再选择主模型。')
+                    setPrimaryModelDropdownOpen(false)
+                    return
+                  }
+                  setPrimaryModelDropdownOpen(open)
+                  if (open) void fetchPrimaryModelsForSplit()
+                }}
+                prefix={<RobotOutlined style={{ color: '#94a3b8', fontSize: 14 }} />}
+                notFoundContent={
+                  expertModelsLoading
+                    ? '加载中…'
+                    : '该划分下暂无模型，请先在「模型训练」中训练并保存模型'
+                }
+              />
+            </Tooltip>
           </div>
+
+          <Tooltip title="命令面板（Ctrl+K）">
+            <Button
+              type="text"
+              size="small"
+              icon={<SearchOutlined />}
+              onClick={() => setCmdOpen(true)}
+              style={{ color: '#64748b', fontSize: 12, flexShrink: 0 }}
+            >
+              <span style={{ fontSize: 11 }}>Ctrl+K</span>
+            </Button>
+          </Tooltip>
         </Header>
 
-        {/* 主内容区 */}
+        {/* 主内容区：flexBasis+minHeight 避免子项撑高后出现 1px 级「幽灵纵向滚动」；横向交给各页内部（如 Table scroll.x） */}
         <Content
+          className="main-layout-scroll"
           style={{
-            overflow: 'auto',
+            overflowX: 'hidden',
+            overflowY: 'auto',
             padding: 16,
             background: '#0f172a',
+            flex: '1 1 0%',
+            minHeight: 0,
           }}
         >
           {pageMap[currentPage]}
         </Content>
+
         {/* 底部状态栏 */}
         <div style={{
           height: 24, background: '#1e293b', borderTop: '1px solid #334155',
           padding: '0 16px', display: 'flex', alignItems: 'center', gap: 8,
+          flexShrink: 0,
         }}>
           <Text style={{ color: '#475569', fontSize: 11 }}>
-            XGBoost Studio v{(window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '0.1.0'}
+            XGBoost Studio v{(window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '0.4.0'}
           </Text>
           <Text style={{ color: '#334155', fontSize: 11 }}>|</Text>
           {serverReady && !isOffline
             ? <Text style={{ color: '#52c41a', fontSize: 11 }}>● 服务已连接</Text>
             : <Text style={{ color: '#ff4d4f', fontSize: 11 }}>● 服务未连接</Text>}
           {isOffline && <Text style={{ color: '#fa8c16', fontSize: 11 }}>▲ 网络离线</Text>}
+          <Text style={{ color: '#334155', fontSize: 11 }}>|</Text>
+          <Text style={{ color: '#475569', fontSize: 11 }}>
+            {workflowMode === 'preprocess' ? '🧩 数据处理'
+              : workflowMode === 'guided' ? '🎯 智能向导'
+              : workflowMode === 'learning' ? '🔧 模型调优'
+              : '📊 专家分析'}
+          </Text>
         </div>
       </Layout>
+
+      {/* 模式切换确认弹窗（训练中） */}
+      <ModeTransitionModal
+        open={transitionOpen}
+        targetMode={pendingMode}
+        onConfirm={confirmModeTransition}
+        onCancel={() => { setTransitionOpen(false); setPendingMode(null) }}
+      />
+
+      {/* 向导模式离开确认 */}
+      <Modal
+        title="暂离向导？"
+        open={guidedLeaveOpen}
+        onOk={() => {
+          const t = guidedLeaveTarget
+          if (t) {
+            const nextMode = workflowModeForPageKey(t)
+            if (nextMode === 'learning' && !warnLearningPrereqs()) {
+              setGuidedLeaveOpen(false)
+              setGuidedLeaveTarget(null)
+              return
+            }
+            if (nextMode !== workflowMode) {
+              setWorkflowMode(nextMode)
+            }
+            setCurrentPage(t)
+            localStorage.setItem('xgb_launched_before', '1')
+          }
+          setGuidedLeaveOpen(false)
+          setGuidedLeaveTarget(null)
+        }}
+        onCancel={() => { setGuidedLeaveOpen(false); setGuidedLeaveTarget(null) }}
+        okText="前往"
+        cancelText="继续向导"
+        width={400}
+      >
+        <p>
+          向导进度已自动保存（第 {workflowStep + 1}/6 步）。
+          你可以前往「{guidedLeaveTarget ? pageLabels[guidedLeaveTarget] ?? guidedLeaveTarget : ''}」；
+          返回时请从侧栏点击「向导工作台」，或使用顶部模式切换器回到「智能向导」。
+        </p>
+      </Modal>
+
+      <Modal
+        title="离开数据处理？"
+        open={preprocessLeaveOpen}
+        onOk={() => {
+          const t = preprocessLeaveTarget
+          if (t) {
+            const nextMode = workflowModeForPageKey(t)
+            if (nextMode === 'learning' && !warnLearningPrereqs()) {
+              setPreprocessLeaveOpen(false)
+              setPreprocessLeaveTarget(null)
+              return
+            }
+            setWorkflowMode(nextMode)
+            setCurrentPage(t)
+            localStorage.setItem('xgb_launched_before', '1')
+          }
+          setPreprocessLeaveOpen(false)
+          setPreprocessLeaveTarget(null)
+        }}
+        onCancel={() => { setPreprocessLeaveOpen(false); setPreprocessLeaveTarget(null) }}
+        okText="前往"
+        cancelText="留在数据处理"
+        width={400}
+      >
+        <p>
+          将前往「{preprocessLeaveTarget ? pageLabels[preprocessLeaveTarget] ?? preprocessLeaveTarget : ''}」。
+          数据导入与顶栏「训练划分 / 主模型」等上下文会保留；返回数据准备请切换回顶部「数据处理」模式。
+        </p>
+      </Modal>
+
+      {/* 新手引导弹窗 */}
+      {onboardingMode && (
+        <ModeOnboardingModal
+          mode={onboardingMode}
+          open={!!onboardingMode}
+          onClose={() => setOnboardingMode(null)}
+        />
+      )}
+
+      {/* Ctrl+K 命令面板 */}
+      <Modal
+        title={
+          <Space>
+            <SearchOutlined />
+            <span>命令面板</span>
+            <Text type="secondary" style={{ fontSize: 12 }}>快速跳转页面</Text>
+          </Space>
+        }
+        open={cmdOpen}
+        onCancel={() => setCmdOpen(false)}
+        footer={null}
+        width={480}
+        centered
+      >
+        <Input
+          ref={cmdInputRef as React.RefObject<HTMLInputElement | null>}
+          prefix={<SearchOutlined style={{ color: '#64748b' }} />}
+          placeholder="输入页面名称搜索…"
+          value={cmdQuery}
+          onChange={e => setCmdQuery(e.target.value)}
+          style={{ marginBottom: 12 }}
+          allowClear
+        />
+        <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+          {filteredPages.map(p => (
+            <div
+              key={p.key}
+              onClick={() => {
+                const st = useAppStore.getState()
+                const { workflowMode: wm, setWorkflowMode, activeSplitId: asp } = st
+                const nextMode = workflowModeForPageKey(p.key)
+                if (nextMode !== wm) {
+                  if (nextMode === 'learning' && asp === null) {
+                    Modal.warning({
+                      title: '无法进入模型调优模式',
+                      content: '请先在顶栏选择「训练划分」，或在「数据处理 → 特征工程」完成划分后再进入。',
+                    })
+                    return
+                  }
+                  setWorkflowMode(nextMode)
+                }
+                setCurrentPage(p.key)
+                setCmdOpen(false)
+                setCmdQuery('')
+                localStorage.setItem('xgb_launched_before', '1')
+              }}
+              style={{
+                padding: '10px 12px',
+                cursor: 'pointer',
+                borderRadius: 6,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 2,
+                background: currentPage === p.key ? '#1d3a5c' : 'transparent',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#1e293b')}
+              onMouseLeave={e => (e.currentTarget.style.background = currentPage === p.key ? '#1d3a5c' : 'transparent')}
+            >
+              <Text>{p.label}</Text>
+              <Tag color="default" style={{ fontSize: 11 }}>{p.group}</Tag>
+            </div>
+          ))}
+          {filteredPages.length === 0 && (
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: 20 }}>
+              未找到匹配页面
+            </Text>
+          )}
+        </div>
+      </Modal>
     </Layout>
   )
 }

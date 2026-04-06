@@ -14,6 +14,7 @@
 | [`CQ-2/`](CQ-2/) | 回归、脚本验收与 B 档安装包构建证据（商用化路线第二束） |
 | [`I5-Frontend-Test-Research/`](I5-Frontend-Test-Research/) | 前端UI自动化测试方案调研（I5第一束） |
 | [`I5-Frontend-Test-Infra/`](I5-Frontend-Test-Infra/) | 测试基础设施搭建（I5第二束） |
+| [`I6-ThreeModeUX/`](I6-ThreeModeUX/) | **v0.4 三模式**：向导 / **模型调优**（原 learning）/ 专家；顶栏单 Tag、调优侧栏收窄、`showTeachingUi` 向导默认教学；AutoML 见 [`../wiki/08-automl-wizard.md`](../wiki/08-automl-wizard.md) |
 | [`SkillOpt-I1/`](SkillOpt-I1/) | Skill/角色体系基线审视与改进清单（SkillOpt-I1） |
 
 各目录内优先使用 **`章程.md`**、**`设计.md`**（如有）、**`执行记录.md`**。

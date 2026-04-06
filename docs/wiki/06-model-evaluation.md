@@ -1,6 +1,6 @@
 # XGBoost Studio · 模型评估全维度分析
 
-> **版本对应**：v0.3.0  
+> **版本对应**：v0.4.x（评估能力同 v0.3；前端在向导/调优下补充指标 Tooltip 解读）  
 > **最后更新**：2026-04-06  
 > **对应代码**：`server/services/eval_service.py`、`server/routers/models.py`、`client/src/pages/ModelEval/`
 
@@ -222,5 +222,6 @@ DPD < 0.05 → 低风险
 
 | 版本 | 变更摘要 |
 |------|----------|
+| v0.4.x | 智能向导与模型调优模式下，核心指标（如 AUC/KS/F1）增加 Tooltip 式自然语言解释（见 [`01-product-overview.md`](01-product-overview.md)） |
 | v0.3.0 | G3-B：新增 PDP/ICE、OOT评估、鲁棒性测试（三类）、坏样本根因诊断、公平性分析 API + ModelEval 页面新增 4 Tab |
 | v0.2.0 | 基线对比（McNemar检验）、K折持久化 + >2σ高亮、校准曲线落地 |

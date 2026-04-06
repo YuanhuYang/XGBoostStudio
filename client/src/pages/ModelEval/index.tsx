@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, Select, Steps,
   Tabs, Table, Tag, Alert, message, Statistic, Divider, Slider, Progress,
@@ -7,13 +7,15 @@ import {
 import {
   ExperimentOutlined, BarChartOutlined, SafetyOutlined, DatabaseOutlined,
   ToolOutlined, SettingOutlined, PlayCircleOutlined, BugOutlined,
-  LineChartOutlined, WarningOutlined, TeamOutlined,
+  LineChartOutlined, WarningOutlined, TeamOutlined, ReadOutlined,
 } from '@ant-design/icons'
+import { Tooltip } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { getLearningCurve } from '../../api/models'
 import { useAppStore } from '../../store/appStore'
 import HelpButton, { HelpItem } from '../../components/HelpButton'
+import { showTeachingUi } from '../../utils/teachingUi'
 const { Title, Text } = Typography
 
 // ─── G3-B 新增类型 ────────────────────────────────────────────────────────────
@@ -37,8 +39,38 @@ interface FairnessResult {
   fairness_gap: number | null
 }
 
+/** 是否与 SHAP 条形图一致：评估接口的 shap_summary 或「加载 SHAP 详情」后的明细 */
+function hasEvalShapChartData(
+  evalData: Record<string, unknown> | null,
+  shapDetail: Record<string, unknown> | null,
+): boolean {
+  const summary = evalData?.shap_summary as { feature: string; importance: number }[] | undefined
+  if (Array.isArray(summary) && summary.length > 0) return true
+  const d = shapDetail as { features?: string[]; shap_values?: number[][] } | null
+  return Boolean(d?.features?.length && d?.shap_values?.length)
+}
+
+const EVAL_CHART_TAB_ORDER = [
+  'cm', 'roc', 'pr', 'cal', 'thr', 'res', 'shap', 'lc', 'pdp', 'robust', 'badsample', 'fairness',
+] as const
+
+// 向导/模型调优：指标 Tooltip 解读文案
+const metricExplanations: Record<string, string> = {
+  auc: 'AUC（ROC曲线下面积）：衡量模型区分正负样本的能力。0.5=随机猜测，0.7=尚可，0.8=良好，0.9以上=优秀。数值越高说明模型在不同阈值下的区分能力越强。',
+  ks: 'KS统计量：模型预测概率在正负样本上累计分布的最大差距。KS>0.3表示较强区分能力，KS>0.5表示优秀。',
+  f1: 'F1分数：Precision（精确率）和Recall（召回率）的调和平均值。适合类别不均衡时使用，同时关注假正和假负的代价。',
+  accuracy: '准确率：预测正确的样本占总样本的比例。适合类别均衡时使用，类别不均衡时可能产生误导。',
+  rmse: 'RMSE（均方根误差）：预测值与真实值差异的平方根均值。数值越小说明模型预测越准确，单位与目标变量相同。',
+  r2: 'R²（决定系数）：模型解释的方差比例。R²=1表示完美预测，R²=0表示和均值预测一样差，负值表示比均值更差。',
+  logloss: 'Log Loss（对数损失）：衡量概率预测的准确度，对置信度错误的预测施以更大惩罚。值越小越好，0为完美预测。',
+  mae: 'MAE（平均绝对误差）：预测值与真实值之差绝对值的平均。与RMSE相比，对异常值不那么敏感。',
+}
+
 const ModelEvalPage: React.FC = () => {
   const activeModelId = useAppStore(s => s.activeModelId)
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const workflowMode = useAppStore(s => s.workflowMode)
+  const showTeaching = showTeachingUi(workflowMode)
   const [modelId, setModelId] = useState<number | null>(null)
   const [modelOptions, setModelOptions] = useState<{ value: number; label: string }[]>([])
 
@@ -93,6 +125,8 @@ const ModelEvalPage: React.FC = () => {
   const [fairnessData, setFairnessData] = useState<FairnessResult | null>(null)
   const [fairnessLoading, setFairnessLoading] = useState(false)
   const [evalColumns, setEvalColumns] = useState<string[]>([])
+  /** 评估图表 Tabs：按模型任务与接口返回数据隐藏不适用的标签，避免空 Tab 导致页面高度跳动 */
+  const [evalChartTabKey, setEvalChartTabKey] = useState<string | null>(null)
 
   useEffect(() => {
     if (!modelId) {
@@ -225,6 +259,36 @@ const ModelEvalPage: React.FC = () => {
       if (shap) setEvalColumns(shap.map(s => s.feature).filter(Boolean))
     }).catch(() => {})
   }, [modelId])
+
+  const visibleEvalChartKeys = useMemo(() => {
+    if (!evalData) return [] as string[]
+    const available = new Set<string>()
+    const cm = evalData.confusion_matrix as { matrix?: number[][] } | undefined
+    if (cm?.matrix?.length) available.add('cm')
+    if (evalData.roc_curve) available.add('roc')
+    if (evalData.pr_curve) available.add('pr')
+    if (evalData.calibration) available.add('cal')
+    const thr = evalData.threshold_metrics as unknown[] | undefined
+    if (Array.isArray(thr) && thr.length > 0) available.add('thr')
+    const res = evalData.residuals as { predicted?: number[] } | undefined
+    if (res?.predicted?.length) available.add('res')
+    if (hasEvalShapChartData(evalData, shapData)) available.add('shap')
+    available.add('lc')
+    available.add('pdp')
+    available.add('robust')
+    if (evalData.task_type === 'classification') available.add('badsample')
+    available.add('fairness')
+    return EVAL_CHART_TAB_ORDER.filter(k => available.has(k))
+  }, [evalData, shapData])
+
+  useEffect(() => { setEvalChartTabKey(null) }, [modelId])
+
+  useEffect(() => {
+    if (!visibleEvalChartKeys.length) return
+    if (evalChartTabKey === null || !visibleEvalChartKeys.includes(evalChartTabKey)) {
+      setEvalChartTabKey(visibleEvalChartKeys[0])
+    }
+  }, [visibleEvalChartKeys, evalChartTabKey])
 
   // 混淆矩阵
   const confData = evalData?.confusion_matrix as { labels: string[]; matrix: number[][] } | undefined
@@ -390,8 +454,7 @@ const ModelEvalPage: React.FC = () => {
   }
 
   const activeDatasetId = useAppStore(s => s.activeDatasetId)
-  const activeSplitId = useAppStore(s => s.activeSplitId)
-  // activeModelId already declared at top
+  // activeModelId / activeSplitId declared at top
 
   const expertSteps = [
     { title: '数据导入', icon: <DatabaseOutlined /> },
@@ -466,6 +529,23 @@ const ModelEvalPage: React.FC = () => {
             K 折交叉验证（训练集）
           </Button>
         </Space>
+        {modelId != null && modelMeta?.split_id != null && (
+          <div style={{ marginTop: 12 }}>
+            <Text style={{ color: '#94a3b8' }}>
+              本模型训练使用划分：
+              <Text strong style={{ color: '#5eead4' }}> #{modelMeta.split_id}</Text>
+            </Text>
+          </div>
+        )}
+        {modelId != null && modelMeta?.split_id != null && activeSplitId != null && modelMeta.split_id !== activeSplitId && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 12 }}
+            message="与顶栏当前划分不一致"
+            description={`顶栏上下文为划分 #${activeSplitId}，当前所选模型基于划分 #${modelMeta.split_id} 训练。评估指标始终对应下方所选模型。`}
+          />
+        )}
       </Card>
 
       {evalData?.evaluation_protocol && (
@@ -563,10 +643,24 @@ const ModelEvalPage: React.FC = () => {
           <Row gutter={12} style={{ marginBottom: 8 }}>
             {Object.entries(metrics).map(([k, v]) => {
               const rating = getMetricRating(k, v)
+              const explanation = metricExplanations[k.toLowerCase()]
               return (
                 <Col span={4} key={k} style={{ marginBottom: 8 }}>
                   <Card size="small" style={{ background: '#1e293b', border: '1px solid #334155', textAlign: 'center' }}>
-                    <Text style={{ color: '#94a3b8', fontSize: 11, display: 'block' }}>{k.toUpperCase()}</Text>
+                    {showTeaching && explanation ? (
+                      <Tooltip title={
+                        <div style={{ maxWidth: 280 }}>
+                          <div style={{ color: '#a78bfa', marginBottom: 4 }}><ReadOutlined /> 指标解读</div>
+                          <div style={{ fontSize: 12 }}>{explanation}</div>
+                        </div>
+                      } placement="top">
+                        <Text style={{ color: '#a78bfa', fontSize: 11, display: 'block', cursor: 'help', textDecoration: 'underline dotted' }}>
+                          {k.toUpperCase()} 📖
+                        </Text>
+                      </Tooltip>
+                    ) : (
+                      <Text style={{ color: '#94a3b8', fontSize: 11, display: 'block' }}>{k.toUpperCase()}</Text>
+                    )}
                     <Text style={{ color: rating.color || '#60a5fa', fontSize: 20, fontWeight: 700 }}>
                       {typeof v === 'number' ? v.toFixed(4) : String(v)}
                     </Text>
@@ -639,8 +733,11 @@ const ModelEvalPage: React.FC = () => {
         </>
       )}
 
-      {evalData && (
-        <Tabs items={[
+      {evalData && visibleEvalChartKeys.length > 0 && (
+        <Tabs
+          activeKey={evalChartTabKey ?? visibleEvalChartKeys[0]}
+          onChange={k => setEvalChartTabKey(k)}
+          items={[
           {
             key: 'cm', label: '混淆矩阵',
             children: confOption
@@ -967,7 +1064,8 @@ const ModelEvalPage: React.FC = () => {
               </Card>
             )
           },
-        ]} />
+        ].filter(t => visibleEvalChartKeys.includes(String(t.key)))}
+        />
       )}
     </div>
   )

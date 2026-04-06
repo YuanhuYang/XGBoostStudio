@@ -347,6 +347,121 @@ def _compute_metrics(
     return metrics
 
 
+def train_and_persist_sync(
+    split_id: int,
+    params: dict[str, Any],
+    db: Session,
+    *,
+    model_name: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    一次性训练并写入 Model（不产生 TrainingTask）。供 AutoML 编排等同步场景调用。
+    返回 model_id、metrics、task_type、training_time_s。
+    """
+    params = dict(params)
+    params.pop("_model_name", None)
+    params.pop("use_kfold_cv", None)
+    params.pop("kfold_k", None)
+
+    train_df, test_df = _load_split(split_id, db)
+    split = db.query(DatasetSplit).filter(DatasetSplit.id == split_id).first()
+    dataset = db.query(Dataset).filter(Dataset.id == split.dataset_id).first() if split else None
+    target_col = dataset.target_column if dataset else train_df.columns[-1]
+
+    if target_col not in train_df.columns:
+        target_col = train_df.columns[-1]
+
+    X_train = train_df.drop(columns=[target_col]).select_dtypes(include=[np.number])
+    y_train = train_df[target_col]
+    X_test = test_df.drop(columns=[target_col], errors="ignore").select_dtypes(include=[np.number])
+    y_test = test_df[target_col] if target_col in test_df.columns else None
+
+    common_cols = X_train.columns.intersection(X_test.columns)
+    X_train = X_train[common_cols].fillna(0)
+    X_test = X_test[common_cols].fillna(0)
+
+    task_type = _detect_task_type(y_train)
+    merged_params = {**_default_params(task_type), **params}
+    n_estimators = int(merged_params.pop("n_estimators", 100))
+    early_stopping_rounds = int(merged_params.pop("early_stopping_rounds", 0) or 0)
+
+    _classification_objectives = {"binary:logistic", "multi:softmax", "multi:softprob"}
+    if task_type == "regression":
+        merged_params.pop("num_class", None)
+        if merged_params.get("objective") in _classification_objectives:
+            merged_params["objective"] = "reg:squarederror"
+            merged_params["eval_metric"] = "rmse"
+    elif task_type == "classification":
+        n_unique_classes = int(y_train.nunique())
+        if n_unique_classes > 2:
+            if merged_params.get("objective") not in ("multi:softmax", "multi:softprob"):
+                merged_params["objective"] = "multi:softprob"
+                merged_params["eval_metric"] = "mlogloss"
+            if not merged_params.get("num_class") or int(merged_params.get("num_class", 0)) < 2:
+                merged_params["num_class"] = n_unique_classes
+        else:
+            merged_params.pop("num_class", None)
+            if merged_params.get("objective") in ("multi:softmax", "multi:softprob"):
+                merged_params["objective"] = "binary:logistic"
+                merged_params["eval_metric"] = "logloss"
+
+    model = xgb.XGBClassifier(**merged_params) if task_type == "classification" else xgb.XGBRegressor(**merged_params)
+    model.set_params(n_estimators=n_estimators)
+    if early_stopping_rounds > 0 and y_test is not None and len(y_test) > 0:
+        model.set_params(early_stopping_rounds=early_stopping_rounds)
+
+    start_time = time.time()
+    fit_kw: dict[str, Any] = {"verbose": False}
+    if y_test is not None and len(y_test) > 0:
+        fit_kw["eval_set"] = [(X_test, y_test)]
+
+    model.fit(X_train, y_train, **fit_kw)
+    training_time = round(time.time() - start_time, 2)
+
+    metrics = _compute_metrics(model, X_test, y_test, task_type, X_train, y_train)
+    if early_stopping_rounds > 0:
+        bi = getattr(model, "best_iteration", None)
+        if bi is not None:
+            metrics["best_iteration"] = int(bi)
+
+    model_filename = f"model_{uuid.uuid4().hex[:12]}.ubj"
+    model_path = MODELS_DIR / model_filename
+    model.save_model(str(model_path))
+
+    final_params = {**merged_params, "n_estimators": n_estimators}
+    prov = build_training_provenance(
+        dataset_id=dataset.id if dataset else None,
+        split_id=split_id,
+        split_random_seed=split.random_seed if split else None,
+        params_final=final_params,
+        metrics=metrics,
+        source="training",
+        training_time_s=training_time,
+    )
+    display_name = model_name or f"Model_sync_{uuid.uuid4().hex[:8]}"
+    final_model = Model(
+        name=display_name,
+        path=model_filename,
+        task_type=task_type,
+        metrics_json=json.dumps(metrics),
+        params_json=json.dumps(final_params),
+        provenance_json=provenance_to_json(prov),
+        dataset_id=dataset.id if dataset else None,
+        split_id=split_id,
+        training_time_s=training_time,
+    )
+    db.add(final_model)
+    db.commit()
+    db.refresh(final_model)
+
+    return {
+        "model_id": final_model.id,
+        "metrics": metrics,
+        "task_type": task_type,
+        "training_time_s": training_time,
+    }
+
+
 def stop_task(task_id: str, db: Session) -> None:
     task = db.query(TrainingTask).filter(TrainingTask.id == task_id).first()
     if task and task.status == "running":

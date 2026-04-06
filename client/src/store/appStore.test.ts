@@ -1,10 +1,30 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useAppStore } from './appStore'
 
+const LS_ACTIVE_CONTEXT_KEYS = [
+  'xgbs_active_dataset_id',
+  'xgbs_active_dataset_name',
+  'xgbs_active_split_id',
+  'xgbs_active_model_id',
+] as const
+
 describe('appStore', () => {
   // Reset store before each test
   beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true)
+    for (const k of LS_ACTIVE_CONTEXT_KEYS) {
+      localStorage.removeItem(k)
+    }
+    const base = useAppStore.getInitialState()
+    useAppStore.setState(
+      {
+        ...base,
+        activeDatasetId: null,
+        activeDatasetName: null,
+        activeSplitId: null,
+        activeModelId: null,
+      },
+      true,
+    )
   })
 
   it('has correct initial state', () => {
@@ -16,6 +36,7 @@ describe('appStore', () => {
     expect(state.activeDatasetId).toBeNull()
     expect(state.activeSplitId).toBeNull()
     expect(state.activeModelId).toBeNull()
+    expect(state.expertCompareModelIds).toEqual([])
     expect(state.sidebarCollapsed).toBe(false)
     expect(state.workflowMode).toBe('guided')
     expect(state.workflowStep).toBe(0)
@@ -63,6 +84,24 @@ describe('appStore', () => {
     expect(useAppStore.getState().activeModelId).toBeNull()
   })
 
+  it('setActiveModelId accepts functional updater and persists', () => {
+    useAppStore.getState().setActiveModelId(3)
+    useAppStore.getState().setActiveModelId((prev) => (prev === 3 ? 4 : null))
+    expect(useAppStore.getState().activeModelId).toBe(4)
+    expect(localStorage.getItem('xgbs_active_model_id')).toBe('4')
+  })
+
+  it('persists dataset / name / split / model to localStorage', () => {
+    useAppStore.getState().setActiveDatasetId(7)
+    useAppStore.getState().setActiveDatasetName('demo.csv')
+    useAppStore.getState().setActiveSplitId(2)
+    useAppStore.getState().setActiveModelId(99)
+    expect(localStorage.getItem('xgbs_active_dataset_id')).toBe('7')
+    expect(localStorage.getItem('xgbs_active_dataset_name')).toBe('demo.csv')
+    expect(localStorage.getItem('xgbs_active_split_id')).toBe('2')
+    expect(localStorage.getItem('xgbs_active_model_id')).toBe('99')
+  })
+
   it('toggleSidebar flips sidebarCollapsed', () => {
     expect(useAppStore.getState().sidebarCollapsed).toBe(false)
     useAppStore.getState().toggleSidebar()
@@ -74,8 +113,18 @@ describe('appStore', () => {
   it('setWorkflowMode updates workflowMode', () => {
     useAppStore.getState().setWorkflowMode('expert')
     expect(useAppStore.getState().workflowMode).toBe('expert')
+    useAppStore.getState().setWorkflowMode('preprocess')
+    expect(useAppStore.getState().workflowMode).toBe('preprocess')
     useAppStore.getState().setWorkflowMode('learning')
     expect(useAppStore.getState().workflowMode).toBe('learning')
+  })
+
+  it('markModeVisited clears preprocess in modeFirstVisit', () => {
+    useAppStore.setState({
+      modeFirstVisit: { guided: true, preprocess: true, learning: true, expert: true },
+    })
+    useAppStore.getState().markModeVisited('preprocess')
+    expect(useAppStore.getState().modeFirstVisit.preprocess).toBe(false)
   })
 
   it('setWorkflowStep updates workflowStep', () => {

@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from db.database import get_db, MODELS_DIR
@@ -53,15 +54,30 @@ def _to_dict(m: Model) -> dict[str, Any]:
 def list_models(
     task_type: str | None = Query(None, description="过滤任务类型: classification/regression"),
     dataset_id: int | None = Query(None),
+    split_id: int | None = Query(None, description="按训练划分过滤；含该划分绑定模型及同数据集 legacy 无 split_id 模型"),
     min_auc: float | None = Query(None, description="最低AUC阈值"),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     q = db.query(Model).filter(Model.is_deleted == False)  # noqa: E712
     if task_type:
         q = q.filter(Model.task_type == task_type)
-    if dataset_id:
+    if split_id is not None:
+        sp = db.query(DatasetSplit).filter(DatasetSplit.id == split_id).first()
+        if not sp:
+            models: list[Model] = []
+        else:
+            q = q.filter(
+                or_(
+                    Model.split_id == split_id,
+                    (Model.split_id.is_(None)) & (Model.dataset_id == sp.dataset_id),
+                )
+            )
+            models = q.order_by(Model.created_at.desc()).all()
+    elif dataset_id:
         q = q.filter(Model.dataset_id == dataset_id)
-    models = q.order_by(Model.created_at.desc()).all()
+        models = q.order_by(Model.created_at.desc()).all()
+    else:
+        models = q.order_by(Model.created_at.desc()).all()
     if min_auc is not None:
         models = [
             m for m in models

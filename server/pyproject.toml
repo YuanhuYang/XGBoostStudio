@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aiofiles>=25.1.0",
     "fastapi>=0.135.3",
+    "httpx>=0.28.0",
     "matplotlib>=3.8",
     "openpyxl>=3.1.5",
     "optuna>=4.8.0",
@@ -21,9 +22,11 @@ dependencies = [
     "xgboost>=3.2.0",
 ]
 
+[project.scripts]
+xs-studio = "cli.main:main"
+
 [dependency-groups]
 dev = [
-    "httpx>=0.28.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=7.1.0",
@@ -35,3 +38,4 @@ dev = [
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+markers = ["serial: tests that must not run in parallel with other DB-heavy tests"]

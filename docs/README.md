@@ -33,6 +33,7 @@
 | [`部署说明.md`](guides/部署说明.md) | DevOps / 运维 | 运维人员 |
 | [`开发规范.md`](guides/开发规范.md) | 分支与提交 | 开发人员 |
 | [`developers-guide.md`](guides/developers-guide.md) | 开发者指南 | 开发人员 |
+| [`xs-studio-cli.md`](guides/xs-studio-cli.md) | **xs-studio 命令行**：AutoML REPL、`run`、与前端并行 | 开发人员 / 自动化 |
 | [`report-interpretation.md`](guides/report-interpretation.md) | 报告解读：常见问题解答 | 用户 / 数据分析师 |
 | [`frontend-ui-automation-testing.md`](guides/frontend-ui-automation-testing.md) | QA / 测试专家 | 前端 UI 自动化测试方案调研与实施指南 |
 | [`AGENT_PROMPT.md`](guides/AGENT_PROMPT.md) | AI 提示词 | 历史自动化提示（参考） |
@@ -55,6 +56,7 @@
 | [`I3-Report-Enhancement/`](iterations/I3-Report-Enhancement/) | 报告增强 |
 | [`I4-Commercialization/`](iterations/I4-Commercialization/) | 商业化迭代 |
 | [`I5-Frontend-Test-Infra/`](iterations/I5-Frontend-Test-Infra/) | 前端测试基础设施 |
+| [`I6-ThreeModeUX/`](iterations/I6-ThreeModeUX/) | **v0.4 三模式（向导 / 模型调优 / 专家）**；顶栏单上下文、调优侧栏收窄、`showTeachingUi`；AutoML 见 [`wiki/08-automl-wizard.md`](wiki/08-automl-wizard.md) |
 | [`SkillOpt-I1/`](iterations/SkillOpt-I1/) | Skill 优化迭代 1 |
 | [`CQ-1/`](iterations/CQ-1/) 至 [`CQ-2/`](iterations/CQ-2/) | 代码质量迭代 |
 
@@ -79,7 +81,20 @@
 
 文档中引用的图片和 GIF 资源
 
-## 八、 AI 使用说明
+## 八、 产品知识库（Wiki）→ [`wiki/`](wiki/)
+
+面向产品能力与架构的专题说明（与根目录 `README` 文档表一致）：
+
+| 入口 | 说明 |
+|------|------|
+| [`wiki/README.md`](wiki/README.md) | Wiki 总索引与快速导航 |
+| [`wiki/01-product-overview.md`](wiki/01-product-overview.md) | 产品概览与三模式 |
+| [`wiki/02-architecture.md`](wiki/02-architecture.md) | 技术架构与 API 边界 |
+| [`wiki/08-automl-wizard.md`](wiki/08-automl-wizard.md) | 全自动建模（AutoML）：向导 Step 0 + **命令行 xs-studio** |
+
+---
+
+## 九、 AI 使用说明
 
 使用 Cursor AI 管理文档时，使用 `xs-doc-steward` Skill 进行文档操作和检查：
 - `@xgboost-studio-doc-steward` 或 `/doc-steward` 触发
@@ -87,4 +102,4 @@
 
 ---
 
-**最后更新**：2026-04-06 | **XGBoostStudio v0.2.0-alpha**
+**最后更新**：2026-04-06 | **XGBoostStudio v0.4.x**（三模式 UX 修订 + 向导默认教学 + AutoML 索引）

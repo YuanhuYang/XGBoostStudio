@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Card, Col, Row, Typography, Button, Space, Divider, message } from 'antd'
+import React, { useState, useEffect } from 'react'
+import { Card, Col, Row, Typography, Button, Space, Divider, message, Tag } from 'antd'
 import {
   RocketOutlined,
   BarChartOutlined,
@@ -8,7 +8,13 @@ import {
   BookOutlined,
   ImportOutlined,
 } from '@ant-design/icons'
-import { datasetsApi } from '../../api/datasets'
+import {
+  datasetsApi,
+  fetchBuiltinSamples,
+  builtinDifficultyColor,
+  FALLBACK_BUILTIN_SAMPLES,
+  type BuiltinSampleItem,
+} from '../../api/datasets'
 import { useAppStore } from '../../store/appStore'
 
 const { Title, Paragraph } = Typography
@@ -40,12 +46,6 @@ const steps = [
   },
 ]
 
-const WELCOME_SAMPLES = [
-  { key: 'titanic' as const, label: 'Titanic', task: '二分类' },
-  { key: 'boston' as const, label: 'Boston', task: '回归' },
-  { key: 'iris' as const, label: 'Iris', task: '多分类' },
-]
-
 const WelcomePage: React.FC = () => {
   const navigateTo = (pageKey: string) => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: pageKey }))
@@ -53,19 +53,19 @@ const WelcomePage: React.FC = () => {
   const setActiveDatasetId = useAppStore(s => s.setActiveDatasetId)
   const setActiveDatasetName = useAppStore(s => s.setActiveDatasetName)
   const [sampleLoading, setSampleLoading] = useState<string | null>(null)
+  const [builtinSamples, setBuiltinSamples] = useState<BuiltinSampleItem[]>(FALLBACK_BUILTIN_SAMPLES)
 
-  const handleImportSample = async (key: (typeof WELCOME_SAMPLES)[number]['key']) => {
+  useEffect(() => {
+    void fetchBuiltinSamples().then(setBuiltinSamples)
+  }, [])
+
+  const handleImportSample = async (key: string) => {
     setSampleLoading(key)
     try {
       const res = await datasetsApi.importSample(key)
       setActiveDatasetId(res.data.id)
       setActiveDatasetName(res.data.name ?? null)
-      try {
-        sessionStorage.setItem('xgb_open_target_for_dataset', String(res.data.id))
-      } catch {
-        /* ignore */
-      }
-      message.success('已导入内置示例，正在前往数据导入…')
+      message.success('已添加示例数据，正在前往数据导入…')
       navigateTo('data-import')
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -99,10 +99,10 @@ const WelcomePage: React.FC = () => {
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <Paragraph type="secondary" style={{ margin: 0, flex: '1 1 200px' }}>
             <ImportOutlined style={{ color: '#1677ff', marginRight: 6 }} />
-            内置示例离线可用，一键导入后可在数据导入页设置目标列：
+            试用随安装包提供的示例 CSV（无需上传），导入后出现在数据导入页的数据集列表中，需要时再设置目标列。完整列表与<strong>按难度分组、关键词搜索</strong>请打开「数据导入」页：
           </Paragraph>
           <Space wrap size={8}>
-            {WELCOME_SAMPLES.map(s => (
+            {builtinSamples.map(s => (
               <Button
                 key={s.key}
                 size="small"
@@ -111,8 +111,13 @@ const WelcomePage: React.FC = () => {
                 loading={sampleLoading === s.key}
                 disabled={sampleLoading !== null && sampleLoading !== s.key}
                 onClick={() => void handleImportSample(s.key)}
+                title={`${s.scenario} · 建议目标列: ${s.suggested_target ?? '（见数据导入）'}`}
               >
-                {s.label}（{s.task}）
+                <Space size={4}>
+                  <span>{s.title}</span>
+                  <Tag color={builtinDifficultyColor(s.difficulty)} style={{ margin: 0 }}>{s.difficulty}</Tag>
+                  <span style={{ opacity: 0.85 }}>（{s.task}）</span>
+                </Space>
               </Button>
             ))}
             <Button type="link" size="small" onClick={() => navigateTo('data-import')}>

@@ -2,23 +2,27 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   Steps, Card, Button, Select, Alert, Progress, Typography, Space, Tag, Row, Col,
   Divider, Spin, Statistic, Switch, message, Collapse, Badge, Modal, InputNumber, Table,
+  Tooltip, Radio,
 } from 'antd'
 import {
   RocketOutlined, CheckCircleOutlined, BookOutlined,
   FileTextOutlined, ThunderboltOutlined, BarChartOutlined, ExperimentOutlined,
-  EditOutlined,
+  EditOutlined, ToolOutlined, BulbOutlined,
 } from '@ant-design/icons'
+import ParamLabModal from '../../components/ParamLabModal'
 import HelpButton from '../../components/HelpButton'
 import ReactECharts from 'echarts-for-react'
 import { useAppStore } from '../../store/appStore'
 import { listDatasets } from '../../api/datasets'
-import apiClient from '../../api/client'
-import { getDatasetSummary, getQuickConfig, getPreprocessSuggestions, runPipeline, runLabExperiment } from '../../api/wizard'
+import apiClient, { BASE_URL } from '../../api/client'
+import { startAutoMLJob, getAutoMLJobResult, type AutoMLJobResult } from '../../api/automl'
+import { getDatasetSummary, getQuickConfig, getPreprocessSuggestions, runPipeline } from '../../api/wizard'
 import { getParamsSchema } from '../../api/params'
 import ParamExplainCard from '../../components/ParamExplainCard'
 import type { Dataset } from '../../types'
-import type { DatasetSummary, QuickConfigResult, PipelineProgress, PreprocessSuggestion, LabDoneEvent } from '../../api/wizard'
+import type { DatasetSummary, QuickConfigResult, PipelineProgress, PreprocessSuggestion } from '../../api/wizard'
 import type { ParamSchema } from '../../components/ParamExplainCard'
+import { showTeachingUi } from '../../utils/teachingUi'
 
 const { Title, Text, Paragraph } = Typography
 const { Option } = Select
@@ -38,6 +42,18 @@ interface WizardHistoryEntry {
 
 const HISTORY_KEY = 'xgbs_wizard_history'
 const MAX_HISTORY = 10
+
+/** 预处理建议类型 → 备用「深入了解」文案（接口缺省时仍可读） */
+const PREPROCESS_LEARN_FALLBACK: Record<string, string> = {
+  missing_values:
+    '缺失表示该列部分样本无取值。树模型虽能处理稀疏，但适度填充常能减少噪声分裂、提升稳定性；高缺失列也可能掩盖「缺失本身」与标签的关系，可视情况单独建模。',
+  duplicates:
+    '完全重复行会让模型在相同模式上重复学习，相当于放大权重，易在训练集上虚高。若重复来自真实业务（如多次点击），则需保留并改用聚合特征等方式处理。',
+  class_imbalance:
+    '类别极不均衡时，模型默认损失更偏向多数类，少数类召回往往偏低。scale_pos_weight、重采样、或调整评估指标（F1、AUC）都是常见对策。',
+  high_cardinality:
+    '高基数类别指取值种类很多（如姓名、ID）。One-Hot 会产生海量稀疏列；对 XGBoost 常用有序或无序的标签编码，让树在「整数编码」上学习切分，兼顾效率与效果。',
+}
 
 /** 需求文档：质量评分低于 70 时橙色警示及建议；Alert 使用 success / warning 分档 */
 function qualityScoreAlert(score: number): {
@@ -76,6 +92,7 @@ const SmartWorkflow: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const workflowMode = useAppStore(s => s.workflowMode)
   const setWorkflowMode = useAppStore(s => s.setWorkflowMode)
+  const setWorkflowStep = useAppStore(s => s.setWorkflowStep)
 
   // 历史记录
   const [wizardHistory, setWizardHistory] = useState<WizardHistoryEntry[]>(() => {
@@ -89,6 +106,7 @@ const SmartWorkflow: React.FC = () => {
   const setActiveSplitId = useAppStore(s => s.setActiveSplitId)
   const setActiveModelId = useAppStore(s => s.setActiveModelId)
   const setActiveDatasetName = useAppStore(s => s.setActiveDatasetName)
+  const activeModelId = useAppStore(s => s.activeModelId)
 
   // Step 0 - 数据选择
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -132,50 +150,73 @@ const SmartWorkflow: React.FC = () => {
   const logsEndRef = useRef<HTMLDivElement | null>(null)
   const nextButtonRef = useRef<HTMLButtonElement | null>(null)
 
-  // ── Lab 参数实验 ──────────────────────────────────────────────────────────
+  // ── Lab 参数实验（E4: 状态移至独立 ParamLabModal 组件）────────────────────
   const [labOpen, setLabOpen] = useState(false)
-  const [labParam, setLabParam] = useState<string>('max_depth')
-  const [labValueA, setLabValueA] = useState<number>(3)
-  const [labValueB, setLabValueB] = useState<number>(10)
-  const [labStep, setLabStep] = useState<'config' | 'runningA' | 'runningB' | 'done'>('config')
-  const [labCurveA, setLabCurveA] = useState<number[]>([])
-  const [labCurveB, setLabCurveB] = useState<number[]>([])
-  const [labMetricsA, setLabMetricsA] = useState<Record<string, number> | null>(null)
-  const [labMetricsB, setLabMetricsB] = useState<Record<string, number> | null>(null)
-  const [labProgressA, setLabProgressA] = useState(0)
-  const [labProgressB, setLabProgressB] = useState(0)
-  const cancelLabRef = useRef<(() => void) | null>(null)
 
-  const isLearning = workflowMode === 'learning'
+  const [automlRunning, setAutomlRunning] = useState(false)
+  const [automlFast, setAutomlFast] = useState(false)
+  const [automlTrials, setAutomlTrials] = useState(12)
+  const [automlLines, setAutomlLines] = useState<string[]>([])
+  const [automlResult, setAutomlResult] = useState<AutoMLJobResult | null>(null)
+  const automlEsRef = useRef<EventSource | null>(null)
+
+  const showTeaching = showTeachingUi(workflowMode)
+
+  // D1: 同步 currentStep 到全局 store
+  useEffect(() => {
+    setWorkflowStep(currentStep)
+  }, [currentStep, setWorkflowStep])
 
   // ── sessionStorage 持久化：离开页面再回来时恢复训练状态 ───────────────────
   const SESSION_KEY = 'xgbs_workflow_state'
 
-  // 组件初次挂载时从 localStorage 恢复
-  useEffect(() => {
+  /** 从 localStorage 恢复向导状态（供挂载时与模式切换时复用） */
+  const restoreFromStorage = () => {
     try {
       const saved = localStorage.getItem(SESSION_KEY)
-      if (saved) {
-        const s = JSON.parse(saved) as {
-          currentStep?: number
-          selectedDatasetId?: number | null
-          targetColumn?: string
-          selectedSplitId?: number | null
-          splitInfo?: { train_rows: number; test_rows: number } | null
-          pipelineResult?: PipelineProgress | null
-          pipelinePercent?: number
-          paramValues?: Record<string, number | string>
-        }
-        if (s.currentStep !== undefined) setCurrentStep(s.currentStep)
-        if (s.selectedDatasetId !== undefined) setSelectedDatasetId(s.selectedDatasetId)
-        if (s.targetColumn) setTargetColumn(s.targetColumn)
-        if (s.selectedSplitId !== undefined) setSelectedSplitId(s.selectedSplitId)
-        if (s.splitInfo !== undefined) setSplitInfo(s.splitInfo)
-        if (s.pipelineResult !== undefined) setPipelineResult(s.pipelineResult)
-        if (s.pipelinePercent !== undefined) setPipelinePercent(s.pipelinePercent)
-        if (s.paramValues && Object.keys(s.paramValues).length > 0) setParamValues(s.paramValues)
+      if (!saved) return
+      const s = JSON.parse(saved) as {
+        currentStep?: number
+        selectedDatasetId?: number | null
+        targetColumn?: string
+        selectedSplitId?: number | null
+        splitInfo?: { train_rows: number; test_rows: number } | null
+        pipelineResult?: PipelineProgress | null
+        pipelinePercent?: number
+        paramValues?: Record<string, number | string>
       }
+      if (s.currentStep !== undefined) setCurrentStep(s.currentStep)
+      if (s.selectedDatasetId !== undefined) {
+        setSelectedDatasetId(s.selectedDatasetId)
+        if (s.selectedDatasetId) setActiveDatasetId(s.selectedDatasetId)
+      }
+      if (s.targetColumn) setTargetColumn(s.targetColumn)
+      if (s.selectedSplitId !== undefined) {
+        setSelectedSplitId(s.selectedSplitId)
+        if (s.selectedSplitId) setActiveSplitId(s.selectedSplitId)
+      }
+      if (s.splitInfo !== undefined) setSplitInfo(s.splitInfo)
+      if (s.pipelineResult !== undefined) {
+        setPipelineResult(s.pipelineResult)
+        if (s.pipelineResult?.model_id) setActiveModelId(s.pipelineResult.model_id)
+      }
+      if (s.pipelinePercent !== undefined) setPipelinePercent(s.pipelinePercent)
+      if (s.paramValues && Object.keys(s.paramValues).length > 0) setParamValues(s.paramValues)
     } catch { /* 静默忽略反序列化错误 */ }
+  }
+
+  // 当 workflowMode 从其他模式切换到向导模式时（组件已挂载的场景），重新恢复状态
+  const prevWorkflowModeRef = useRef(workflowMode)
+  useEffect(() => {
+    if (prevWorkflowModeRef.current !== 'guided' && workflowMode === 'guided') {
+      restoreFromStorage()
+    }
+    prevWorkflowModeRef.current = workflowMode
+  }, [workflowMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 组件初次挂载时从 localStorage 恢复
+  useEffect(() => {
+    restoreFromStorage()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 关键状态变化时写入 localStorage
@@ -274,6 +315,97 @@ const SmartWorkflow: React.FC = () => {
     setCurrentStep(1)
   }
 
+  useEffect(() => {
+    return () => {
+      automlEsRef.current?.close()
+      automlEsRef.current = null
+    }
+  }, [])
+
+  const runFullAutoML = () => {
+    if (!selectedDatasetId) {
+      message.warning('请先选择数据集')
+      return
+    }
+    automlEsRef.current?.close()
+    setAutomlRunning(true)
+    setAutomlLines([])
+    setAutomlResult(null)
+    void (async () => {
+      try {
+        const { job_id } = await startAutoMLJob({
+          dataset_id: selectedDatasetId,
+          skip_tuning: automlFast,
+          max_tuning_trials: automlFast ? 0 : automlTrials,
+        })
+        const es = new EventSource(`${BASE_URL}/api/automl/jobs/${job_id}/progress`)
+        automlEsRef.current = es
+        es.onmessage = (ev: MessageEvent) => {
+          try {
+            const j = JSON.parse(ev.data) as { error?: string; step?: string; message?: string }
+            if (j.error) {
+              message.error(j.error)
+              return
+            }
+            const line = j.message
+              ? `${j.step ? `[${j.step}] ` : ''}${j.message}`
+              : (j.step ? `[${j.step}]` : '')
+            if (line) setAutomlLines(prev => [...prev, line])
+          } catch {
+            if (ev.data) setAutomlLines(prev => [...prev, ev.data])
+          }
+        }
+        es.addEventListener('done', () => {
+          es.close()
+          automlEsRef.current = null
+          void (async () => {
+            try {
+              const res = await getAutoMLJobResult(job_id)
+              setAutomlResult(res)
+              setTargetColumn(res.target_column)
+              setSelectedSplitId(res.split_id)
+              setActiveSplitId(res.split_id)
+              setActiveDatasetId(res.dataset_id)
+              const ds = datasets.find(d => d.id === res.dataset_id)
+              if (ds) setActiveDatasetName(ds.name)
+              const spList = await apiClient.get<Array<{ id: number; train_rows: number; test_rows: number }>>('/api/datasets/splits/list')
+              const row = spList.data.find(x => x.id === res.split_id)
+              if (row) setSplitInfo({ train_rows: row.train_rows, test_rows: row.test_rows })
+              const best = res.candidates.find(c => c.model_id === res.chosen_recommendation.model_id)
+              setActiveModelId(res.chosen_recommendation.model_id)
+              setPipelineResult({
+                type: 'done',
+                model_id: res.chosen_recommendation.model_id,
+                report_id: null,
+                metrics: (best?.metrics ?? {}) as Record<string, unknown>,
+                natural_summary:
+                  `全自动建模完成。系统推荐：${res.chosen_recommendation.name}。${res.chosen_recommendation.reason}`,
+              })
+              try {
+                const s = await getDatasetSummary(res.dataset_id)
+                setSummary(s)
+              } catch { /* 忽略 */ }
+              message.success('全自动建模完成，可查看候选模型或前往「结果总结」')
+            } catch (e) {
+              message.error(e instanceof Error ? e.message : '获取建模结果失败')
+            } finally {
+              setAutomlRunning(false)
+            }
+          })()
+        })
+        es.onerror = () => {
+          es.close()
+          automlEsRef.current = null
+          setAutomlRunning(false)
+          message.error('全自动建模连接中断')
+        }
+      } catch (e) {
+        setAutomlRunning(false)
+        message.error(e instanceof Error ? e.message : '无法启动全自动建模')
+      }
+    })()
+  }
+
   // ── Step 2: 数据划分 ───────────────────────────────────────────────────────
 
   const handleCreateSplit = async () => {
@@ -336,60 +468,7 @@ const SmartWorkflow: React.FC = () => {
   // ── Lab 参数实验处理 ──────────────────────────────────────────────────────
 
   const openLab = () => {
-    setLabStep('config')
-    setLabCurveA([])
-    setLabCurveB([])
-    setLabMetricsA(null)
-    setLabMetricsB(null)
-    setLabProgressA(0)
-    setLabProgressB(0)
     setLabOpen(true)
-  }
-
-  const handleRunLab = () => {
-    if (!selectedSplitId) return
-    const paramsA = { ...paramValues, [labParam]: labValueA }
-    const paramsB = { ...paramValues, [labParam]: labValueB }
-    setLabStep('runningA')
-    setLabCurveA([])
-    setLabCurveB([])
-    setLabProgressA(0)
-    setLabProgressB(0)
-
-    // 先跑配置 A
-    const cancelA = runLabExperiment(
-      { split_id: selectedSplitId, params: paramsA as Record<string, unknown> },
-      (ev) => {
-        setLabCurveA(prev => [...prev, ev.val_loss])
-        setLabProgressA(Math.round((ev.round / ev.total) * 100))
-      },
-      (doneA: LabDoneEvent) => {
-        setLabMetricsA(doneA.metrics)
-        setLabStep('runningB')
-        // 再跑配置 B
-        const cancelB = runLabExperiment(
-          { split_id: selectedSplitId, params: paramsB as Record<string, unknown> },
-          (ev) => {
-            setLabCurveB(prev => [...prev, ev.val_loss])
-            setLabProgressB(Math.round((ev.round / ev.total) * 100))
-          },
-          (doneB: LabDoneEvent) => {
-            setLabMetricsB(doneB.metrics)
-            setLabStep('done')
-          },
-          (err) => {
-            message.error(`配置 B 训练失败：${err}`)
-            setLabStep('config')
-          },
-        )
-        cancelLabRef.current = cancelB
-      },
-      (err) => {
-        message.error(`配置 A 训练失败：${err}`)
-        setLabStep('config')
-      },
-    )
-    cancelLabRef.current = cancelA
   }
 
   // ── Step 4: 一键流水线 ────────────────────────────────────────────────────
@@ -458,6 +537,7 @@ const SmartWorkflow: React.FC = () => {
 
   // ── 过拟合迭代优化 ──────────────────────────────────────────────────────────
 
+  /** 业务向导：一键抑制过拟合的启发式调参（非全局最优搜索；每点一次迈一小步并重跑全流程） */
   const handleOptimizeAndRetrain = () => {
     const adjusted = { ...paramValues }
     const changes: string[] = []
@@ -483,11 +563,30 @@ const SmartWorkflow: React.FC = () => {
       changes.push(`reg_alpha ${alpha}→${newAlpha}`)
     }
 
+    // 略降行/列采样比例，增加每棵树的随机性，常见做法有利于缓解过拟合（此前误设为增大 subsample）
     const sub = Number(adjusted.subsample)
-    const newSub = Math.min(0.95, parseFloat((sub + 0.05).toFixed(2)))
+    const newSub = Math.max(0.5, parseFloat((sub - 0.05).toFixed(2)))
     if (newSub !== sub) {
       adjusted.subsample = newSub
       changes.push(`subsample ${sub}→${newSub}`)
+    }
+
+    const col = Number(adjusted.colsample_bytree)
+    if (!Number.isNaN(col)) {
+      const newCol = Math.max(0.5, parseFloat((col - 0.05).toFixed(2)))
+      if (newCol !== col) {
+        adjusted.colsample_bytree = newCol
+        changes.push(`colsample_bytree ${col}→${newCol}`)
+      }
+    }
+
+    const mcw = Number(adjusted.min_child_weight)
+    if (!Number.isNaN(mcw)) {
+      const newMcw = Math.min(20, Math.round(mcw + 1))
+      if (newMcw !== mcw) {
+        adjusted.min_child_weight = newMcw
+        changes.push(`min_child_weight ${mcw}→${newMcw}`)
+      }
     }
 
     const summary = changes.length > 0 ? changes.join('，') : '参数已达优化边界，建议检查数据或特征'
@@ -602,31 +701,42 @@ const SmartWorkflow: React.FC = () => {
     { title: '选择数据集', icon: <FileTextOutlined /> },
     { title: '数据分析', icon: <BarChartOutlined /> },
     { title: '数据划分', icon: <ThunderboltOutlined /> },
-    { title: '参数配置', icon: <BookOutlined /> },
+    { title: '参数配置' },
     { title: '一键训练', icon: <RocketOutlined /> },
     { title: '结果总结', icon: <CheckCircleOutlined /> },
   ]
 
   return (
     <div style={{ padding: '24px', maxWidth: 960, margin: '0 auto' }}>
-      <HelpButton pageTitle="智能工作流" items={[
-        { title: '导向模式与学习模式有何区别？', content: '导向模式逐步引导完成建模全流程；学习模式额外显示参数说明卡片，适合初学者理解各参数含义。' },
+      <HelpButton pageTitle="向导工作台" items={[
+        { title: '这里是智能向导工作台吗？', content: '是的。侧栏「向导工作台」即本页：6 步分步引导，并含学习卡片、预处理「深入了解」与参数实验等；与顶栏「智能向导」模式对应。分步做数据导入、分析与划分请用顶栏「数据处理」模式。' },
+        { title: '向导模式与模型调优模式有何区别？', content: '两者均默认开启参数教学卡片、概念展开与参数实验。向导为 6 步全流程，并在各步提供可折叠的「学习指引 / 知识辅助」；模型调优侧栏以「调优工作台」为入口，下挂参数配置、训练、超参调优与模型管理，顶栏显示数据集、划分与主模型等上下文。' },
+        { title: '智能向导里「学习指引」在哪？', content: '在步骤 0～2、训练前等位置，标题含 📚 的折叠面板即为知识辅助；AI 预处理建议卡片底部的「深入了解」与调优模式一致，解释缺失值、高基数、不平衡等概念。' },
         { title: '推荐流程是什么顺序？', content: '1.选择数据集 → 2.自动预处理 → 3.快速配置 → 4.训练模型 → 5.查看评估结果 → 6.导出报告。' },
         { title: '实验室模式有什么用？', content: '实验室模式支持多参数组合对比，自动运行多次训练并汇总结果，适合快速探索最优参数组合。' },
       ]} />
-      {/* 模式切换 */}
-      <Row justify="end" style={{ marginBottom: 16 }}>
-        <Space>
-          <Text type="secondary">学习模式</Text>
-          <Switch
-            checked={isLearning}
-            onChange={v => setWorkflowMode(v ? 'learning' : 'guided')}
-            checkedChildren="开"
-            unCheckedChildren="关"
-          />
-          {isLearning && <Tag color="purple">参数学习卡已开启</Tag>}
-        </Space>
-      </Row>
+      {/* D3: 模式说明 Banner */}
+      {workflowMode === 'guided' && (
+        <Alert
+          type="info"
+          showIcon
+          message="智能向导工作台"
+          description="本页即侧栏「向导工作台」：6 步全程引导，自动推荐配置。已默认开启与「调优」相同的参数教学卡片、预处理说明展开与参数实验，无需切换即可查看算法直觉与过拟合风险。划分完成后若只需侧栏训练/调优链路，可切换到「调优」；全模块与主模型深度分析请用「专家」。"
+          style={{ marginBottom: 16 }}
+          closable
+        />
+      )}
+      {workflowMode === 'learning' && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<BookOutlined />}
+          message="模型调优模式"
+          description="与向导相同，默认展示参数教学卡片与概念解释；侧栏聚焦训练、超参调优与模型管理。"
+          style={{ marginBottom: 16 }}
+          closable
+        />
+      )}
 
       {/* 历史记录选择 */}
       {wizardHistory.length > 0 && (
@@ -683,6 +793,24 @@ const SmartWorkflow: React.FC = () => {
           <Paragraph type="secondary">
             请从已上传的数据集中选择一个，系统将自动分析数据质量并推荐最佳配置。
           </Paragraph>
+          {showTeaching && (
+            <Collapse
+              size="small"
+              ghost
+              style={{ marginBottom: 16 }}
+              items={[{
+                key: 'step0-learn',
+                label: <Text style={{ color: '#93c5fd', fontSize: 13 }}>📚 学习指引：本步在做什么？</Text>,
+                children: (
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
+                    <li>选中的数据集会同步到<strong>顶栏</strong>，后续训练出的模型也会归在该数据集下，便于筛选「主模型」。</li>
+                    <li>进入下一步后，会看到<strong>质量评分、任务类型提示、AI 预处理建议</strong>；与旧「学习/调优」模式相同，均可展开阅读原理说明。</li>
+                    <li>若暂无数据，请切换到顶部<strong>「数据处理」</strong>模式，在侧栏<strong>「数据导入」</strong>上传后再回到本向导。</li>
+                  </ul>
+                ),
+              }]}
+            />
+          )}
           <Select
             style={{ width: '100%', marginBottom: 16 }}
             placeholder="选择数据集…"
@@ -730,6 +858,95 @@ const SmartWorkflow: React.FC = () => {
           >
             下一步：查看数据分析
           </Button>
+
+          {selectedDatasetId && summary && (
+            <Card title="全自动建模（一键完成）" style={{ marginTop: 20 }} size="small">
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="在时间与试验预算内自动完成目标推荐、划分、多候选训练与排序。"
+                description="结果为启发式推荐（含过拟合风险提示），不保证全局最优。完成后仍可使用上方「分步引导」微调流程。"
+              />
+              <Space wrap style={{ marginBottom: 12 }}>
+                <Tooltip title="跳过 Optuna 轻量搜索，仅训练「规则基线」与「保守正则」两个模型">
+                  <Space>
+                    <Switch checked={automlFast} onChange={setAutomlFast} disabled={automlRunning} />
+                    <Text>快速模式（跳过调优）</Text>
+                  </Space>
+                </Tooltip>
+                {!automlFast && (
+                  <Space align="center">
+                    <Text type="secondary">调优试验次数</Text>
+                    <InputNumber min={3} max={50} value={automlTrials} disabled={automlRunning}
+                      onChange={v => setAutomlTrials(typeof v === 'number' ? v : 12)} />
+                  </Space>
+                )}
+              </Space>
+              <Button
+                type="primary"
+                icon={<RocketOutlined />}
+                loading={automlRunning}
+                onClick={runFullAutoML}
+                size="large"
+              >
+                开始全自动建模
+              </Button>
+              {automlLines.length > 0 && (
+                <div style={{
+                  marginTop: 12, maxHeight: 180, overflow: 'auto', fontSize: 12, color: '#94a3b8',
+                  background: '#0f172a', padding: 8, borderRadius: 4, fontFamily: 'monospace',
+                }}
+                >
+                  {automlLines.map((l, i) => <div key={i}>{l}</div>)}
+                </div>
+              )}
+              {automlResult && (
+                <>
+                  <Divider orientation="left">候选模型（可选主模型）</Divider>
+                  {automlResult.warnings?.length ? (
+                    <Alert type="warning" showIcon style={{ marginBottom: 8 }} message={automlResult.warnings.join(' ')} />
+                  ) : null}
+                  <Radio.Group
+                    value={activeModelId ?? undefined}
+                    onChange={e => {
+                      const mid = e.target.value as number
+                      setActiveModelId(mid)
+                      const c = automlResult.candidates.find(x => x.model_id === mid)
+                      if (c) {
+                        setPipelineResult({
+                          type: 'done',
+                          model_id: mid,
+                          report_id: null,
+                          metrics: c.metrics as Record<string, unknown>,
+                          natural_summary: `已选择模型：${c.name}。${c.rationale}`,
+                        })
+                      }
+                    }}
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      {automlResult.candidates.map(c => (
+                        <Radio key={c.model_id} value={c.model_id} style={{ alignItems: 'flex-start' }}>
+                          <div>
+                            <Text strong>{c.name}</Text>
+                            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                              {c.task_type === 'classification'
+                                ? `AUC ${(c.metrics as { auc?: number }).auc ?? '—'} · 准确率 ${(c.metrics as { accuracy?: number }).accuracy ?? '—'} · 过拟合 ${c.overfitting_level ?? '—'}`
+                                : `RMSE ${(c.metrics as { rmse?: number }).rmse ?? '—'} · R² ${(c.metrics as { r2?: number }).r2 ?? '—'} · 过拟合 ${c.overfitting_level ?? '—'}`}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>{c.rationale}</div>
+                          </div>
+                        </Radio>
+                      ))}
+                    </Space>
+                  </Radio.Group>
+                  <Button type="default" style={{ marginTop: 12 }} onClick={() => setCurrentStep(5)}>
+                    前往结果总结
+                  </Button>
+                </>
+              )}
+            </Card>
+          )}
         </Card>
       )}
 
@@ -776,6 +993,27 @@ const SmartWorkflow: React.FC = () => {
             style={{ marginBottom: 16 }}
           />
 
+          {showTeaching && (
+            <Collapse
+              size="small"
+              ghost
+              style={{ marginBottom: 16 }}
+              defaultActiveKey={['step1-learn']}
+              items={[{
+                key: 'step1-learn',
+                label: <Text style={{ color: '#93c5fd', fontSize: 13 }}>📚 知识辅助：如何阅读「数据分析与预处理」</Text>,
+                children: (
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
+                    <li><strong>质量评分</strong>：综合缺失、类型、规模等给出的健康度；低于 70 时建议优先按下方 AI 建议处理再划分。</li>
+                    <li><strong>任务类型 / 目标列</strong>：若提示「未设置目标列」，属正常——在下一步「数据划分」里选定要预测的列后，类型与互信息图会更准确。</li>
+                    <li><strong>每条 AI 建议卡片</strong>：除「推荐操作 / 预期改善 / 风险」外，请展开<strong>「深入了解」</strong>阅读建模背景（与调优模式一致）。</li>
+                    <li><strong>名词速查</strong>：<em>高基数</em>＝类别取值种类很多；<em>缺失</em>＝该列部分样本无值；<em>类别不平衡</em>＝正负样本数量悬殊。</li>
+                  </ul>
+                ),
+              }]}
+            />
+          )}
+
           <Divider>✨ AI 预处理建议</Divider>
 
           {preprocessLoading && <Spin tip="正在分析数据问题…" style={{ display: 'block', margin: '16px 0' }} />}
@@ -806,13 +1044,13 @@ const SmartWorkflow: React.FC = () => {
               {preprocessSuggestions.map((s, i) => {
                 const borderColor = s.severity === 'error' ? '#ff4d4f' : s.severity === 'warning' ? '#faad14' : '#1677ff'
                 const tagColor = s.severity === 'error' ? 'error' : s.severity === 'warning' ? 'warning' : 'processing'
-                const tagText = s.severity === 'error' ? '严重' : s.severity === 'warning' ? '建议' : '提示'
+                const tagContent = s.severity === 'error' ? '严重' : s.severity === 'warning' ? '建议' : <BulbOutlined />
                 return (
                   <Card
                     key={i}
                     size="small"
                     style={{ marginBottom: 10, borderLeft: `4px solid ${borderColor}` }}
-                    title={<Space><Tag color={tagColor}>{tagText}</Tag><span>{s.title}</span></Space>}
+                    title={<Space><Tag color={tagColor}>{tagContent}</Tag><span>{s.title}</span></Space>}
                     extra={
                       appliedItems.has(i)
                         ? <Tag color="success">✓ 已应用</Tag>
@@ -835,14 +1073,19 @@ const SmartWorkflow: React.FC = () => {
                           <br /><Typography.Text style={{ fontSize: 12, color: '#faad14' }}>{s.potential_risk}</Typography.Text>
                         </Col>
                       </Row>
-                      {isLearning && (
+                      {showTeaching && (
                         <Collapse
                           size="small"
                           ghost
                           items={[{
                             key: 'why',
-                            label: <Typography.Text style={{ color: '#722ed1', fontSize: 12 }}>📖 深入了解：为什么检测出此问题？</Typography.Text>,
-                            children: <Typography.Paragraph style={{ fontSize: 13, marginBottom: 0 }}>{s.learn_why}</Typography.Paragraph>,
+                            label: <Typography.Text style={{ color: '#a78bfa', fontSize: 12 }}>📖 深入了解：为什么需要关注这条建议？</Typography.Text>,
+                            children: (
+                              <Typography.Paragraph style={{ fontSize: 13, marginBottom: 0, color: '#cbd5e1' }}>
+                                {(s.learn_why && s.learn_why.trim()) || PREPROCESS_LEARN_FALLBACK[s.type]
+                                  || '该提示来自对数据分布的自动检测，是否采纳请结合业务含义；不确定时可先应用再观察下一步指标变化。'}
+                              </Typography.Paragraph>
+                            ),
                           }]}
                         />
                       )}
@@ -870,6 +1113,25 @@ const SmartWorkflow: React.FC = () => {
       {/* ── Step 2: 确认目标列 & 数据划分 ── */}
       {currentStep === 2 && summary && (
         <Card title="Step 2：确认目标列 & 数据划分">
+          {showTeaching && (
+            <Collapse
+              size="small"
+              ghost
+              style={{ marginBottom: 16 }}
+              items={[{
+                key: 'step2-learn',
+                label: <Text style={{ color: '#93c5fd', fontSize: 13 }}>📚 学习指引：目标列、互信息与划分</Text>,
+                children: (
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
+                    <li><strong>目标列</strong>：即希望模型预测的字段（如「是否存活」「房价」）；选错会导致任务类型与指标含义全错。</li>
+                    <li><strong>互信息条形图</strong>：在已选目标下，粗略表示各特征与目标的统计关联强度，便于理解「模型可能更依赖谁」（非因果）。</li>
+                    <li><strong>训练/测试划分</strong>：测试集用于估计泛化能力，应尽量避免泄露；小样本时可适当增大训练占比或后续做交叉验证。</li>
+                    <li>完成后顶栏可配合选择<strong>主模型</strong>；仅会列出当前数据集下训练出的模型。</li>
+                  </ul>
+                ),
+              }]}
+            />
+          )}
           {/* 目标列选择 */}
           <div style={{ marginBottom: 24 }}>
             <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
@@ -1048,14 +1310,32 @@ const SmartWorkflow: React.FC = () => {
             />
           )}
 
-          {isLearning && (
-            <Alert
-              type="info"
-              icon={<BookOutlined />}
-              message="学习模式已开启：点击每个参数右侧的 ❓ 了解详细说明，展开「学习此参数」深入理解原理"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
+          {showTeaching && (
+            <>
+              <Alert
+                type="info"
+                icon={<BookOutlined />}
+                message="参数教学：点击每个参数右侧的 ❓ 了解说明，展开「学习此参数」深入理解原理"
+                showIcon
+                style={{ marginBottom: 12 }}
+              />
+              <Collapse
+                size="small"
+                ghost
+                style={{ marginBottom: 16 }}
+                items={[{
+                  key: 'step3-learn',
+                  label: <Text style={{ color: '#93c5fd', fontSize: 13 }}>📚 学习路径：三个方案与参数实验</Text>,
+                  children: (
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
+                      <li><strong>快速 / 均衡 / 深度</strong>：由保守到更强拟合能力，训练时间通常递增；不确定时优先「均衡推荐」。</li>
+                      <li>每个滑块旁的<strong>过拟合风险提示</strong>与「学习此参数」卡片，与模型调优模式共用同一套教学内容。</li>
+                      <li><strong>参数实验</strong>：可固定数据划分，对比两组参数训练结果，直观感受调参对指标的影响。</li>
+                    </ul>
+                  ),
+                }]}
+              />
+            </>
           )}
 
           <Text strong style={{ display: 'block', marginBottom: 12 }}>核心参数（推荐调整）</Text>
@@ -1094,7 +1374,7 @@ const SmartWorkflow: React.FC = () => {
 
           <Space style={{ marginTop: 16 }}>
             <Button onClick={() => setCurrentStep(2)}>返回</Button>
-            {isLearning && (
+            {showTeaching && (
               <Button
                 icon={<ExperimentOutlined />}
                 onClick={openLab}
@@ -1120,6 +1400,21 @@ const SmartWorkflow: React.FC = () => {
       {/* ── Step 4: 一键训练 ── */}
       {currentStep === 4 && (
         <Card title="一键训练 → 评估 → 报告">
+          {showTeaching && (
+            <Alert
+              type="info"
+              showIcon
+              icon={<BookOutlined />}
+              message="学习提示：一键链路里会发生什么？"
+              description={
+                <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                  系统将按顺序完成<strong>训练 → 在划分出的测试集上评估 → 生成报告草稿</strong>。日志中的进度条与文案可与上一步「参数教学」卡片对照理解；
+                  训练结束后在结果页可查看过拟合提示；需要对比实验可返回上一步使用<strong>参数实验</strong>。
+                </span>
+              }
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Paragraph type="secondary">
             点击下方按钮，系统将自动完成模型训练、性能评估和报告生成，全程无需干预。
           </Paragraph>
@@ -1210,27 +1505,61 @@ const SmartWorkflow: React.FC = () => {
                 )}
               </Space>
             }
-            description={pipelineResult.natural_summary}
+            description={
+              <div>
+                {pipelineResult.natural_summary && (
+                  <Paragraph style={{ marginBottom: 8 }}>{pipelineResult.natural_summary}</Paragraph>
+                )}
+                {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
+                  <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 13 }}>
+                    <strong>与下方黄色提示同时出现并不矛盾：</strong>
+                    绿色标签表示在当前验证集上主指标表现好；黄色表示模型在训练集上更「顺手」、与验证集差距偏大，
+                    未来遇到<strong>全新数据</strong>时效果可能打折扣。是否接受需结合业务容忍度；若希望更稳妥，可用一键按钮自动收紧模型后再看指标。
+                  </Paragraph>
+                )}
+              </div>
+            }
             showIcon
             style={{ marginBottom: 24 }}
           />
+
+          {showTeaching && (
+            <Collapse
+              size="small"
+              ghost
+              style={{ marginBottom: 16 }}
+              items={[{
+                key: 'step5-learn',
+                label: <Text style={{ color: '#93c5fd', fontSize: 13 }}>📚 如何理解本页指标与过拟合提示？</Text>,
+                children: (
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
+                    <li><strong>主指标</strong>（如 AUC、R²）反映在当前划分测试集上的表现；绿色「优秀」不等于部署后一定同等水平。</li>
+                    <li><strong>过拟合提示</strong>：比较训练与验证差距；可与上一步参数教学中的「正则 / 树深」建议对照，或使用「一键抑制过拟合」做保守重训。</li>
+                    <li>需要 SHAP、稳定性等深度分析时，可使用「切换到专家模式继续分析」。</li>
+                  </ul>
+                ),
+              }]}
+            />
+          )}
 
           {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
             <Alert
               type="warning"
               showIcon
-              message={overfittingLevel === 'high' ? '检测到明显过拟合' : '检测到轻度过拟合'}
+              message={overfittingLevel === 'high' ? '泛化风险提示（训练/验证差距偏大）' : '泛化风险提示（轻度训练/验证差距）'}
               description={
                 <div>
-                  <p style={{ margin: '4px 0 6px' }}>
+                  <p style={{ margin: '4px 0 8px' }}>
                     {overfittingLevel === 'high'
-                      ? '训练集误差显著低于验证集误差，模型对训练数据记忆过度，泛化能力较差。'
-                      : '训练集与验证集误差存在一定差距，模型存在轻度过拟合风险。'}
+                      ? '模型在已见过的训练样本上明显更准，但在验证集上误差更大，部署到新数据时风险更高。'
+                      : '训练集与验证集表现已有一定落差，属于常见现象；若业务对稳定性要求高，建议再收敛一版。'}
                   </p>
-                  <p style={{ margin: 0 }}>
-                    建议：适当<strong>降低 max_depth</strong>（减少树的复杂度）、
-                    <strong>增大 reg_lambda / reg_alpha</strong>（加强正则化）、
-                    <strong>提高 subsample</strong>（增加随机采样比例），然后重新训练。
+                  <p style={{ margin: '0 0 8px' }}>
+                    <strong>无需自己改参数：</strong>点击下方「一键抑制过拟合并重训」，系统会按规则自动微调复杂度与正则，并<strong>完整重跑</strong>一键训练流程。
+                    通常<strong>1～3 次</strong>内告警会减弱或消失，但<strong>不保证</strong>一定清零；若主指标明显下降，可在专家模式里细调或保留当前「高精度但略冒进」的模型。
+                  </p>
+                  <p style={{ margin: 0, fontSize: 12, color: 'rgba(0,0,0,0.65)' }}>
+                    （技术说明：后台用验证集与训练集误差比值判断等级；这不是「模型坏了」，而是提醒您关注换数据后的表现。）
                   </p>
                 </div>
               }
@@ -1283,32 +1612,40 @@ const SmartWorkflow: React.FC = () => {
             </Button>
             <Button
               type="default"
-              icon={<EditOutlined />}
+              icon={<ToolOutlined />}
               onClick={() => {
-                // 进入专家模式继续调优，导航到模型评估页
+                // D4: 切换到专家模式，携带全局状态跳转 model-eval
+                setWorkflowMode('expert')
                 window.dispatchEvent(new CustomEvent('navigate', { detail: 'model-eval' }))
               }}
+              style={{ borderColor: '#22c55e', color: '#22c55e' }}
             >
-              进入专家模式继续调优
+              切换到专家模式继续分析
             </Button>
             {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
               <>
-                <Button
-                  icon={<ThunderboltOutlined />}
-                  style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }}
-                  onClick={handleOptimizeAndRetrain}
-                  disabled={!selectedSplitId}
+                <Tooltip
+                  title="自动略减树深、加强正则、略降采样比例并重训整链；每次一小步，可重复点击。不替代全自动超参搜索。"
                 >
-                  🛡️ 减少过拟合
-                </Button>
-                <Button
-                  icon={<RocketOutlined />}
-                  style={{ background: '#7c3aed', borderColor: '#7c3aed', color: '#fff' }}
-                  onClick={handleOptimizeForAccuracy}
-                  disabled={!selectedSplitId}
-                >
-                  📈 追求精度
-                </Button>
+                  <Button
+                    icon={<ThunderboltOutlined />}
+                    style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }}
+                    onClick={handleOptimizeAndRetrain}
+                    disabled={!selectedSplitId || pipelineRunning}
+                  >
+                    一键抑制过拟合并重训
+                  </Button>
+                </Tooltip>
+                <Tooltip title="在可接受范围内加大容量与学习轮数，可能提升主指标，也可能放大训练/验证差距；仍会完整重跑流程。">
+                  <Button
+                    icon={<RocketOutlined />}
+                    style={{ background: '#7c3aed', borderColor: '#7c3aed', color: '#fff' }}
+                    onClick={handleOptimizeForAccuracy}
+                    disabled={!selectedSplitId || pipelineRunning}
+                  >
+                    追求更高主指标并重训
+                  </Button>
+                </Tooltip>
               </>
             )}
             <Button
@@ -1337,154 +1674,14 @@ const SmartWorkflow: React.FC = () => {
         </Card>
         )
       })()}
-      {/* ── Lab 参数实验 Modal ── */}
-      <Modal
-        title={<Space><ExperimentOutlined /><span>⚗️ 参数对比实验</span></Space>}
+      {/* ── Lab 参数实验 Modal（E4: 已提取为独立组件）── */}
+      <ParamLabModal
         open={labOpen}
-        onCancel={() => { cancelLabRef.current?.(); setLabOpen(false) }}
-        footer={null}
-        width={760}
-        destroyOnClose
-      >
-        {labStep === 'config' && (
-          <Space direction="vertical" style={{ width: '100%' }} size={16}>
-            <Alert
-              type="info"
-              message="学习模式专属功能：用同一份数据，对比两组不同参数的训练效果，直观体验参数对模型的影响"
-              showIcon
-            />
-            <Row gutter={16} align="middle">
-              <Col span={8}>
-                <Typography.Text strong>对比参数：</Typography.Text>
-                <Select
-                  style={{ width: '100%', marginTop: 4 }}
-                  value={labParam}
-                  onChange={setLabParam}
-                >
-                  {[...CORE_PARAM_NAMES, ...ADVANCED_PARAM_NAMES].map(p => (
-                    <Select.Option key={p} value={p}>{p}</Select.Option>
-                  ))}
-                </Select>
-              </Col>
-              <Col span={8}>
-                <Typography.Text strong>配置 A 值：</Typography.Text>
-                <InputNumber
-                  style={{ width: '100%', marginTop: 4 }}
-                  value={labValueA}
-                  min={0}
-                  step={1}
-                  onChange={v => setLabValueA(v ?? 1)}
-                />
-              </Col>
-              <Col span={8}>
-                <Typography.Text strong>配置 B 值：</Typography.Text>
-                <InputNumber
-                  style={{ width: '100%', marginTop: 4 }}
-                  value={labValueB}
-                  min={0}
-                  step={1}
-                  onChange={v => setLabValueB(v ?? 1)}
-                />
-              </Col>
-            </Row>
-            <Alert
-              type="warning"
-              message={`当前将对比：${labParam} = ${labValueA}（A）vs ${labValueA !== labValueB ? labValueB : '请修改 B 值使其不同'}（B），其余参数保持当前面板设置不变`}
-              showIcon
-            />
-            <Button
-              type="primary"
-              icon={<RocketOutlined />}
-              onClick={handleRunLab}
-              disabled={labValueA === labValueB}
-              block
-            >
-              开始对比训练
-            </Button>
-          </Space>
-        )}
-
-        {(labStep === 'runningA' || labStep === 'runningB') && (
-          <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            <Tag color={labStep === 'runningA' ? 'processing' : 'success'}>
-              {labStep === 'runningA' ? `正在训练配置 A（${labParam}=${labValueA}）…` : `配置 A 完成，正在训练配置 B（${labParam}=${labValueB}）…`}
-            </Tag>
-            <div>
-              <Typography.Text type="secondary">配置 A 进度</Typography.Text>
-              <Progress percent={labProgressA} status={labStep === 'runningA' ? 'active' : 'success'} size="small" />
-            </div>
-            <div>
-              <Typography.Text type="secondary">配置 B 进度</Typography.Text>
-              <Progress percent={labProgressB} status={labStep === 'runningB' ? 'active' : 'normal'} size="small" />
-            </div>
-            {(labCurveA.length > 0 || labCurveB.length > 0) && (
-              <ReactECharts
-                option={{
-                  title: { text: '验证集损失曲线（实时）', textStyle: { fontSize: 13 } },
-                  tooltip: { trigger: 'axis' },
-                  legend: { data: [`A: ${labParam}=${labValueA}`, `B: ${labParam}=${labValueB}`] },
-                  xAxis: { type: 'category', name: '轮次', data: Array.from({ length: Math.max(labCurveA.length, labCurveB.length) }, (_, i) => i + 1) },
-                  yAxis: { type: 'value', name: 'Val Loss', scale: true },
-                  series: [
-                    { name: `A: ${labParam}=${labValueA}`, type: 'line', data: labCurveA, smooth: true, itemStyle: { color: '#1677ff' }, symbol: 'none' },
-                    { name: `B: ${labParam}=${labValueB}`, type: 'line', data: labCurveB, smooth: true, itemStyle: { color: '#ff4d4f' }, symbol: 'none' },
-                  ],
-                }}
-                style={{ height: 240 }}
-              />
-            )}
-            <Button danger onClick={() => { cancelLabRef.current?.(); setLabStep('config') }}>取消实验</Button>
-          </Space>
-        )}
-
-        {labStep === 'done' && labMetricsA && labMetricsB && (
-          <Space direction="vertical" style={{ width: '100%' }} size={16}>
-            <Alert type="success" message="对比训练完成！" showIcon />
-            <ReactECharts
-              option={{
-                title: { text: `验证集损失曲线对比（${labParam}: A=${labValueA} vs B=${labValueB}）`, textStyle: { fontSize: 13 } },
-                tooltip: { trigger: 'axis' },
-                legend: { data: [`A: ${labParam}=${labValueA}`, `B: ${labParam}=${labValueB}`] },
-                xAxis: { type: 'category', name: '轮次', data: Array.from({ length: Math.max(labCurveA.length, labCurveB.length) }, (_, i) => i + 1) },
-                yAxis: { type: 'value', name: 'Val Loss', scale: true },
-                series: [
-                  { name: `A: ${labParam}=${labValueA}`, type: 'line', data: labCurveA, smooth: true, itemStyle: { color: '#1677ff' }, symbol: 'none' },
-                  { name: `B: ${labParam}=${labValueB}`, type: 'line', data: labCurveB, smooth: true, itemStyle: { color: '#ff4d4f' }, symbol: 'none' },
-                ],
-              }}
-              style={{ height: 260 }}
-            />
-            <Table
-              size="small"
-              pagination={false}
-              dataSource={Object.keys({ ...labMetricsA, ...labMetricsB }).map(k => ({
-                key: k,
-                metric: k.toUpperCase(),
-                a: typeof labMetricsA[k] === 'number' ? (labMetricsA[k] as number).toFixed(4) : '—',
-                b: typeof labMetricsB[k] === 'number' ? (labMetricsB[k] as number).toFixed(4) : '—',
-              }))}
-              columns={[
-                { title: '指标', dataIndex: 'metric', width: 120 },
-                { title: `配置 A（${labParam}=${labValueA}）`, dataIndex: 'a', align: 'center' as const },
-                { title: `配置 B（${labParam}=${labValueB}）`, dataIndex: 'b', align: 'center' as const },
-              ]}
-            />
-            <Row gutter={12}>
-              <Col span={12}>
-                <Button block onClick={() => { setParamValues(prev => ({ ...prev, [labParam]: labValueA })); setLabOpen(false); message.success(`已应用配置 A：${labParam} = ${labValueA}`) }}>
-                  应用配置 A（{labParam}={labValueA}）
-                </Button>
-              </Col>
-              <Col span={12}>
-                <Button type="primary" block onClick={() => { setParamValues(prev => ({ ...prev, [labParam]: labValueB })); setLabOpen(false); message.success(`已应用配置 B：${labParam} = ${labValueB}`) }}>
-                  应用配置 B（{labParam}={labValueB}）
-                </Button>
-              </Col>
-            </Row>
-            <Button block onClick={() => setLabStep('config')}>重新配置实验</Button>
-          </Space>
-        )}
-      </Modal>
+        onClose={() => setLabOpen(false)}
+        splitId={selectedSplitId}
+        paramValues={paramValues}
+        onApplyParams={(newParams) => setParamValues(newParams)}
+      />
 
     </div>
   )

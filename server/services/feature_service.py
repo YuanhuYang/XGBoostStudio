@@ -588,6 +588,29 @@ def calc_psi_all(dataset: Dataset, time_column: str, target_column: Optional[str
 
 # ── 特征业务单调性分析 ────────────────────────────────────────────────────────
 
+def _coerce_target_series_for_monotonicity(raw: pd.Series) -> pd.Series:
+    """
+    将目标列转为可用于「分箱内 mean」的浮点序列：
+    - 已是数值：to_numeric
+    - 可解析的数字字符串：to_numeric
+    - 其余类别：factorize 为 0..K-1（箱内均值为编码均值，二分类时等价于正例比例趋势）
+    """
+    if pd.api.types.is_numeric_dtype(raw):
+        return pd.to_numeric(raw, errors="coerce")
+
+    trial = pd.to_numeric(raw, errors="coerce")
+    nn = int(raw.notna().sum())
+    if nn == 0:
+        return trial
+    if int(trial.notna().sum()) >= max(10, int(0.5 * nn)):
+        return trial
+
+    codes, _ = pd.factorize(raw, sort=True)
+    out = pd.Series(np.asarray(codes, dtype=float), index=raw.index)
+    out = out.mask(np.asarray(codes) < 0, np.nan)
+    return out
+
+
 def calc_monotonicity(dataset: Dataset, target_column: str) -> list[dict[str, Any]]:
     """
     分析每个数值特征与目标变量的趋势一致性，为 XGBoost monotone_constraints 提供建议。
@@ -602,7 +625,7 @@ def calc_monotonicity(dataset: Dataset, target_column: str) -> list[dict[str, An
     if len(df) > 50000:
         df = df.sample(50000, random_state=42)
 
-    y = df[target_column].dropna()
+    y = _coerce_target_series_for_monotonicity(df[target_column]).dropna()
     feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != target_column]
     result = []
 

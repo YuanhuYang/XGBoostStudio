@@ -61,8 +61,36 @@ def test_import_sample_dataset_offline(client):
     body = r.json()
     assert body.get("id")
     assert body.get("rows", 0) > 0
+    r_gc = client.post("/api/datasets/import-sample?key=german_credit")
+    assert r_gc.status_code == 200, r_gc.text
+    assert r_gc.json().get("rows", 0) > 0
+    r_uci = client.post("/api/datasets/import-sample?key=uci_automobile_price")
+    assert r_uci.status_code == 200, r_uci.text
+    assert r_uci.json().get("rows", 0) > 0
+    r_mfg = client.post("/api/datasets/import-sample?key=mfg_assembly_price")
+    assert r_mfg.status_code == 200, r_mfg.text
+    assert r_mfg.json().get("rows", 0) > 0
     r2 = client.post("/api/datasets/import-sample?key=invalid_key")
     assert r2.status_code == 400
+
+
+def test_builtin_samples_catalog(client):
+    r = client.get("/api/datasets/builtin-samples")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert isinstance(data, list) and len(data) >= 11
+    keys = {item["key"] for item in data}
+    assert (
+        "titanic" in keys
+        and "german_credit" in keys
+        and "uci_automobile_price" in keys
+        and "mfg_assembly_price" in keys
+    )
+    for item in data:
+        assert item.get("title")
+        assert item.get("task")
+        assert item.get("difficulty") in ("入门", "进阶", "挑战")
+        assert item.get("scenario")
 
 
 def _upload_iris(client):
