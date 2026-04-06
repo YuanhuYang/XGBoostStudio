@@ -87,3 +87,10 @@ client/e2e/recordings/**/*.gif
 # 文档中临时 GIF，仅保留固定文档用 GIF
 docs/assets/gifs/**/*
 !docs/assets/gifs/**/.gitkeep
+
+# 测试覆盖率报告
+client/coverage/
+
+# Playwright 测试报告产物
+client/playwright-report/
+client/test-results/
