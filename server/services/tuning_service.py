@@ -198,6 +198,109 @@ def _build_diagnostics(
     return diag
 
 
+def run_lite_tuning_best_params(
+    split_id: int,
+    db: Session,
+    max_trials: int,
+) -> dict[str, Any] | None:
+    """
+    在试验预算内做单次 Optuna 搜索（多超参联合），返回可交给 XGBoost 的参数字典。
+    不写入 TuningTask / Model，供 AutoML 编排后再 train_and_persist_sync。
+    """
+    from sklearn.metrics import f1_score, mean_squared_error  # type: ignore
+
+    max_trials = max(3, min(int(max_trials), 50))
+    split = db.query(DatasetSplit).filter(DatasetSplit.id == split_id).first()
+    if not split:
+        return None
+    dataset = db.query(Dataset).filter(Dataset.id == split.dataset_id).first() if split else None
+    target_col = dataset.target_column if dataset else None
+
+    train_path = DATA_DIR / split.train_path
+    test_path = DATA_DIR / split.test_path
+    if not train_path.exists() or not test_path.exists():
+        return None
+
+    train_df = pd.read_csv(train_path, encoding="utf-8-sig")
+    test_df = pd.read_csv(test_path, encoding="utf-8-sig")
+
+    if not target_col or target_col not in train_df.columns:
+        target_col = train_df.columns[-1]
+
+    X_train = train_df.drop(columns=[target_col]).select_dtypes(include=[np.number]).fillna(0)
+    y_train = train_df[target_col]
+    X_test = test_df.drop(columns=[target_col], errors="ignore").select_dtypes(include=[np.number]).fillna(0)
+    X_test = X_test[X_train.columns.intersection(X_test.columns)]
+    y_test = test_df[target_col] if target_col in test_df.columns else None
+
+    task_type = _detect_task_type(y_train)
+    direction = "minimize" if task_type == "regression" else "maximize"
+    n_rows = len(X_train)
+    ne_hi = min(500, max(80, n_rows // 2))
+
+    def objective(trial: optuna.Trial) -> float:
+        params = {**_default_params(task_type)}
+        params["n_estimators"] = trial.suggest_int("n_estimators", 50, ne_hi)
+        params["max_depth"] = trial.suggest_int("max_depth", 3, 10)
+        params["learning_rate"] = trial.suggest_float("learning_rate", 0.03, 0.28, log=True)
+        params["min_child_weight"] = trial.suggest_int("min_child_weight", 1, 10)
+        params["subsample"] = trial.suggest_float("subsample", 0.55, 1.0)
+        params["colsample_bytree"] = trial.suggest_float("colsample_bytree", 0.55, 1.0)
+        params["reg_alpha"] = trial.suggest_float("reg_alpha", 0.0, 1.5)
+        params["reg_lambda"] = trial.suggest_float("reg_lambda", 0.3, 4.0)
+        params["gamma"] = trial.suggest_float("gamma", 0.0, 1.0)
+
+        if task_type == "classification":
+            nu = int(y_train.nunique())
+            if nu > 2:
+                params["objective"] = "multi:softprob"
+                params["eval_metric"] = "mlogloss"
+                params["num_class"] = nu
+            else:
+                params.pop("num_class", None)
+
+        model = (xgb.XGBClassifier(**params) if task_type == "classification"
+                 else xgb.XGBRegressor(**params))
+        model.fit(X_train, y_train, verbose=False)
+
+        if y_test is not None and len(y_test) > 0:
+            if task_type == "classification":
+                y_pred = model.predict(X_test)
+                return float(f1_score(y_test, y_pred, average="weighted", zero_division=0))
+            y_pred = model.predict(X_test)
+            return float(np.sqrt(mean_squared_error(y_test, y_pred)))
+        return 0.0 if task_type == "classification" else 1e9
+
+    study = optuna.create_study(direction=direction, sampler=optuna.samplers.TPESampler(seed=42))
+    try:
+        study.optimize(objective, n_trials=max_trials, show_progress_bar=False, catch=(Exception,))
+    except Exception:
+        return None
+
+    trials_ok = [t for t in study.trials if t.state == TrialState.COMPLETE and t.value is not None]
+    if not trials_ok:
+        return None
+
+    best = study.best_trial
+    out = {**_default_params(task_type), **best.params}
+    if task_type == "classification":
+        nu = int(y_train.nunique())
+        if nu > 2:
+            out["objective"] = "multi:softprob"
+            out["eval_metric"] = "mlogloss"
+            out["num_class"] = nu
+        else:
+            out.pop("num_class", None)
+            out["objective"] = "binary:logistic"
+            out["eval_metric"] = "logloss"
+    return {
+        "params": out,
+        "best_score": float(best.value) if best.value is not None else None,
+        "n_trials": max_trials,
+        "n_completed": len(trials_ok),
+    }
+
+
 def create_tuning_task(
     split_id: int, search_space: dict[str, Any],
     strategy: str, n_trials: int, db: Session

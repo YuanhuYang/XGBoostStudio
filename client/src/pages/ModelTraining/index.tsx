@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, Tag, Alert, Steps,
-  InputNumber, Progress, Statistic, message, Divider, Badge,
+  InputNumber, Select, Progress, Statistic, message, Divider, Badge,
   Popconfirm, Empty, Tooltip, Checkbox,
 } from 'antd'
 import {
@@ -14,6 +14,7 @@ import { getRequestErrorMessage } from '../../utils/apiError'
 import { useAppStore } from '../../store/appStore'
 import HelpButton from '../../components/HelpButton'
 import ReactECharts from 'echarts-for-react'
+import { showTeachingUi } from '../../utils/teachingUi'
 
 const { Title, Text } = Typography
 
@@ -35,10 +36,28 @@ interface ProgressEvent {
   cv_fold_metrics?: unknown[]
 }
 
+interface SplitItem {
+  id: number
+  dataset_id: number
+  dataset_name: string
+  train_rows: number | null
+  test_rows: number | null
+  created_at: string | null
+}
+
 const ModelTrainingPage: React.FC = () => {
   const activeSplitId = useAppStore(s => s.activeSplitId)
+  const setActiveSplitId = useAppStore(s => s.setActiveSplitId)
   const setActiveModelId = useAppStore(s => s.setActiveModelId)
+  const setIsTraining = useAppStore(s => s.setIsTraining)
+  const workflowMode = useAppStore(s => s.workflowMode)
+  const showTeaching = showTeachingUi(workflowMode)
   const [splitId, setSplitId] = useState<number | null>(null)
+  const [splitList, setSplitList] = useState<SplitItem[]>([])
+
+  useEffect(() => {
+    apiClient.get('/api/datasets/splits/list').then(r => setSplitList(r.data)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (activeSplitId !== null && splitId === null) setSplitId(activeSplitId)
@@ -89,10 +108,11 @@ const ModelTrainingPage: React.FC = () => {
   }, [])
 
   const startTraining = async () => {
-    if (!splitId) { message.warning('请输入 Split ID'); return }
+    if (!splitId) { message.warning('请选择数据集划分'); return }
     // 防止重复点击（测试专家）
     if (status === 'running') { message.warning('训练正在进行中'); return }
     setStatus('running')
+    setIsTraining(true)
     setTrainHistory([])
     setValHistory([])
     setRounds([])
@@ -148,12 +168,14 @@ const ModelTrainingPage: React.FC = () => {
                 if (data.model_id) setActiveModelId(data.model_id)
                 if (data.early_stopped && data.best_round) setEarlyStoppedRound(data.best_round)
                 es.close()
+                setIsTraining(false)
                 message.success(`训练完成！模型 ID: ${data.model_id}`)
               }
-              if (data.stopped) { setStatus('stopped'); es.close() }
+              if (data.stopped) { setStatus('stopped'); setIsTraining(false); es.close() }
               if (data.error) {
                 setStatus('error')
                 setLog(prev => [...prev, `❌ ${data.error}`])
+                setIsTraining(false)
                 es.close()
               }
             } catch { /* ignore */ }
@@ -174,7 +196,7 @@ const ModelTrainingPage: React.FC = () => {
       }
       connectSSE()
     } catch (e: unknown) {
-      message.error(getRequestErrorMessage(e, '启动失败，请确认 Split ID 是否正确'))
+      message.error(getRequestErrorMessage(e, '启动失败，请确认所选划分是否有效'))
       setStatus('error')
     }
   }
@@ -258,7 +280,7 @@ const ModelTrainingPage: React.FC = () => {
         <HelpButton pageTitle="模型训练" items={helpItems} inHeader={true} />
       </div>
       <HelpButton pageTitle="模型训练" items={[
-        { title: '训练前需要什么？', content: '必须先完成「特征工程」页面的数据划分，获取 Split ID 后填入左侧输入框。' },
+        { title: '训练前需要什么？', content: '必须先完成「特征工程」页面的数据划分，然后在左侧下拉中选择对应划分（与顶栏「划分#」同步）。' },
         { title: '训练很慢怎么办？', content: '尝试将 n_estimators 降低至 100，或在参数配置页选右测快速预设。' },
         { title: '训练完成后如何查看效果？', content: '点击左侧「查看详细」跳转到「模型评估」页面，可查看 ROC 曲线、混淆矩阵、SHAP 等。' },
       ]} />
@@ -272,8 +294,22 @@ const ModelTrainingPage: React.FC = () => {
         <Col span={8}>
           <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Text style={{ color: '#94a3b8' }}>Split ID（先在特征工程页完成划分）：</Text>
-              <InputNumber min={1} value={splitId || undefined} onChange={v => setSplitId(v)} style={{ width: '100%' }} placeholder="Split ID" />
+              <Text style={{ color: '#94a3b8' }}>数据集划分（先在特征工程页完成划分）：</Text>
+              <Select
+                showSearch
+                placeholder="选择划分"
+                value={splitId ?? undefined}
+                onChange={(v: number) => {
+                  setSplitId(v)
+                  setActiveSplitId(v)
+                }}
+                style={{ width: '100%' }}
+                options={splitList.map(s => ({
+                  value: s.id,
+                  label: `${s.dataset_name} / Split #${s.id}（训练 ${s.train_rows ?? '?'} / 测试 ${s.test_rows ?? '?'}）`,
+                }))}
+                filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+              />
               <Checkbox checked={useKfoldCv} onChange={e => setUseKfoldCv(e.target.checked)}>
                 <Text style={{ color: '#94a3b8' }}>训练前对训练集做 K 折交叉验证（AC-6-03，写入模型）</Text>
               </Checkbox>
@@ -311,7 +347,7 @@ const ModelTrainingPage: React.FC = () => {
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={
                   <span style={{ color: '#64748b' }}>
-                    尚未开始训练 — 输入 Split ID 并点击「开始训练」
+                    尚未开始训练 — 选择划分并点击「开始训练」
                   </span>
                 }
               />
@@ -337,7 +373,7 @@ const ModelTrainingPage: React.FC = () => {
 
           {metrics && (
             <Card title={<Text style={{ color: '#e2e8f0' }}>评估指标</Text>}
-              style={{ background: '#1e293b', border: '1px solid #334155' }}>
+              style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: showTeaching && status === 'completed' ? 16 : 0 }}>
               {Object.entries(metrics)
                 .filter(([k]) => !['overfitting_level', 'overfitting_gap', 'train_accuracy', 'train_rmse'].includes(k))
                 .map(([k, v]) => (
@@ -349,6 +385,77 @@ const ModelTrainingPage: React.FC = () => {
               {modelId && <Alert type="success" message={`模型已保存 ID: ${modelId}`} style={{ marginTop: 8 }} />}
             </Card>
           )}
+
+          {/* E5: 向导/调优：训练完成后的收敛解读卡 */}
+          {showTeaching && status === 'completed' && metrics && (() => {
+            const trainLoss = trainHistory.length > 0 ? trainHistory[trainHistory.length - 1] : null
+            const valLoss = valHistory.length > 0 ? valHistory[valHistory.length - 1] : null
+            const gap = (trainLoss !== null && valLoss !== null) ? Math.abs(valLoss - trainLoss) : null
+            const overfitLevel = metrics.overfitting_level as string | undefined
+            let convergenceExplanation = '模型训练曲线分析：'
+            if (gap !== null) {
+              if (gap < 0.02) {
+                convergenceExplanation += `训练集与验证集损失差距极小（${gap.toFixed(4)}），模型泛化能力优秀。曲线同步下降表明参数配置恰当，没有明显过拟合。`
+              } else if (gap < 0.1) {
+                convergenceExplanation += `训练集与验证集损失有轻微差距（${gap.toFixed(4)}）。这是正常现象，模型在训练数据上表现更好，但验证集性能仍可接受。`
+              } else {
+                convergenceExplanation += `训练集与验证集损失差距较大（${gap.toFixed(4)}），存在过拟合迹象。建议降低 max_depth、增大 reg_lambda 或减少 n_estimators。`
+              }
+            }
+            const totalRounds = rounds.length
+            const convergenceRound = earlyStoppedRound ?? totalRounds
+            if (earlyStoppedRound) {
+              convergenceExplanation += ` 早停在第 ${earlyStoppedRound} 轮触发，避免了进一步的过拟合。`
+            }
+            return (
+              <Card
+                title={
+                  <Space>
+                    <span>📖</span>
+                    <Text style={{ color: '#a78bfa' }}>学习解读：为什么曲线这样变化？</Text>
+                  </Space>
+                }
+                style={{
+                  background: 'linear-gradient(135deg, #1a1f35 0%, #1e2a45 100%)',
+                  border: '1px solid #3b4f7a',
+                  marginTop: 0,
+                }}
+              >
+                <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  <Text style={{ color: '#cbd5e1', fontSize: 13 }}>{convergenceExplanation}</Text>
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 4 }}>
+                    <div style={{ background: '#0f172a', borderRadius: 6, padding: '6px 12px' }}>
+                      <Text style={{ color: '#64748b', fontSize: 11 }}>收敛轮次</Text>
+                      <Text style={{ color: '#93c5fd', fontWeight: 600, display: 'block' }}>{convergenceRound} / {totalRounds}</Text>
+                    </div>
+                    {gap !== null && (
+                      <div style={{ background: '#0f172a', borderRadius: 6, padding: '6px 12px' }}>
+                        <Text style={{ color: '#64748b', fontSize: 11 }}>Train/Val 差距</Text>
+                        <Text style={{ color: gap < 0.05 ? '#34d399' : gap < 0.1 ? '#f59e0b' : '#f87171', fontWeight: 600, display: 'block' }}>{gap.toFixed(4)}</Text>
+                      </div>
+                    )}
+                    {overfitLevel && (
+                      <div style={{ background: '#0f172a', borderRadius: 6, padding: '6px 12px' }}>
+                        <Text style={{ color: '#64748b', fontSize: 11 }}>过拟合评估</Text>
+                        <Text style={{ color: overfitLevel === 'high' ? '#f87171' : overfitLevel === 'medium' ? '#f59e0b' : '#34d399', fontWeight: 600, display: 'block' }}>
+                          {overfitLevel === 'high' ? '高风险' : overfitLevel === 'medium' ? '中等' : '良好'}
+                        </Text>
+                      </div>
+                    )}
+                  </div>
+                  {overfitLevel === 'high' && (
+                    <Alert
+                      type="warning"
+                      message="学习建议：如何改善过拟合？"
+                      description="尝试：① 降低 max_depth（减少树的复杂度）② 增大 reg_lambda/reg_alpha（正则化） ③ 提高 subsample（随机采样）④ 降低 learning_rate 并增加 n_estimators。"
+                      style={{ marginTop: 4 }}
+                      showIcon
+                    />
+                  )}
+                </Space>
+              </Card>
+            )
+          })()}
         </Col>
 
         <Col span={16}>

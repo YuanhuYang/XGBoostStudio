@@ -17,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 # 路由模块
-from routers import datasets, params, training, models, tuning, reports, prediction, wizard
+from routers import datasets, params, training, models, tuning, reports, prediction, wizard, automl
 from db.database import init_db
 
 logging.basicConfig(
@@ -78,6 +78,7 @@ from routers.reports import template_router
 app.include_router(template_router)
 app.include_router(prediction.router)
 app.include_router(wizard.router)
+app.include_router(automl.router)
 
 
 # ── 健康检查 ──────────────────────────────────────────────────────────────────

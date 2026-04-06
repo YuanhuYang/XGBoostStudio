@@ -8,6 +8,7 @@ import type { ColumnsType } from 'antd/es/table'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import HelpButton from '../../components/HelpButton'
+import { useAppStore } from '../../store/appStore'
 
 const { Title, Text } = Typography
 
@@ -28,6 +29,8 @@ interface ModelRecord {
 const { TextArea } = Input
 
 const ModelManagementPage: React.FC = () => {
+  const workflowMode = useAppStore(s => s.workflowMode)
+  const isExpert = workflowMode === 'expert'
   const [models, setModels] = useState<ModelRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -292,28 +295,66 @@ const ModelManagementPage: React.FC = () => {
             },
             {
               key: 'table', label: '数据表',
-              children: (
-                <Table
-                  size="small"
-                  dataSource={compareData.map(m => ({
+              children: (() => {
+                // F3: 专家模式下计算 AUC/KS 差值（以第一个模型为基准）
+                const baseModel = compareData[0]
+                const baseAuc = baseModel?.metrics?.auc ?? null
+                const baseKs = baseModel?.metrics?.ks ?? null
+                const tableData = compareData.map((m, idx) => {
+                  const aucDiff = isExpert && baseAuc !== null && m.metrics?.auc !== undefined && idx > 0
+                    ? (m.metrics.auc - baseAuc)
+                    : null
+                  const ksDiff = isExpert && baseKs !== null && m.metrics?.ks !== undefined && idx > 0
+                    ? (m.metrics.ks - baseKs)
+                    : null
+                  return {
                     key: m.id, name: m.name, task_type: m.task_type,
+                    _aucDiff: aucDiff,
+                    _ksDiff: ksDiff,
                     ...Object.fromEntries(
                       Object.entries(m.metrics)
                         .filter(([k]) => !INTERNAL_METRIC_KEYS.has(k))
                         .map(([k, v]) => [k, typeof v === 'number' ? v.toFixed(4) : v])
                     )
-                  }))}
-                  columns={[
-                    { title: '模型', dataIndex: 'name', key: 'name', render: v => <Text style={{ color: '#60a5fa' }}>{v}</Text> },
-                    { title: '类型', dataIndex: 'task_type', key: 'task_type', render: v => <Tag color={v === 'classification' ? 'blue' : 'orange'}>{v}</Tag> },
-                    ...compareMetricKeys.map(k => ({
-                      title: <span>{k}{LOWER_IS_BETTER.has(k.toLowerCase()) ? ' ↓' : ' ↑'}</span>,
-                      dataIndex: k, key: k,
-                    }))
-                  ]}
-                  pagination={false}
-                />
-              ),
+                  }
+                })
+                const expertExtraColumns = isExpert ? [
+                  {
+                    title: <Tooltip title="相对第一个模型的 AUC 差值">AUC 差值</Tooltip>,
+                    dataIndex: '_aucDiff', key: '_aucDiff',
+                    render: (v: number | null) => v === null ? <Text style={{ color: '#475569' }}>—（基准）</Text> : (
+                      <Text style={{ color: v >= 0 ? '#34d399' : '#f87171', fontWeight: 600 }}>
+                        {v >= 0 ? '+' : ''}{v.toFixed(4)}
+                      </Text>
+                    ),
+                  },
+                  {
+                    title: <Tooltip title="相对第一个模型的 KS 差值">KS 差值</Tooltip>,
+                    dataIndex: '_ksDiff', key: '_ksDiff',
+                    render: (v: number | null) => v === null ? <Text style={{ color: '#475569' }}>—（基准）</Text> : (
+                      <Text style={{ color: v >= 0 ? '#34d399' : '#f87171', fontWeight: 600 }}>
+                        {v >= 0 ? '+' : ''}{v.toFixed(4)}
+                      </Text>
+                    ),
+                  },
+                ] : []
+                return (
+                  <Table
+                    size="small"
+                    dataSource={tableData}
+                    columns={[
+                      { title: '模型', dataIndex: 'name', key: 'name', render: v => <Text style={{ color: '#60a5fa' }}>{v}</Text> },
+                      { title: '类型', dataIndex: 'task_type', key: 'task_type', render: v => <Tag color={v === 'classification' ? 'blue' : 'orange'}>{v}</Tag> },
+                      ...compareMetricKeys.map(k => ({
+                        title: <span>{k}{LOWER_IS_BETTER.has(k.toLowerCase()) ? ' ↓' : ' ↑'}</span>,
+                        dataIndex: k, key: k,
+                      })),
+                      ...expertExtraColumns,
+                    ]}
+                    pagination={false}
+                  />
+                )
+              })(),
             },
           ]}
         />

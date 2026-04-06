@@ -33,7 +33,7 @@ export interface PreprocessSuggestion {
   action: string
   expected_improvement: string
   potential_risk: string
-  learn_why: string
+  learn_why?: string
 }
 
 export interface PreprocessSuggestionsResult {

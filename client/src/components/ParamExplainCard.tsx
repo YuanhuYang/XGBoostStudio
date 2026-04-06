@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
 import {
-  Card, Slider, InputNumber, Row, Col, Popover, Button, Tag, Collapse, Typography, Space
+  Card, Slider, InputNumber, Row, Col, Popover, Tag, Collapse, Typography, Space
 } from 'antd'
 import { QuestionCircleOutlined, BookOutlined } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
+import { showTeachingUi } from '../utils/teachingUi'
+import LearningPanel from './LearningPanel'
 
 const { Text, Paragraph } = Typography
 
@@ -48,7 +50,7 @@ const riskLabel: Record<string, string> = {
 const ParamExplainCard: React.FC<Props> = ({ schema, value, onChange, explanation }) => {
   const [learnOpen, setLearnOpen] = useState(false)
   const workflowMode = useAppStore(s => s.workflowMode)
-  const showLearn = workflowMode === 'learning'
+  const showLearn = showTeachingUi(workflowMode)
 
   if (schema.type === 'select') {
     return (
@@ -171,7 +173,7 @@ const ParamExplainCard: React.FC<Props> = ({ schema, value, onChange, explanatio
           {explanation}
         </Paragraph>
       )}
-      {showLearn && (schema.learn_more || schema.math_note || schema.tuning_tips) && (
+      {showLearn && (schema.learn_more || schema.math_note || schema.tuning_tips || schema.impact_up || schema.impact_down) && (
         <Collapse
           size="small"
           ghost
@@ -186,23 +188,24 @@ const ParamExplainCard: React.FC<Props> = ({ schema, value, onChange, explanatio
               </Space>
             ),
             children: (
-              <div style={{ fontSize: 13 }}>
-                {schema.learn_more && (
-                  <div style={{ marginBottom: 8 }}>
-                    <Text strong>直觉理解</Text>
-                    <Paragraph style={{ marginBottom: 4 }}>{schema.learn_more}</Paragraph>
-                  </div>
-                )}
-                {schema.math_note && (
-                  <div style={{ marginBottom: 8 }}>
-                    <Text strong>数学原理</Text>
-                    <Paragraph code style={{ marginBottom: 4 }}>{schema.math_note}</Paragraph>
-                  </div>
-                )}
+              <div>
+                <LearningPanel
+                  paramKey={schema.name}
+                  title={schema.label}
+                  intuition={schema.learn_more ?? schema.tooltip ?? ''}
+                  riskLevel={
+                    schema.overfitting_risk === 'high' ? 80
+                    : schema.overfitting_risk === 'medium' ? 50
+                    : 20
+                  }
+                  effectUp={schema.impact_up ?? '调大此参数的效果'}
+                  effectDown={schema.impact_down ?? '调小此参数的效果'}
+                  mathNote={schema.math_note}
+                />
                 {schema.tuning_tips && (
-                  <div>
-                    <Text strong>调参技巧</Text>
-                    <Paragraph style={{ marginBottom: 0 }}>{schema.tuning_tips}</Paragraph>
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: '#1e293b', borderRadius: 6 }}>
+                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>调参技巧：</Text>
+                    <Text style={{ color: '#cbd5e1', fontSize: 12, display: 'block' }}>{schema.tuning_tips}</Text>
                   </div>
                 )}
               </div>

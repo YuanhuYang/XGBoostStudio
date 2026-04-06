@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,12 +19,125 @@ from sqlalchemy.orm import Session
 from db.database import DATA_DIR
 from db.models import Dataset, DatasetSplit
 
-# 内置示例 CSV（与仓库 tests/data 一致，离线可用）
-SAMPLE_DATASET_FILES: dict[str, str] = {
-    "titanic": "titanic.csv",
-    "boston": "boston_housing.csv",
-    "iris": "iris.csv",
-}
+
+@dataclass(frozen=True)
+class BuiltinSampleSpec:
+    key: str
+    filename: str
+    title: str
+    task: str
+    difficulty: str
+    scenario: str
+    suggested_target: Optional[str] = None
+
+
+# 顺序即下拉展示顺序；CSV 与 server/tests/data 一致，离线可用
+BUILTIN_SAMPLE_SPECS: tuple[BuiltinSampleSpec, ...] = (
+    BuiltinSampleSpec(
+        "titanic", "titanic.csv", "Titanic", "二分类", "入门", "生存预测", "Survived"
+    ),
+    BuiltinSampleSpec(
+        "iris", "iris.csv", "Iris", "多分类", "入门", "经典花种分类", "species"
+    ),
+    BuiltinSampleSpec(
+        "boston",
+        "boston_housing.csv",
+        "Boston Housing",
+        "回归",
+        "入门",
+        "房价回归（教学用）",
+        "medv",
+    ),
+    BuiltinSampleSpec(
+        "breast_cancer",
+        "breast_cancer.csv",
+        "威斯康星乳腺癌",
+        "二分类",
+        "入门",
+        "医学影像指标 / 表格二分类",
+        "diagnosis",
+    ),
+    BuiltinSampleSpec(
+        "wine",
+        "wine.csv",
+        "Wine 化学成分",
+        "多分类",
+        "进阶",
+        "酿酒化学特征多分类",
+        "class",
+    ),
+    BuiltinSampleSpec(
+        "german_credit",
+        "german_credit.csv",
+        "German Credit",
+        "二分类",
+        "进阶",
+        "信贷评分 / 风控表格",
+        "class",
+    ),
+    BuiltinSampleSpec(
+        "bank_marketing",
+        "bank_marketing.csv",
+        "Bank Marketing",
+        "二分类",
+        "进阶",
+        "营销响应（类流失场景）",
+        "y",
+    ),
+    BuiltinSampleSpec(
+        "credit_card_default",
+        "credit_card_default.csv",
+        "信用卡违约",
+        "二分类",
+        "进阶",
+        "循环授信违约预测",
+        "default_payment_next_month",
+    ),
+    BuiltinSampleSpec(
+        "adult_income",
+        "adult_income.csv",
+        "Adult Income",
+        "二分类",
+        "挑战",
+        "人口统计收入（高基数类别、混合类型）",
+        "income",
+    ),
+    BuiltinSampleSpec(
+        "uci_automobile_price",
+        "uci_automobile_price.csv",
+        "UCI 汽车价格（1985 Imports）",
+        "回归",
+        "挑战",
+        "UCI 公开集：车型与规格预测标价（美元；离散制造/成品定价类比）",
+        "price",
+    ),
+    BuiltinSampleSpec(
+        "mfg_assembly_price",
+        "manufacturing_assembly_price.csv",
+        "产线组装定价（合成）",
+        "回归",
+        "挑战",
+        "演示用合成：零部件成本与产线特征预测单价（仓库内生成，非 UCI 镜像）",
+        "finished_unit_price",
+    ),
+)
+
+SAMPLE_DATASET_FILES: dict[str, str] = {s.key: s.filename for s in BUILTIN_SAMPLE_SPECS}
+
+
+def list_builtin_samples_payload() -> list[dict[str, Any]]:
+    """供 API 与 CLI 使用的内置示例目录（单一事实来源）。"""
+    return [
+        {
+            "key": s.key,
+            "title": s.title,
+            "task": s.task,
+            "difficulty": s.difficulty,
+            "scenario": s.scenario,
+            "suggested_target": s.suggested_target,
+        }
+        for s in BUILTIN_SAMPLE_SPECS
+    ]
 
 
 def _sample_data_dir() -> Path:
@@ -36,7 +150,7 @@ def import_sample_dataset(sample_key: str, db: Session) -> Dataset:
     if key not in SAMPLE_DATASET_FILES:
         raise HTTPException(
             status_code=400,
-            detail=f"未知示例类型: {sample_key}，可选: {', '.join(SAMPLE_DATASET_FILES)}",
+            detail=f"未知示例类型: {sample_key}，可选: {', '.join(SAMPLE_DATASET_FILES.keys())}",
         )
     filename = SAMPLE_DATASET_FILES[key]
     src = _sample_data_dir() / filename

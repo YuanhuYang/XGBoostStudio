@@ -11,6 +11,7 @@ from db.database import get_db
 from db.models import Dataset, DatasetSplit
 from schemas.narrative import DataNarrativeResponse, NarrativeDepth
 from schemas.dataset import (
+    BuiltinSampleResponse,
     DatasetResponse, DatasetStatsResponse, PreviewResponse,
     QualityScoreResponse, SplitResponse,
     HandleMissingRequest, HandleOutliersRequest, SplitRequest,
@@ -46,7 +47,7 @@ async def upload_dataset(
 
 @router.post("/import-sample", response_model=DatasetResponse)
 def import_sample_dataset(
-    key: str = Query(..., description="titanic | boston | iris"),
+    key: str = Query(..., description="见 GET /api/datasets/builtin-samples"),
     db: Session = Depends(get_db),
 ):
     """一键导入内置示例数据集（本地 tests/data，离线可用）。"""
@@ -58,6 +59,12 @@ def import_sample_dataset(
 @router.get("", response_model=list[DatasetResponse])
 def list_datasets(db: Session = Depends(get_db)):
     return db.query(Dataset).order_by(Dataset.created_at.desc()).all()
+
+
+@router.get("/builtin-samples", response_model=list[BuiltinSampleResponse])
+def list_builtin_samples():
+    """内置示例 CSV 目录（含难度、任务类型、建议目标列）。"""
+    return svc.list_builtin_samples_payload()
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse)

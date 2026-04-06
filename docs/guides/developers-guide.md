@@ -135,8 +135,8 @@ XGBoostStudio/
 │   │   ├── models.py          # SQLAlchemy ORM 数据模型
 │   │   └── database.py        # 数据库连接、初始化、路径管理
 │   ├── routers/               # API 路由（路由层）
-│   │   ├── datasets.py, params.py, training.py 等
-│   │   └── 责任：参数校验、路由分发
+│   │   ├── datasets.py, params.py, training.py, automl.py 等
+│   │   └── 责任：参数校验、路由分发（AutoML：`/api/automl/*`，见 `docs/wiki/08-automl-wizard.md`）
 │   ├── services/              # 业务逻辑（服务层）
 │   │   ├── dataset_service.py, feature_service.py 等
 │   │   └── 责任：算法实现、数据处理、调用 XGBoost/SHAP 等
@@ -476,6 +476,16 @@ def get_datasets():
 ```bash
 cd server
 uv run pytest tests/
+```
+
+#### xs-studio 命令行（AutoML REPL）
+
+一键启后端并进入交互式 CLI，或与已运行的 API 配合使用；详见专用文档：[xs-studio-cli.md](./xs-studio-cli.md)。
+
+```bash
+cd server
+uv run python -m cli.main
+uv run python -m cli.main run ./path/to/data.csv --skip-tuning
 ```
 
 ### 前端调试

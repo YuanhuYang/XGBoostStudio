@@ -1,8 +1,8 @@
 # XGBoost Studio · XGBoost专属数据分析
 
-> **版本对应**：v0.3.0  
+> **版本对应**：v0.4.x（在 v0.3 分析能力上叠加「教学 UI」概念说明与分类单调性对齐；新增目标列智能推荐算法）  
 > **最后更新**：2026-04-06  
-> **对应代码**：`server/services/feature_service.py`、`server/services/leakage_service.py`、`client/src/pages/FeatureAnalysis/`
+> **对应代码**：`server/services/target_recommend.py`、`server/services/feature_service.py`、`server/services/leakage_service.py`、`client/src/pages/FeatureAnalysis/`、`client/src/pages/DataImport/`
 
 ---
 
@@ -21,6 +21,9 @@ XGBoost Studio 的数据分析**不是通用 EDA**，而是**100% 围绕 XGBoost
 
 ```
 数据导入
+    │
+    ▼
+目标列智能推荐       ← 多维度评分 + softmax 归一化 → 候选列置信度排名
     │
     ▼
 标签专项分析         ← 任务类型判断 / scale_pos_weight / 类别不均衡预警
@@ -49,7 +52,67 @@ XGBoost Studio 的数据分析**不是通用 EDA**，而是**100% 围绕 XGBoost
 
 ---
 
-## 二、标签专项分析
+## 二、目标列智能推荐
+
+### 设计动机
+
+在建模工作流的**最前端**，用户需要指定"要预测哪一列"。对于不熟悉数据集的新用户，这是第一个决策门槛。系统通过多维度启发式评分为每个列计算"作为目标列的置信度"，自动推荐最可能的目标列，降低入门门槛。
+
+### 对应代码
+
+`server/services/target_recommend.py`（纯函数，零外部依赖）→ 被 `wizard_service.dataset_summary` 调用，返回 `candidate_targets` 字段。
+
+### 评分维度（五层信号 + 两层惩罚）
+
+| 维度 | 规则 | 分值 |
+|------|------|------|
+| **命名信号 — 精确匹配** | 列名完全等于已知目标关键词（`y`、`target`、`class`、`survived`、`income`、`diagnosis` 等 16 个） | +0.50 |
+| **命名信号 — 词元匹配** | 列名按 camelCase/下划线拆词后，任一词元命中扩展关键词集（含 `default`、`fraud`、`rating` 等 24 个） | +0.35 |
+| **价格/金额关键词** | 词元命中 `price`/`cost`/`revenue`/`salary` 等 | +0.25 |
+| **语义前缀/后缀** | 词元含 `final`/`actual`/`finished` 等前缀（+0.10）或尾词元为 `target`/`class`/`prediction`（+0.10） | +0.10 ~ +0.20 |
+| **末列位置** | 位于数据集最后一列（业界惯例） | +0.10 |
+| **基数信号** | 二值列（+0.15）；3-20 唯一值的非浮点列（+0.10） | +0.10 ~ +0.15 |
+| **方差信号** | 数值型且变异系数 > 0.1 | +0.05 |
+| **惩罚 — 近唯一列** | 非浮点列且唯一值 ≥ 95% 行数（疑似 ID） | −0.30 |
+| **惩罚 — ID 列名** | 词元含 `id`/`index`/`name`/`uuid` 且基数 > 50% 行数 | −0.40 |
+
+> **关键设计决策**：
+> - **子串匹配 → 词边界匹配**：列名按 `_`/`-`/空格及 camelCase 边界拆词（`re.sub(r'([A-Z]+)([A-Z][a-z])', ...)`），避免 `workclass` 误命中 `class`、`Pclass` 误命中 `class` 等假阳性。
+> - **精确匹配 vs 词元匹配分层**：完整列名 `class`（+0.50）始终高于 `Pclass` 拆出的词元 `class`（+0.35），保证正确排序。
+> - **浮点列豁免近唯一惩罚**：回归目标（如价格）天然高基数，不应被 ID 惩罚误杀。
+
+### 置信度归一化（softmax）
+
+原始加法分值无法直接作为有意义的百分比。系统使用 **softmax + 虚拟基线** 归一化：
+
+```
+confidence_i = exp(raw_i / T) / (Σ exp(raw_j / T) + 1)
+```
+
+- **T = 0.15**（温度参数）：控制分值差异的放大程度
+- **+1 虚拟基线**：对应 `exp(0/T)`，代表"无明确目标"选项，防止绝对弱信号膨胀为高百分比
+- 输出取 Top-10 候选，每个候选附带 `confidence`（0~0.99）和中文 `reason`
+
+### 前端展示
+
+目标列推荐在**三个位置**统一展示：
+
+| 页面 | 展示方式 |
+|------|----------|
+| **数据导入**（`DataImport`） | 设置目标列弹窗顶部 AI 推荐横幅 + 下拉选项旁蓝色 Tag（如"推荐 87%"）+ 自动选中 Top-1 |
+| **智能向导**（`SmartWorkflow`） | Step 2 目标列选择 + AI 推荐提示 + 下拉 Tag |
+| **特征分析**（`FeatureAnalysis`） | 目标列下拉框内 Tag + 未选时文字提示 |
+
+### 测试覆盖
+
+回归测试文件：`server/tests/test_target_recommend.py`，对 10 个标准数据集验证：
+- Top-1 必须命中预期目标列（正确率 10/10）
+- Top-1 置信度 ≥ 40%
+- 边界 case：ID 列排除、空 DataFrame、单候选高置信度、输出字段格式
+
+---
+
+## 三、标签专项分析
 
 ### 核心功能
 
@@ -84,7 +147,7 @@ scale_pos_weight = 负样本数 / 正样本数
 
 ---
 
-## 三、特征效力分析（IV / KS / AUC）
+## 四、特征效力分析（IV / KS / AUC）
 
 ### 分类任务
 
@@ -118,7 +181,7 @@ scale_pos_weight = 负样本数 / 正样本数
 
 ---
 
-## 四、特征时序稳定性分析（PSI）
+## 五、特征时序稳定性分析（PSI）
 
 ### PSI 是什么
 
@@ -145,7 +208,7 @@ PSI = Σ (C_i - B_i) × ln(C_i / B_i)
 
 ---
 
-## 五、特征单调性分析（monotone_constraints 依据）
+## 六、特征单调性分析（monotone_constraints 依据）
 
 ### 为什么需要单调性分析
 
@@ -159,6 +222,10 @@ XGBoost 支持 `monotone_constraints` 参数，可强制某个特征对预测结
 2. 计算每个分箱内目标变量的均值（`bin_means`）
 3. 计算箱均值序列的 **Spearman 秩相关系数** ρ
 
+**分类任务**：后端将目标列做数值化（编码）后再参与分箱均值与 Spearman，使单调性结论与 `monotone_constraints` 的数值方向一致。
+
+**教学 UI（前端）**：在 **智能向导** 与 **模型调优** 模式下（`showTeachingUi`），`FeatureAnalysis` 页 IV/KS/PSI 等 Tab 标题旁显示概念 Popover（阈值与原理简述）；专家模式不展示。详见 [`01-product-overview.md`](01-product-overview.md)。
+
 ### 结论判定
 
 | ρ 绝对值 | 显著性 | 方向 | `monotone_constraints` 建议 |
@@ -169,7 +236,7 @@ XGBoost 支持 `monotone_constraints` 参数，可强制某个特征对预测结
 
 ---
 
-## 六、全链路数据泄露检测
+## 七、全链路数据泄露检测
 
 ### 为什么数据泄露危害大
 
@@ -180,7 +247,7 @@ XGBoost 支持 `monotone_constraints` 参数，可强制某个特征对预测结
 
 ### 三类泄露检测
 
-#### 6.1 标签泄露检测
+#### 7.1 标签泄露检测
 
 **场景**：某个特征实际上是目标列的变体（如：未来收入、事后衍生列）
 
@@ -195,7 +262,7 @@ XGBoost 支持 `monotone_constraints` 参数，可强制某个特征对预测结
   max_corr ≥ 0.9  → P1-警告（需人工核查）
 ```
 
-#### 6.2 时间穿越泄露检测
+#### 7.2 时间穿越泄露检测
 
 **场景**：特征的时间戳（如特征生成时点）晚于或等于标签的生成时点，即用了"未来"的数据预测"过去"的事件。
 
@@ -203,7 +270,7 @@ XGBoost 支持 `monotone_constraints` 参数，可强制某个特征对预测结
 
 **使用前提**：需要提供 `label_time_col`（标签生成时间列）和可选的 `feature_time_map`（特征→时间戳列映射）。
 
-#### 6.3 拟合泄露检测
+#### 7.3 拟合泄露检测
 
 **场景**：特征工程（缺失值填充、标准化、目标编码等）在全数据集上 `fit`，导致验证集/测试集信息泄露到训练集。
 
@@ -216,7 +283,7 @@ XGBoost 支持 `monotone_constraints` 参数，可强制某个特征对预测结
 
 ---
 
-## 七、VIF 多重共线性分析（XGBoost 视角）
+## 八、VIF 多重共线性分析（XGBoost 视角）
 
 XGBoost 对共线性具有一定天然鲁棒性（树模型每步仅选最优分裂特征）。因此，评估共线性时需结合**特征效力**综合判断：
 
@@ -232,5 +299,6 @@ XGBoost 对共线性具有一定天然鲁棒性（树模型每步仅选最优分
 
 | 版本 | 变更摘要 |
 |------|----------|
+| v0.4.x | 新增§二「目标列智能推荐」：词边界匹配 + 基数信号 + softmax 归一化，10 数据集正确率 10/10；分类目标下单调性分析与 `monotone_constraints` 建议对齐；向导/调优下 IV/KS/PSI 概念 Popover |
 | v0.3.0 | G3-A 落地：新增 IV/KS/PSI/单调性/标签分析/三类泄露检测 API + FeatureAnalysis 页面扩展为 10 Tab |
 | v0.2.0 | 基础特征分析（分布/相关/VIF/PCA）落地 |

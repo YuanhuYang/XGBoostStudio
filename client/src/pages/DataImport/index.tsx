@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   Upload, Table, Button, Space, Tag, Modal, Form, Select, Typography,
   Card, Statistic, Row, Col, Progress, message, Popconfirm, Tooltip,
@@ -7,11 +7,19 @@ import {
 import {
   InboxOutlined, DatabaseOutlined, EyeOutlined, DeleteOutlined,
   CheckCircleOutlined, WarningOutlined, FileTextOutlined, SafetyOutlined,
-  ImportOutlined, BarChartOutlined, ToolOutlined, SettingOutlined, PlayCircleOutlined,
+  BarChartOutlined, ToolOutlined, SettingOutlined, PlayCircleOutlined,
 } from '@ant-design/icons'
 import type { UploadProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { datasetsApi } from '../../api/datasets'
+import {
+  datasetsApi,
+  fetchBuiltinSamples,
+  builtinDifficultyColor,
+  FALLBACK_BUILTIN_SAMPLES,
+  type BuiltinSampleItem,
+} from '../../api/datasets'
+import { getDatasetSummary, type CandidateTarget } from '../../api/wizard'
+import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import type { QualityScore } from '../../types'
 import HelpButton from '../../components/HelpButton'
@@ -19,11 +27,12 @@ import HelpButton from '../../components/HelpButton'
 const { Dragger } = Upload
 const { Title, Text } = Typography
 
-const BUILTIN_SAMPLES = [
-  { key: 'titanic' as const, label: 'Titanic', task: '二分类' },
-  { key: 'boston' as const, label: 'Boston Housing', task: '回归' },
-  { key: 'iris' as const, label: 'Iris', task: '多分类' },
-]
+const DIFFICULTY_ORDER = ['入门', '进阶', '挑战'] as const
+const DIFFICULTY_TIER_HINT: Record<(typeof DIFFICULTY_ORDER)[number], string> = {
+  入门: '小样本 · 上手快',
+  进阶: '典型业务表格',
+  挑战: '更复杂或更大规模',
+}
 
 interface DatasetRow {
   id: number
@@ -45,12 +54,81 @@ const DataImportPage: React.FC = () => {
   const [targetModal, setTargetModal] = useState<{ open: boolean; datasetId: number | null }>({ open: false, datasetId: null })
   const [selectedDataset, setSelectedDataset] = useState<DatasetRow | null>(null)
   const [columnOptions, setColumnOptions] = useState<string[]>([])
+  const [candidateTargets, setCandidateTargets] = useState<CandidateTarget[]>([])
   const [form] = Form.useForm()
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
+  const activeModelId = useAppStore(s => s.activeModelId)
   const setActiveDatasetId = useAppStore(s => s.setActiveDatasetId)
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const setActiveSplitId = useAppStore(s => s.setActiveSplitId)
+  const setActiveModelId = useAppStore(s => s.setActiveModelId)
+
+  const clearSplitContextIfDatasetMismatch = useCallback(async (newDatasetId: number) => {
+    if (activeSplitId === null) return
+    try {
+      const r = await apiClient.get<Array<{ id: number; dataset_id: number }>>('/api/datasets/splits/list')
+      const list = Array.isArray(r.data) ? r.data : []
+      const row = list.find(s => s.id === activeSplitId)
+      if (row && row.dataset_id !== newDatasetId) {
+        setActiveSplitId(null)
+        setActiveModelId(null)
+      }
+    } catch {
+      /* 静默失败，仍允许切换数据集 */
+    }
+  }, [activeSplitId, setActiveSplitId, setActiveModelId])
   const [qualityScores, setQualityScores] = useState<Record<number, QualityScore>>({})
   const [qualityModal, setQualityModal] = useState<{ open: boolean; datasetId: number | null; data: QualityScore | null; name: string }>({ open: false, datasetId: null, data: null, name: '' })
   const [deduping, setDeduping] = useState(false)
   const [sampleKeyLoading, setSampleKeyLoading] = useState<string | null>(null)
+  const [sampleSelectNonce, setSampleSelectNonce] = useState(0)
+  const [builtinSamples, setBuiltinSamples] = useState<BuiltinSampleItem[]>(FALLBACK_BUILTIN_SAMPLES)
+
+  React.useEffect(() => {
+    void fetchBuiltinSamples().then(setBuiltinSamples)
+  }, [])
+
+  const sampleGroupedOptions = useMemo(
+    () =>
+      DIFFICULTY_ORDER.map(d => ({
+        label: (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+            <Tag color={builtinDifficultyColor(d)}>{d}</Tag>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {DIFFICULTY_TIER_HINT[d]}
+            </Text>
+          </span>
+        ),
+        options: builtinSamples
+          .filter(s => s.difficulty === d)
+          .map(s => {
+            const searchText =
+              `${s.title} ${s.task} ${s.scenario} ${s.key} ${s.suggested_target ?? ''}`.toLowerCase()
+            return {
+              value: s.key,
+              title: `${s.title}（${s.task}）`,
+              searchText,
+              label: (
+                <div style={{ padding: '2px 0', lineHeight: 1.35 }}>
+                  <div>
+                    <Text strong style={{ color: '#e2e8f0' }}>{s.title}</Text>
+                    <Tag
+                      color="processing"
+                      style={{ marginLeft: 6, fontSize: 10, lineHeight: '16px' }}
+                    >
+                      {s.task}
+                    </Tag>
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                    {s.scenario}
+                  </Text>
+                </div>
+              ),
+            }
+          }),
+      })),
+    [builtinSamples],
+  )
 
   const fetchDatasets = useCallback(async () => {
     setLoading(true)
@@ -68,10 +146,16 @@ const DataImportPage: React.FC = () => {
 
   const openTargetModal = useCallback(async (record: DatasetRow) => {
     try {
-      const res = await datasetsApi.preview(record.id)
-      setColumnOptions(res.data?.columns || [])
+      const [previewRes, summaryRes] = await Promise.all([
+        datasetsApi.preview(record.id),
+        getDatasetSummary(record.id).catch(() => null),
+      ])
+      setColumnOptions(previewRes.data?.columns || [])
+      const cands = summaryRes?.candidate_targets ?? []
+      setCandidateTargets(cands)
       setTargetModal({ open: true, datasetId: record.id })
-      form.setFieldsValue({ target_column: record.target_column })
+      const autoTarget = record.target_column || (cands[0]?.col ?? null)
+      form.setFieldsValue({ target_column: autoTarget })
     } catch {
       message.error('获取列信息失败')
     }
@@ -129,16 +213,16 @@ const DataImportPage: React.FC = () => {
     }
   }
 
-  const handleImportSample = async (key: (typeof BUILTIN_SAMPLES)[number]['key']) => {
+  const handleImportSample = async (key: string) => {
+    const label = builtinSamples.find(s => s.key === key)?.title ?? key
     setSampleKeyLoading(key)
     try {
-      const res = await datasetsApi.importSample(key)
-      message.success('已导入内置示例（本地资源，无需联网）')
+      await datasetsApi.importSample(key)
+      message.success(`已添加示例数据集「${label}」，可在列表中设置目标列`)
       await fetchDatasets()
-      openTargetModal(res.data as DatasetRow)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '导入内置示例失败')
+      message.error(err.response?.data?.detail || '添加示例数据失败')
     } finally {
       setSampleKeyLoading(null)
     }
@@ -167,11 +251,13 @@ const DataImportPage: React.FC = () => {
 
   const handleSetTarget = async () => {
     const values = await form.validateFields()
+    const did = targetModal.datasetId!
     try {
-      await datasetsApi.setTarget(targetModal.datasetId!, values.target_column)
+      await datasetsApi.setTarget(did, values.target_column)
       message.success('目标列已设置')
       setTargetModal({ open: false, datasetId: null })
-      setActiveDatasetId(targetModal.datasetId!)
+      await clearSplitContextIfDatasetMismatch(did)
+      setActiveDatasetId(did)
       fetchDatasets()
     } catch {
       message.error('设置失败')
@@ -242,7 +328,16 @@ const DataImportPage: React.FC = () => {
             <Button size="small" icon={<CheckCircleOutlined />} onClick={() => openTargetModal(record)} />
           </Tooltip>
           <Tooltip title="设为当前数据集">
-            <Button size="small" type="primary" ghost onClick={() => { setActiveDatasetId(record.id); message.success('已设为当前数据集') }}>
+            <Button
+              size="small"
+              type="primary"
+              ghost
+              onClick={async () => {
+                await clearSplitContextIfDatasetMismatch(record.id)
+                setActiveDatasetId(record.id)
+                message.success('已设为当前数据集')
+              }}
+            >
               使用
             </Button>
           </Tooltip>
@@ -260,10 +355,6 @@ const DataImportPage: React.FC = () => {
   })) || []
 
   // 专家模式流程进度
-  const activeDatasetId = useAppStore(s => s.activeDatasetId)
-  const activeSplitId = useAppStore(s => s.activeSplitId)
-  const activeModelId = useAppStore(s => s.activeModelId)
-
   const expertSteps = [
     { title: '数据导入', icon: <DatabaseOutlined /> },
     { title: '特征分析', icon: <BarChartOutlined /> },
@@ -287,7 +378,7 @@ const DataImportPage: React.FC = () => {
       </Title>
       <HelpButton pageTitle="数据导入" items={[
         { title: '支持怎样的文件？', content: '支持 CSV、Excel（.xlsx / .xls），单文件不超过 200MB。' },
-        { title: '上传后必须设置目标列', content: '目标列（要预测的列）是模型训练的必要条件，上传后系统会自动弹出设置对话框。' },
+        { title: '上传后必须设置目标列', content: '目标列（要预测的列）是模型训练的必要条件；本地上传成功后系统会自动弹出设置对话框。从「添加示例数据」加入的数据集不会自动弹出，可在列表中点击勾选按钮自行设置。' },
         { title: '数据质量检测是什么？', content: '点击表格中的「检测」按鈕，系统会评分缺失率、异常率、重复行等指标。' },
       ]} />
 
@@ -319,39 +410,6 @@ const DataImportPage: React.FC = () => {
         </Col>
       </Row>
 
-      <div
-        style={{
-          marginBottom: 16,
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 12px',
-          background: '#1e293b',
-          border: '1px solid #334155',
-          borderRadius: 8,
-        }}
-      >
-        <Text type="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
-          <ImportOutlined style={{ color: '#1677ff' }} />
-          内置示例（离线）：
-        </Text>
-        <Space size={8} wrap>
-          {BUILTIN_SAMPLES.map(s => (
-            <Button
-              key={s.key}
-              size="small"
-              type="default"
-              loading={sampleKeyLoading === s.key}
-              disabled={sampleKeyLoading !== null && sampleKeyLoading !== s.key}
-              onClick={() => void handleImportSample(s.key)}
-            >
-              {s.label}（{s.task}）
-            </Button>
-          ))}
-        </Space>
-      </div>
-
       <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 24 }}>
         <Dragger
           name="file"
@@ -376,7 +434,40 @@ const DataImportPage: React.FC = () => {
       <Card
         title={<Text style={{ color: '#e2e8f0' }}><FileTextOutlined /> 数据集列表</Text>}
         style={{ background: '#1e293b', border: '1px solid #334155' }}
-        extra={<Button size="small" onClick={fetchDatasets}>刷新</Button>}
+        extra={(
+          <Space size={8} wrap>
+            <Tooltip title="按难度分组；可输入关键词筛选名称、任务类型或场景说明。随包 CSV，无需上传。">
+              <Select
+                key={sampleSelectNonce}
+                size="small"
+                placeholder="添加示例数据（可搜索）"
+                style={{ minWidth: 240 }}
+                loading={sampleKeyLoading !== null}
+                disabled={sampleKeyLoading !== null}
+                optionLabelProp="title"
+                popupMatchSelectWidth={false}
+                listHeight={320}
+                styles={{ popup: { root: { minWidth: 460, maxHeight: 400 } } }}
+                showSearch
+                filterOption={(input: string, option) => {
+                  const q = input.trim().toLowerCase()
+                  if (!q) return true
+                  const st = (option as { searchText?: string }).searchText
+                  if (st) return st.includes(q)
+                  const t = String((option as { title?: string }).title ?? '').toLowerCase()
+                  return t.includes(q)
+                }}
+                options={sampleGroupedOptions}
+                onChange={(k) => {
+                  if (!k) return
+                  void handleImportSample(k).then(() => setSampleSelectNonce(n => n + 1))
+                }}
+                allowClear={false}
+              />
+            </Tooltip>
+            <Button size="small" onClick={fetchDatasets}>刷新</Button>
+          </Space>
+        )}
       >
         <Table
           columns={columns}
@@ -417,11 +508,44 @@ const DataImportPage: React.FC = () => {
         title="设置目标列（标签列）"
         open={targetModal.open}
         onOk={handleSetTarget}
-        onCancel={() => setTargetModal({ open: false, datasetId: null })}
+        onCancel={() => { setTargetModal({ open: false, datasetId: null }); setCandidateTargets([]) }}
       >
+        {candidateTargets.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              AI 推荐：<Text strong style={{ color: '#60a5fa' }}>{candidateTargets[0].col}</Text>
+              <Tag color="blue" style={{ fontSize: 10, marginLeft: 6 }}>
+                {Math.round(candidateTargets[0].confidence * 100)}%
+              </Tag>
+              <span style={{ marginLeft: 4, color: '#94a3b8' }}>— {candidateTargets[0].reason}</span>
+            </Text>
+          </div>
+        )}
         <Form form={form} layout="vertical">
-          <Form.Item name="target_column" label="目标列" rules={[{ required: true }]}>
-            <Select placeholder="选择目标列" options={columnOptions.map(c => ({ label: c, value: c }))} />
+          <Form.Item name="target_column" label="目标列" rules={[{ required: true, message: '请选择要预测的目标列' }]}>
+            <Select
+              placeholder="选择目标列"
+              showSearch
+              filterOption={(input, option) =>
+                String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {columnOptions.map(c => {
+                const cand = candidateTargets.find(ct => ct.col === c)
+                return (
+                  <Select.Option key={c} value={c}>
+                    <Space>
+                      <span>{c}</span>
+                      {cand && (
+                        <Tag color="blue" style={{ fontSize: 10 }}>
+                          推荐 {Math.round(cand.confidence * 100)}%
+                        </Tag>
+                      )}
+                    </Space>
+                  </Select.Option>
+                )
+              })}
+            </Select>
           </Form.Item>
         </Form>
       </Modal>

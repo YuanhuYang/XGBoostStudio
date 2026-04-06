@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, Steps,
-  InputNumber, Tag, Alert, message,
+  Select, Tag, Alert, message,
   Statistic, Badge, Divider, Collapse
 } from 'antd'
-import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, DownOutlined, ThunderboltOutlined, AimOutlined, ExperimentOutlined, DatabaseOutlined, BarChartOutlined, ToolOutlined, PlayCircleOutlined } from '@ant-design/icons'
+import { SettingOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, DownOutlined, ThunderboltOutlined, AimOutlined, ExperimentOutlined, DatabaseOutlined, BarChartOutlined, ToolOutlined, PlayCircleOutlined, ReadOutlined } from '@ant-design/icons'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import ParamExplainCard from '../../components/ParamExplainCard'
+import ParamLabModal from '../../components/ParamLabModal'
 import HelpButton from '../../components/HelpButton'
 import type { ParamSchema } from '../../components/ParamExplainCard'
+import { showTeachingUi } from '../../utils/teachingUi'
 
 const { Title, Text } = Typography
 
@@ -47,11 +49,25 @@ const PRESETS = [
 // 从 localStorage 恢复上次选中的预设
 const STORAGE_KEY = 'xgboost-studio:last-selected-preset'
 
+interface SplitItem {
+  id: number
+  dataset_id: number
+  dataset_name: string
+  train_rows: number | null
+  test_rows: number | null
+  created_at: string | null
+}
+
 const ParamConfigPage: React.FC = () => {
   const activeSplitId = useAppStore(s => s.activeSplitId)
+  const setActiveSplitId = useAppStore(s => s.setActiveSplitId)
+  const workflowMode = useAppStore(s => s.workflowMode)
+  const showTeaching = showTeachingUi(workflowMode)
+  const [labOpen, setLabOpen] = useState(false)
   const [schema, setSchema] = useState<ParamSchema[]>([])
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [splitId, setSplitId] = useState<number | null>(null)
+  const [splitList, setSplitList] = useState<SplitItem[]>([])
   const [selectedPreset, setSelectedPreset] = useState<string | null>(() => {
     // 从 localStorage 恢复上次选中
     try {
@@ -67,6 +83,10 @@ const ParamConfigPage: React.FC = () => {
   useEffect(() => {
     if (activeSplitId !== null && splitId === null) setSplitId(activeSplitId)
   }, [activeSplitId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    apiClient.get('/api/datasets/splits/list').then(r => setSplitList(r.data)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     apiClient.get('/api/params/schema').then(r => {
@@ -85,7 +105,7 @@ const ParamConfigPage: React.FC = () => {
   }, [])
 
   const handleRecommend = async () => {
-    if (!splitId) { message.warning('请输入 Split ID'); return }
+    if (!splitId) { message.warning('请选择数据集划分'); return }
     setLoading(true)
     try {
       const r = await apiClient.get('/api/params/recommend', { params: { split_id: splitId } })
@@ -165,6 +185,28 @@ const ParamConfigPage: React.FC = () => {
         { title: '参数配置好后如何使用？', content: '点击「下载 JSON」保存当前配置，其内容可直接粘贴到「模型训练」页面的参数输入框。' },
       ]} />
 
+      {/* E3: 向导 / 模型调优：教学卡片与参数实验（专家模式不展示） */}
+      {showTeaching && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<ReadOutlined />}
+          message="参数教学已开启"
+          description="智能向导与模型调优模式下默认展示教学卡片（算法直觉、调参效果、过拟合风险）。点击「⚗️ 参数实验」可对比两套参数的训练效果。"
+          style={{ marginBottom: 16 }}
+          action={
+            <Button
+              size="small"
+              icon={<ExperimentOutlined />}
+              onClick={() => setLabOpen(true)}
+              disabled={!splitId && !activeSplitId}
+            >
+              ⚗️ 参数实验
+            </Button>
+          }
+        />
+      )}
+
       {/* 专家流程进度概览 */}
       <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
         <Steps current={currentStep} size="small" items={expertSteps} />
@@ -217,8 +259,22 @@ const ParamConfigPage: React.FC = () => {
           <Card title={<Text style={{ color: '#e2e8f0' }}>智能推荐</Text>}
             style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Text style={{ color: '#94a3b8' }}>Split ID（已划分的数据集）：</Text>
-              <InputNumber min={1} value={splitId || undefined} onChange={v => setSplitId(v)} style={{ width: '100%' }} placeholder="输入Split ID" />
+              <Text style={{ color: '#94a3b8' }}>数据集划分（已划分的数据集）：</Text>
+              <Select
+                showSearch
+                placeholder="选择划分"
+                value={splitId ?? undefined}
+                onChange={(v: number) => {
+                  setSplitId(v)
+                  setActiveSplitId(v)
+                }}
+                style={{ width: '100%' }}
+                options={splitList.map(s => ({
+                  value: s.id,
+                  label: `${s.dataset_name} / Split #${s.id}（训练 ${s.train_rows ?? '?'} / 测试 ${s.test_rows ?? '?'}）`,
+                }))}
+                filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+              />
               <Button type="primary" icon={<BulbOutlined />} onClick={handleRecommend} loading={loading} block>
                 获取智能推荐
               </Button>
@@ -309,6 +365,15 @@ const ParamConfigPage: React.FC = () => {
           />
         </Col>
       </Row>
+
+      {/* E4: 参数对比实验（向导 / 模型调优） */}
+      <ParamLabModal
+        open={labOpen}
+        onClose={() => setLabOpen(false)}
+        splitId={splitId ?? activeSplitId}
+        paramValues={params as Record<string, number | string>}
+        onApplyParams={(newParams) => setParams(prev => ({ ...prev, ...newParams }))}
+      />
     </div>
   )
 }

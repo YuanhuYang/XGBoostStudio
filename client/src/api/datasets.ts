@@ -1,10 +1,49 @@
 import apiClient from './client'
 import type { Dataset, DatasetStats, PreviewData, QualityScore } from '../types'
 
+/** 与 GET /api/datasets/builtin-samples 一致；后端不可用时作下拉回退 */
+export interface BuiltinSampleItem {
+  key: string
+  title: string
+  task: string
+  difficulty: string
+  scenario: string
+  suggested_target?: string | null
+}
+
+export const FALLBACK_BUILTIN_SAMPLES: BuiltinSampleItem[] = [
+  { key: 'titanic', title: 'Titanic', task: '二分类', difficulty: '入门', scenario: '生存预测', suggested_target: 'Survived' },
+  { key: 'iris', title: 'Iris', task: '多分类', difficulty: '入门', scenario: '经典花种分类', suggested_target: 'species' },
+  { key: 'boston', title: 'Boston Housing', task: '回归', difficulty: '入门', scenario: '房价回归（教学用）', suggested_target: 'medv' },
+  { key: 'breast_cancer', title: '威斯康星乳腺癌', task: '二分类', difficulty: '入门', scenario: '医学影像指标 / 表格二分类', suggested_target: 'diagnosis' },
+  { key: 'wine', title: 'Wine 化学成分', task: '多分类', difficulty: '进阶', scenario: '酿酒化学特征多分类', suggested_target: 'class' },
+  { key: 'german_credit', title: 'German Credit', task: '二分类', difficulty: '进阶', scenario: '信贷评分 / 风控表格', suggested_target: 'class' },
+  { key: 'bank_marketing', title: 'Bank Marketing', task: '二分类', difficulty: '进阶', scenario: '营销响应（类流失场景）', suggested_target: 'y' },
+  { key: 'credit_card_default', title: '信用卡违约', task: '二分类', difficulty: '进阶', scenario: '循环授信违约预测', suggested_target: 'default_payment_next_month' },
+  { key: 'adult_income', title: 'Adult Income', task: '二分类', difficulty: '挑战', scenario: '人口统计收入（高基数类别、混合类型）', suggested_target: 'income' },
+  { key: 'uci_automobile_price', title: 'UCI 汽车价格（1985 Imports）', task: '回归', difficulty: '挑战', scenario: 'UCI 公开集：车型与规格预测标价（美元；离散制造/成品定价类比）', suggested_target: 'price' },
+  { key: 'mfg_assembly_price', title: '产线组装定价（合成）', task: '回归', difficulty: '挑战', scenario: '演示用合成：零部件成本与产线特征预测单价（仓库内生成，非 UCI 镜像）', suggested_target: 'finished_unit_price' },
+]
+
+export function builtinDifficultyColor(difficulty: string): string {
+  if (difficulty === '入门') return 'green'
+  if (difficulty === '进阶') return 'gold'
+  if (difficulty === '挑战') return 'red'
+  return 'default'
+}
+
+export async function fetchBuiltinSamples(): Promise<BuiltinSampleItem[]> {
+  try {
+    const res = await apiClient.get<BuiltinSampleItem[]>('/api/datasets/builtin-samples')
+    if (Array.isArray(res.data) && res.data.length > 0) return res.data
+  } catch {
+    /* use fallback */
+  }
+  return FALLBACK_BUILTIN_SAMPLES
+}
+
 /** 一键导入内置示例（本地 tests/data，离线可用） */
-export async function importSampleDataset(
-  key: 'titanic' | 'boston' | 'iris'
-): Promise<Dataset> {
+export async function importSampleDataset(key: string): Promise<Dataset> {
   const res = await apiClient.post<Dataset>('/api/datasets/import-sample', null, {
     params: { key },
   })
@@ -149,7 +188,8 @@ export async function setTargetColumn(id: number, targetColumn: string): Promise
 /** 便捷 API 对象（页面组件使用） */
 export const datasetsApi = {
   list: () => apiClient.get('/api/datasets'),
-  importSample: (key: 'titanic' | 'boston' | 'iris') =>
+  builtinSamples: () => apiClient.get<BuiltinSampleItem[]>('/api/datasets/builtin-samples'),
+  importSample: (key: string) =>
     apiClient.post<Dataset>('/api/datasets/import-sample', null, { params: { key } }),
   upload: (formData: FormData) => apiClient.post('/api/datasets/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   preview: (id: number, page = 1, pageSize = 50) => apiClient.get(`/api/datasets/${id}/preview`, { params: { page, page_size: pageSize } }),

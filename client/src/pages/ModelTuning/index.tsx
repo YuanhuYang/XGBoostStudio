@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, Steps,
   Slider, Select, Alert, message, Statistic, Progress,
@@ -64,10 +64,8 @@ const PHASE_COLORS = PHASE_DEFS.reduce((acc, p) => ({ ...acc, [p.id]: p.color })
 const ModelTuningPage: React.FC = () => {
   const activeSplitId = useAppStore(s => s.activeSplitId)
   const setActiveModelId = useAppStore(s => s.setActiveModelId)
-  const activeDatasetId = useAppStore(s => s.activeDatasetId)
   const activeModelId = useAppStore(s => s.activeModelId)
 
-  const [splitId, setSplitId] = useState<number | null>(null)
   const [splitList, setSplitList] = useState<SplitItem[]>([])
   const [nTrials, setNTrials] = useState(50)
   const [strategy, setStrategy] = useState('tpe')
@@ -94,13 +92,14 @@ const ModelTuningPage: React.FC = () => {
     apiClient.get('/api/datasets/splits/list').then(r => setSplitList(r.data)).catch(() => {})
   }, [])
 
-  useEffect(() => {
-    if (activeSplitId !== null && splitId === null) setSplitId(activeSplitId)
-  }, [activeSplitId]) // eslint-disable-line
+  const activeSplitRow = useMemo(
+    () => (activeSplitId != null ? splitList.find(s => s.id === activeSplitId) : undefined),
+    [activeSplitId, splitList],
+  )
 
   useEffect(() => {
-    if (!splitId) return
-    apiClient.get(`/api/tuning/latest?split_id=${splitId}`).then(r => {
+    if (!activeSplitId) return
+    apiClient.get(`/api/tuning/latest?split_id=${activeSplitId}`).then(r => {
       const d = r.data
       if (d.task_id) {
         setTaskId(d.task_id)
@@ -123,12 +122,15 @@ const ModelTuningPage: React.FC = () => {
         setPhaseRecords([]); setCurrentPhase(0)
       }
     }).catch(() => {})
-  }, [splitId]) // eslint-disable-line
+  }, [activeSplitId, setActiveModelId])
 
   useEffect(() => { return () => { esRef.current?.close() } }, [])
 
   const start = async () => {
-    if (!splitId) { message.warning('请选择数据集划分'); return }
+    if (!activeSplitId) {
+      message.warning('请先在顶栏选择「训练划分」')
+      return
+    }
     if (status === 'running') { message.warning('调优正在进行中'); return }
     setStatus('running')
     setTrialHistory([])
@@ -139,7 +141,7 @@ const ModelTuningPage: React.FC = () => {
     setPhaseGoal(PHASE_DEFS[0].phase_goal || '')
 
     try {
-      const r = await apiClient.post('/api/tuning/start', { split_id: splitId, n_trials: nTrials, strategy })
+      const r = await apiClient.post('/api/tuning/start', { split_id: activeSplitId, n_trials: nTrials, strategy })
       const tid = r.data.task_id
       setTaskId(tid)
       sseRetryRef.current = 0
@@ -260,15 +262,31 @@ const ModelTuningPage: React.FC = () => {
           itemStyle: { color: pd.color, opacity: 0.7 },
         }
       }),
-      {
-        name: '全局最优',
-        type: 'line',
-        data: trialHistory.filter(t => !t.trial_failed && (t.best_score !== undefined || t.best_so_far !== undefined))
-                          .map(t => [t.trial!, (t.best_score ?? t.best_so_far)!]),
-        showSymbol: false,
-        lineStyle: { color: '#34d399', width: 2.5 },
-        itemStyle: { color: '#34d399' },
-      },
+      (() => {
+        // F4: 专家模式下在全局最优线上标记最高点
+        const bestLine = trialHistory
+          .filter(t => !t.trial_failed && (t.best_score !== undefined || t.best_so_far !== undefined))
+          .map(t => [t.trial!, (t.best_score ?? t.best_so_far)!] as [number, number])
+        const bestPoint = bestLine.reduce<[number, number] | null>((max, pt) =>
+          max === null || pt[1] > max[1] ? pt : max, null)
+        return {
+          name: '全局最优',
+          type: 'line',
+          data: bestLine,
+          showSymbol: false,
+          lineStyle: { color: '#34d399', width: 2.5 },
+          itemStyle: { color: '#34d399' },
+          markPoint: bestPoint ? {
+            data: [{
+              coord: bestPoint,
+              symbol: 'pin',
+              symbolSize: 32,
+              itemStyle: { color: '#f59e0b' },
+              label: { formatter: bestPoint[1].toFixed(4), color: '#fff', fontSize: 10 },
+            }],
+          } : undefined,
+        }
+      })(),
     ],
     backgroundColor: 'transparent',
   } : null
@@ -282,7 +300,7 @@ const ModelTuningPage: React.FC = () => {
     { title: '参数配置', icon: <SettingOutlined /> },
     { title: '模型训练', icon: <PlayCircleOutlined /> },
   ]
-  const currentWorkflowStep = !activeDatasetId ? 0 : !activeSplitId ? 2 : !activeModelId ? 4 : 4
+  const currentWorkflowStep = !activeSplitId ? 0 : !activeModelId ? 4 : 4
 
   const getPhaseStatusIcon = (phaseId: number) => {
     if (status === 'completed' || phaseId < currentPhase) return <CheckCircleOutlined style={{ color: '#52c41a' }} />
@@ -310,10 +328,12 @@ const ModelTuningPage: React.FC = () => {
         <Col span={8}>
           <Card style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
             <Form layout="vertical">
-              <Form.Item label={<Text style={{ color: '#94a3b8' }}>选择数据集划分</Text>}>
-                <Select value={splitId ?? undefined} onChange={(v: number) => setSplitId(v)}
-                  placeholder="选择划分" style={{ width: '100%' }}
-                  options={splitList.map(s => ({ value: s.id, label: `${s.dataset_name} / Split #${s.id}（训练 ${s.train_rows ?? '?'} 行）` }))} />
+              <Form.Item label={<Text style={{ color: '#94a3b8' }}>当前训练划分</Text>}>
+                <Text style={{ color: activeSplitRow ? '#e2e8f0' : '#94a3b8' }}>
+                  {activeSplitRow
+                    ? `${activeSplitRow.dataset_name} / 划分 #${activeSplitRow.id}（训练 ${activeSplitRow.train_rows ?? '?'} 行）`
+                    : '未选择 — 请在顶栏选择「训练划分」'}
+                </Text>
               </Form.Item>
               <Form.Item label={<Text style={{ color: '#94a3b8' }}>搜索策略</Text>}>
                 <Select value={strategy} onChange={setStrategy} style={{ width: '100%' }}
@@ -324,7 +344,7 @@ const ModelTuningPage: React.FC = () => {
               </Form.Item>
               <Space direction="vertical" style={{ width: '100%' }}>
                 <Button type="primary" icon={<RocketOutlined />} onClick={start}
-                  disabled={status === 'running'} block loading={status === 'running'}>
+                  disabled={status === 'running' || !activeSplitId} block loading={status === 'running'}>
                   开始 5 阶段调优
                 </Button>
                 <Popconfirm title="确认停止调优？" onConfirm={stop} okText="停止" cancelText="继续" okButtonProps={{ danger: true }} disabled={status !== 'running'}>
@@ -400,16 +420,26 @@ const ModelTuningPage: React.FC = () => {
           </Card>
 
           {chartOption ? (
-            <Card title={<Text style={{ color: '#e2e8f0' }}>调优轨迹图（按阶段着色）</Text>}
-              style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}>
+            <Card
+              title={
+                <Space>
+                  <Text style={{ color: '#e2e8f0' }}>调优轨迹图（按阶段着色）</Text>
+                  {bestScore !== null && (
+                    <Tag color="gold" style={{ fontWeight: 700 }}>⭐ 全局最优 {bestScore.toFixed(4)}</Tag>
+                  )}
+                </Space>
+              }
+              style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 16 }}
+            >
               <ReactECharts option={chartOption} style={{ height: 320 }} />
               <div style={{ marginTop: 8 }}>
                 {PHASE_DEFS.map(pd => <Tag key={pd.id} color={pd.color}>阶段{pd.id}: {pd.name}</Tag>)}
+                <Tag color="gold" style={{ marginLeft: 4 }}>📍 金色 Pin = 全局最优点</Tag>
               </div>
             </Card>
           ) : (
             <Card style={{ background: '#1e293b', border: '1px solid #334155', textAlign: 'center', padding: 60, marginBottom: 16 }}>
-              <Text style={{ color: '#475569' }}>选择划分后点击「开始 5 阶段调优」，系统将按专家级调优逻辑分阶段搜索最优参数</Text>
+              <Text style={{ color: '#475569' }}>在顶栏选择「训练划分」后点击「开始 5 阶段调优」，系统将按专家级调优逻辑分阶段搜索最优参数</Text>
             </Card>
           )}
 
