@@ -33,6 +33,7 @@ template_router = APIRouter(prefix="/api/report-templates", tags=["report-templa
 
 @router.post("/generate")
 def generate(body: ReportGenerateRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    brand_config_dict = body.brand_config.model_dump() if body.brand_config else None
     return generate_report(
         model_id=body.model_id,
         title=body.title or "",
@@ -41,6 +42,8 @@ def generate(body: ReportGenerateRequest, db: Session = Depends(get_db)) -> dict
         include_sections=body.include_sections,
         narrative_depth=body.narrative_depth or "standard",
         format_style=body.format_style or "default",
+        template_type=body.template_type or "full_12_chapters",
+        brand_config=brand_config_dict,
     )
 
 

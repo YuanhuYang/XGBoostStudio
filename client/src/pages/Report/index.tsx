@@ -2,15 +2,20 @@ import React, { useState, useEffect } from 'react'
 import {
   Card, Table, Button, Space, Typography, Modal, Form, Input,
   InputNumber, message, Popconfirm, Tag, Row, Col, Empty,
-  Checkbox, Spin, Select, Divider, Radio
+  Checkbox, Spin, Select, Divider, Radio, ColorPicker, Tabs, Tooltip, Badge, List,
 } from 'antd'
-import { FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined, SaveOutlined, FolderOpenOutlined } from '@ant-design/icons'
+import {
+  FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined,
+  SaveOutlined, FolderOpenOutlined, CrownOutlined, CheckCircleOutlined,
+} from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import HelpButton from '../../components/HelpButton'
 import PDFViewer from '../../components/PDFViewer'
-import { REPORT_SECTION_OPTIONS } from '../../constants/reportSections'
+import {
+  REPORT_SECTION_OPTIONS, CHAPTERS_12, REPORT_TEMPLATES, type ReportTemplate as G3Template,
+} from '../../constants/reportSections'
 import { listReportTemplates, createReportTemplate, deleteReportTemplate, type ReportTemplate } from '../../api/reports'
 
 const { Title, Text } = Typography
@@ -30,6 +35,14 @@ const ReportPage: React.FC = () => {
   const [selectedSections, setSelectedSections] = useState<string[]>(SECTION_OPTIONS.map(o => o.value))
   const [formatStyle, setFormatStyle] = useState<'default' | 'apa'>('default')
   const [form] = Form.useForm()
+
+  // G3-C 新增状态：12章模板选择
+  const [selectedTemplateType, setSelectedTemplateType] = useState<string>('full_12_chapters')
+  const [useG3Chapters, setUseG3Chapters] = useState(true)
+  // 品牌定制
+  const [watermarkText, setWatermarkText] = useState('')
+  const [companyName, setCompanyName] = useState('')
+  const [primaryColor, setPrimaryColor] = useState('')
 
   // 模板管理相关状态
   const [templates, setTemplates] = useState<ReportTemplate[]>([])
@@ -97,14 +110,32 @@ const ReportPage: React.FC = () => {
     const values = await form.validateFields()
     setGenLoading(true)
     try {
-      await apiClient.post('/api/reports/generate', {
+      const payload: Record<string, unknown> = {
         model_id: values.model_id,
         title: values.title || `模型${values.model_id}报告`,
         notes: values.notes || '',
-        include_sections: selectedSections.length < SECTION_OPTIONS.length ? selectedSections : undefined,
         narrative_depth: values.narrative_depth || 'standard',
         format_style: formatStyle,
-      })
+      }
+
+      if (useG3Chapters) {
+        // G3-C: 使用 12 章模板模式
+        payload.template_type = selectedTemplateType
+        payload.include_sections = null  // 不传旧版 include_sections
+        // 品牌定制
+        if (watermarkText || companyName || primaryColor) {
+          payload.brand_config = {
+            watermark_text: watermarkText || undefined,
+            company_name: companyName || undefined,
+            primary_color_hex: primaryColor || undefined,
+          }
+        }
+      } else {
+        // 旧版：自由选择章节
+        payload.include_sections = selectedSections.length < SECTION_OPTIONS.length ? selectedSections : undefined
+      }
+
+      await apiClient.post('/api/reports/generate', payload)
       message.success('报告生成成功')
       setGenModal(false)
       form.resetFields()
@@ -248,70 +279,154 @@ const ReportPage: React.FC = () => {
       </Card>
 
       <Modal
-        title="生成报告"
+        title={<Space><CrownOutlined style={{ color: '#faad14' }} /><span>生成专业PDF报告</span></Space>}
         open={genModal}
         onOk={handleGenerate}
         confirmLoading={genLoading}
         onCancel={() => { setGenModal(false); form.resetFields() }}
-        width={600}
+        width={760}
       >
-        <Form form={form} layout="vertical">
-          <Form.Item name="model_id" label="模型 ID" rules={[{ required: true, message: '请输入模型ID' }]}>
-            <InputNumber min={1} style={{ width: '100%' }} placeholder="输入模型ID" />
-          </Form.Item>
-          <Form.Item name="title" label="报告标题">
-            <Input placeholder="如：泰坦尼克生存预测模型报告" />
-          </Form.Item>
-          <Form.Item name="notes" label="备注说明">
-            <Input.TextArea rows={2} placeholder="可输入模型说明、实验背景等" />
-          </Form.Item>
-          <Form.Item
-            name="narrative_depth"
-            label="数据关系分析深度"
-            tooltip="仅影响「数据与变量关系」章节：详细档含 Spearman 热力图与更多类别/箱线图。"
-            initialValue="standard"
-          >
-            <Select
-              options={[
-                { value: 'standard', label: '标准（较快）' },
-                { value: 'detailed', label: '详细（Spearman、更多图表）' },
-              ]}
-            />
-          </Form.Item>
-        </Form>
-        <Form.Item label="报表格式样式">
-          <Radio.Group value={formatStyle} onChange={e => setFormatStyle(e.target.value)}>
-            <Radio value="default">默认格式</Radio>
-            <Radio value="apa">APA 学术格式</Radio>
-          </Radio.Group>
-          <div style={{ marginTop: 4 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              APA 格式：双倍行距、更大字体，符合学术发表要求
-            </Text>
-          </div>
-        </Form.Item>
-        <Divider style={{ margin: '12px 0', borderColor: '#334155' }} />
-        <div style={{ marginTop: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500 }}>包含章节</span>
-            <span>
-              <Button size="small" type="link" style={{ padding: '0 4px' }}
-                onClick={() => setSelectedSections(SECTION_OPTIONS.map(o => o.value))}>全选</Button>
-              <Button size="small" type="link" style={{ padding: '0 4px' }}
-                onClick={() => setSelectedSections([])}>清空</Button>
-              <Button size="small" type="link" style={{ padding: '0 4px' }}
-                onClick={() => setSaveTemplateModal(true)}>
-                <SaveOutlined /> 保存当前配置为模板
-              </Button>
-            </span>
-          </div>
-          <Checkbox.Group
-            options={SECTION_OPTIONS}
-            value={selectedSections}
-            onChange={v => setSelectedSections(v as string[])}
-            style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 0' }}
-          />
-        </div>
+        <Tabs
+          items={[
+            {
+              key: 'basic', label: '基本信息',
+              children: (
+                <Form form={form} layout="vertical">
+                  <Form.Item name="model_id" label="模型 ID" rules={[{ required: true, message: '请输入模型ID' }]}>
+                    <InputNumber min={1} style={{ width: '100%' }} placeholder="输入模型ID" />
+                  </Form.Item>
+                  <Form.Item name="title" label="报告标题">
+                    <Input placeholder="如：泰坦尼克生存预测模型报告" />
+                  </Form.Item>
+                  <Form.Item name="notes" label="备注说明">
+                    <Input.TextArea rows={2} placeholder="可输入模型说明、实验背景等" />
+                  </Form.Item>
+                  <Form.Item name="narrative_depth" label="数据关系分析深度" tooltip="仅影响数据章节" initialValue="standard">
+                    <Select options={[{ value: 'standard', label: '标准（较快）' }, { value: 'detailed', label: '详细（Spearman、更多图表）' }]} />
+                  </Form.Item>
+                  <Form.Item label="报表格式样式">
+                    <Radio.Group value={formatStyle} onChange={e => setFormatStyle(e.target.value)}>
+                      <Radio value="default">默认格式</Radio>
+                      <Radio value="apa">APA 学术格式</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </Form>
+              )
+            },
+            {
+              key: 'template', label: <span><CrownOutlined /> 报告模板</span>,
+              children: (
+                <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: '#e2e8f0', fontWeight: 600 }}>选择报告模板（G3-C 12章规格）</Text>
+                    <Space>
+                      <Text style={{ color: '#94a3b8', fontSize: 12 }}>使用12章规格</Text>
+                      <Radio.Group value={useG3Chapters ? 'new' : 'legacy'} onChange={e => setUseG3Chapters(e.target.value === 'new')} optionType="button" size="small"
+                        options={[{ value: 'new', label: '12章固定结构' }, { value: 'legacy', label: '旧版自由选择' }]} />
+                    </Space>
+                  </div>
+
+                  {useG3Chapters ? (
+                    <>
+                      {/* 4 种预设模板按钮 */}
+                      <Row gutter={[12, 12]}>
+                        {REPORT_TEMPLATES.map(tpl => (
+                          <Col span={12} key={tpl.type}>
+                            <Card
+                              size="small"
+                              hoverable
+                              onClick={() => setSelectedTemplateType(tpl.type)}
+                              style={{
+                                background: selectedTemplateType === tpl.type ? '#1e3a5f' : '#0f172a',
+                                border: `2px solid ${selectedTemplateType === tpl.type ? '#3b82f6' : '#334155'}`,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <Space>
+                                {selectedTemplateType === tpl.type && <CheckCircleOutlined style={{ color: '#52c41a' }} />}
+                                <Tag color={tpl.badge as string}>{tpl.name}</Tag>
+                              </Space>
+                              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{tpl.description}</div>
+                              <div style={{ marginTop: 6 }}>
+                                {tpl.chapters.map(ch => {
+                                  const chapter = CHAPTERS_12.find(c => c.key === ch)
+                                  return chapter ? (
+                                    <Tag key={ch} style={{ marginBottom: 2, fontSize: 10 }}>{chapter.title.split('章')[1]?.trim() || chapter.title}</Tag>
+                                  ) : null
+                                })}
+                              </div>
+                            </Card>
+                          </Col>
+                        ))}
+                      </Row>
+
+                      {/* 当前选择的章节列表 */}
+                      {selectedTemplateType && (
+                        <Card size="small" title={<Text style={{ fontSize: 12 }}>包含章节预览</Text>} style={{ background: '#0f172a' }}>
+                          {REPORT_TEMPLATES.find(t => t.type === selectedTemplateType)?.chapters.map(chKey => {
+                            const ch = CHAPTERS_12.find(c => c.key === chKey)
+                            return ch ? (
+                              <div key={chKey} style={{ marginBottom: 4, padding: '4px 8px', background: '#1e293b', borderRadius: 4 }}>
+                                <Text style={{ color: '#60a5fa', fontSize: 12 }}>{ch.title}</Text>
+                                <Text style={{ color: '#475569', fontSize: 11, marginLeft: 8 }}>{ch.description}</Text>
+                              </div>
+                            ) : null
+                          })}
+                        </Card>
+                      )}
+                    </>
+                  ) : (
+                    /* 旧版章节选择 */
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ color: '#94a3b8', fontSize: 12 }}>自由选择章节（旧版模式）</Text>
+                        <Space>
+                          <Button size="small" type="link" onClick={() => setSelectedSections(SECTION_OPTIONS.map(o => o.value))}>全选</Button>
+                          <Button size="small" type="link" onClick={() => setSelectedSections([])}>清空</Button>
+                        </Space>
+                      </div>
+                      <Checkbox.Group options={SECTION_OPTIONS} value={selectedSections}
+                        onChange={v => setSelectedSections(v as string[])}
+                        style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 0' }} />
+                    </div>
+                  )}
+                </Space>
+              )
+            },
+            {
+              key: 'brand', label: '品牌定制',
+              children: (
+                <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                  <Text style={{ color: '#94a3b8', fontSize: 12 }}>
+                    企业品牌定制（可选）：设置后将显示在报告的页眉页脚与封面，支持水印、主色调定制
+                  </Text>
+                  <Form layout="vertical">
+                    <Form.Item label={<Text style={{ color: '#94a3b8' }}>企业/项目名称</Text>}>
+                      <Input placeholder="如：XGBoost Studio / 某公司数据科学部"
+                        value={companyName} onChange={e => setCompanyName(e.target.value)} />
+                    </Form.Item>
+                    <Form.Item label={<Text style={{ color: '#94a3b8' }}>水印文字（可选）</Text>}>
+                      <Input placeholder="如：机密 / 内部使用 / CONFIDENTIAL"
+                        value={watermarkText} onChange={e => setWatermarkText(e.target.value)} />
+                    </Form.Item>
+                    <Form.Item label={<Text style={{ color: '#94a3b8' }}>主色调十六进制颜色（可选）</Text>}>
+                      <Input placeholder="如：#003087 / #1677ff"
+                        value={primaryColor} onChange={e => setPrimaryColor(e.target.value)}
+                        prefix={primaryColor ? <div style={{ width: 14, height: 14, borderRadius: 2, background: primaryColor }} /> : undefined} />
+                    </Form.Item>
+                  </Form>
+                  <div style={{ background: '#0f172a', padding: 12, borderRadius: 6 }}>
+                    <Text style={{ color: '#475569', fontSize: 12 }}>
+                      预览：{companyName || 'XGBoost Studio'} 品牌报告
+                      {watermarkText ? ` | 水印：${watermarkText}` : ''}
+                      {primaryColor ? ` | 主色：${primaryColor}` : ''}
+                    </Text>
+                  </div>
+                </Space>
+              )
+            },
+          ]}
+        />
       </Modal>
 
       {/* PDF 预览模态框 */}

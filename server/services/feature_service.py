@@ -425,6 +425,319 @@ def get_distribution_tests(dataset: Dataset, column: str) -> dict[str, Any]:
     }
 
 
+# ── IV / KS / 单特征 AUC（分类）& 相关 / F值 / R²（回归）────────────────────
+
+def calc_iv_ks_auc(dataset: Dataset, target_column: str) -> list[dict[str, Any]]:
+    """
+    分类任务：输出每个特征的 IV（信息价值）、KS（判别力）、单特征 AUC。
+    回归任务：输出 Pearson 相关系数、F 检验值、单特征 R²。
+    自动判断任务类型：目标列唯一值 ≤ 20 视为分类，否则回归。
+    大数据集（>50000 行）自动采样 50000 行以保证性能。
+    """
+    from scipy import stats as sp_stats  # type: ignore
+    from sklearn.metrics import roc_auc_score  # type: ignore
+
+    df = _load_df(dataset)
+    if target_column not in df.columns:
+        raise HTTPException(status_code=400, detail=f"目标列不存在: {target_column}")
+
+    # 采样上限
+    if len(df) > 50000:
+        df = df.sample(50000, random_state=42)
+
+    y = df[target_column].dropna()
+    feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != target_column]
+    is_classification = int(y.nunique()) <= 20
+
+    result: list[dict[str, Any]] = []
+
+    for col in feature_cols:
+        s = df[col].dropna()
+        common_idx = s.index.intersection(y.index)
+        s, t = s.loc[common_idx], y.loc[common_idx]
+        if len(s) < 10:
+            continue
+
+        entry: dict[str, Any] = {"column": col, "task_type": "classification" if is_classification else "regression"}
+
+        if is_classification:
+            # ── IV 计算（等频 10 箱）────────────────────────────
+            try:
+                bins = pd.qcut(s, q=min(10, s.nunique()), duplicates="drop")
+                grouped = pd.DataFrame({"feature": bins, "target": t}).groupby("feature")
+                n_pos = int((t == 1).sum()) or 1
+                n_neg = int((t == 0).sum()) or 1
+                iv = 0.0
+                ks_max = 0.0
+                cum_pos, cum_neg = 0.0, 0.0
+                for _, grp in grouped:
+                    pos = int((grp["target"] == 1).sum())
+                    neg = int((grp["target"] == 0).sum())
+                    p_pos = pos / n_pos
+                    p_neg = neg / n_neg
+                    if p_pos > 0 and p_neg > 0:
+                        woe = np.log(p_pos / p_neg)
+                        iv += (p_pos - p_neg) * woe
+                    cum_pos += p_pos
+                    cum_neg += p_neg
+                    ks_max = max(ks_max, abs(cum_pos - cum_neg))
+                iv_level = "强" if iv > 0.3 else ("中" if iv > 0.1 else ("弱" if iv > 0.02 else "无效"))
+                entry["iv"] = round(float(iv), 4)
+                entry["iv_level"] = iv_level
+                entry["ks"] = round(float(ks_max), 4)
+            except Exception:
+                entry["iv"] = None
+                entry["iv_level"] = "N/A"
+                entry["ks"] = None
+
+            # ── 单特征 AUC ───────────────────────────────────────
+            try:
+                auc = float(roc_auc_score(t, s))
+                auc = max(auc, 1 - auc)  # 保证 >= 0.5
+                entry["single_auc"] = round(auc, 4)
+            except Exception:
+                entry["single_auc"] = None
+        else:
+            # 回归：Pearson 相关、F 检验、单特征 R²
+            try:
+                r, p_r = sp_stats.pearsonr(s, t)
+                entry["pearson_r"] = round(float(r), 4)
+                entry["pearson_p"] = round(float(p_r), 4)
+            except Exception:
+                entry["pearson_r"] = None
+                entry["pearson_p"] = None
+            try:
+                f_val, p_f = sp_stats.f_oneway(*[t[pd.qcut(s, q=min(5, s.nunique()), duplicates="drop") == b]
+                                                  for b in pd.qcut(s, q=min(5, s.nunique()), duplicates="drop").unique()])
+                entry["f_stat"] = round(float(f_val), 4)
+                entry["f_p"] = round(float(p_f), 4)
+            except Exception:
+                entry["f_stat"] = None
+                entry["f_p"] = None
+            try:
+                from sklearn.linear_model import LinearRegression  # type: ignore
+                lr = LinearRegression().fit(s.values.reshape(-1, 1), t.values)
+                ss_res = float(np.sum((t.values - lr.predict(s.values.reshape(-1, 1))) ** 2))
+                ss_tot = float(np.sum((t.values - t.mean()) ** 2))
+                r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+                entry["r2"] = round(float(r2), 4)
+            except Exception:
+                entry["r2"] = None
+
+        result.append(entry)
+
+    return sorted(result, key=lambda x: (x.get("iv") or x.get("single_auc") or x.get("r2") or 0), reverse=True)
+
+
+# ── PSI（群体稳定性指数）────────────────────────────────────────────────────
+
+def calc_psi_all(dataset: Dataset, time_column: str, target_column: Optional[str] = None) -> list[dict[str, Any]]:
+    """
+    按时间列将数据分为 基准期（前60%）和 对比期（后40%），计算每个数值特征的 PSI。
+    PSI < 0.1 → 稳定；0.1-0.25 → 轻微变化；> 0.25 → 不稳定，需关注。
+    """
+    df = _load_df(dataset)
+    if time_column not in df.columns:
+        raise HTTPException(status_code=400, detail=f"时间列不存在: {time_column}")
+
+    if len(df) > 50000:
+        df = df.sample(50000, random_state=42)
+
+    df_sorted = df.sort_values(time_column).reset_index(drop=True)
+    split_idx = int(len(df_sorted) * 0.6)
+    base_df = df_sorted.iloc[:split_idx]
+    compare_df = df_sorted.iloc[split_idx:]
+
+    feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns
+                    if c != time_column and c != target_column]
+    result = []
+
+    for col in feature_cols:
+        try:
+            base_s = base_df[col].dropna()
+            comp_s = compare_df[col].dropna()
+            if len(base_s) < 5 or len(comp_s) < 5:
+                continue
+
+            bins = pd.qcut(base_s, q=min(10, base_s.nunique()), duplicates="drop", retbins=True)[1]
+            bins[0] = -np.inf
+            bins[-1] = np.inf
+
+            base_counts = pd.cut(base_s, bins=bins).value_counts(sort=False) / len(base_s)
+            comp_counts = pd.cut(comp_s, bins=bins).value_counts(sort=False) / len(comp_s)
+
+            psi = 0.0
+            for b_pct, c_pct in zip(base_counts, comp_counts):
+                b_pct = max(b_pct, 1e-6)
+                c_pct = max(c_pct, 1e-6)
+                psi += (c_pct - b_pct) * np.log(c_pct / b_pct)
+
+            psi = float(psi)
+            level = "稳定" if psi < 0.1 else ("轻微变化" if psi < 0.25 else "不稳定")
+            result.append({
+                "column": col,
+                "psi": round(psi, 4),
+                "level": level,
+                "recommendation": "可安全入模" if psi < 0.1 else ("建议关注分布变化" if psi < 0.25 else "建议剔除或重新评估该特征"),
+            })
+        except Exception:
+            continue
+
+    return sorted(result, key=lambda x: x["psi"], reverse=True)
+
+
+# ── 特征业务单调性分析 ────────────────────────────────────────────────────────
+
+def calc_monotonicity(dataset: Dataset, target_column: str) -> list[dict[str, Any]]:
+    """
+    分析每个数值特征与目标变量的趋势一致性，为 XGBoost monotone_constraints 提供建议。
+    输出：特征取值分箱后与目标均值的单调性方向（升/降/非单调）及置信度。
+    """
+    from scipy import stats as sp_stats  # type: ignore
+
+    df = _load_df(dataset)
+    if target_column not in df.columns:
+        raise HTTPException(status_code=400, detail=f"目标列不存在: {target_column}")
+
+    if len(df) > 50000:
+        df = df.sample(50000, random_state=42)
+
+    y = df[target_column].dropna()
+    feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != target_column]
+    result = []
+
+    for col in feature_cols:
+        s = df[col].dropna()
+        common_idx = s.index.intersection(y.index)
+        s, t = s.loc[common_idx], y.loc[common_idx]
+        if len(s) < 10:
+            continue
+
+        try:
+            n_bins = min(10, s.nunique())
+            bins = pd.qcut(s, q=n_bins, duplicates="drop")
+            bin_means = t.groupby(bins).mean().dropna()
+
+            if len(bin_means) < 2:
+                continue
+
+            x_vals = list(range(len(bin_means)))
+            y_vals = bin_means.values.tolist()
+            rho, p_val = sp_stats.spearmanr(x_vals, y_vals)
+            rho = float(rho) if not np.isnan(rho) else 0.0
+            p_val = float(p_val) if not np.isnan(p_val) else 1.0
+
+            if abs(rho) >= 0.7 and p_val < 0.05:
+                direction = "单调递增" if rho > 0 else "单调递减"
+                constraint = 1 if rho > 0 else -1
+                confidence = "高" if abs(rho) >= 0.9 else "中"
+            elif abs(rho) >= 0.4:
+                direction = "弱单调递增" if rho > 0 else "弱单调递减"
+                constraint = 0
+                confidence = "低"
+            else:
+                direction = "非单调"
+                constraint = 0
+                confidence = "低"
+
+            result.append({
+                "column": col,
+                "spearman_rho": round(rho, 4),
+                "p_value": round(float(p_val), 4),
+                "direction": direction,
+                "confidence": confidence,
+                "monotone_constraint": constraint,
+                "bin_means": [round(v, 4) for v in y_vals],
+                "recommendation": f"建议 monotone_constraints 设为 {constraint}" if constraint != 0 else "无强单调性约束建议",
+            })
+        except Exception:
+            continue
+
+    return sorted(result, key=lambda x: abs(x.get("spearman_rho") or 0), reverse=True)
+
+
+# ── 标签专项分析（含 scale_pos_weight）────────────────────────────────────────
+
+def get_label_analysis(dataset: Dataset, target_column: str) -> dict[str, Any]:
+    """
+    标签口径全维度分析：分布统计、正负样本比例、scale_pos_weight 推荐值、
+    任务类型推断、异常标签值识别。
+    """
+    df = _load_df(dataset)
+    if target_column not in df.columns:
+        raise HTTPException(status_code=400, detail=f"目标列不存在: {target_column}")
+
+    y = df[target_column].dropna()
+    n_total = int(len(y))
+    n_unique = int(y.nunique())
+
+    # 任务类型推断
+    if n_unique == 2:
+        task_type = "binary_classification"
+    elif n_unique <= 20 and not pd.api.types.is_float_dtype(y):
+        task_type = "multiclass_classification"
+    else:
+        task_type = "regression"
+
+    # 基础统计
+    value_counts = y.value_counts().to_dict()
+    value_counts_pct = (y.value_counts(normalize=True) * 100).round(2).to_dict()
+
+    # 二分类：scale_pos_weight
+    scale_pos_weight = None
+    class_balance_warning = None
+    if task_type == "binary_classification":
+        neg_vals = [v for v in value_counts if v == 0 or str(v) == "0"]
+        pos_vals = [v for v in value_counts if v == 1 or str(v) == "1"]
+        if neg_vals and pos_vals:
+            n_neg = int(value_counts[neg_vals[0]])
+            n_pos = int(value_counts[pos_vals[0]])
+            scale_pos_weight = round(n_neg / n_pos, 4) if n_pos > 0 else None
+            ratio = n_neg / n_pos if n_pos > 0 else 1
+            if ratio > 10:
+                class_balance_warning = f"严重不均衡（负:正 = {ratio:.1f}:1），强烈建议设置 scale_pos_weight={scale_pos_weight}"
+            elif ratio > 3:
+                class_balance_warning = f"轻度不均衡（负:正 = {ratio:.1f}:1），建议设置 scale_pos_weight={scale_pos_weight}"
+        else:
+            vals = sorted(value_counts.keys())
+            if len(vals) >= 2:
+                n_neg = int(value_counts[vals[0]])
+                n_pos = int(value_counts[vals[1]])
+                scale_pos_weight = round(n_neg / n_pos, 4) if n_pos > 0 else None
+
+    # 异常标签值识别（仅数值型）
+    anomaly_labels = []
+    if pd.api.types.is_numeric_dtype(y) and task_type == "regression":
+        q1, q3 = float(y.quantile(0.25)), float(y.quantile(0.75))
+        iqr = q3 - q1
+        lower, upper = q1 - 3 * iqr, q3 + 3 * iqr
+        anomalies = y[(y < lower) | (y > upper)]
+        if len(anomalies) > 0:
+            anomaly_labels = [{"value": float(v), "count": int((y == v).sum())} for v in anomalies.unique()[:10]]
+
+    # 缺失标签
+    n_missing_label = int(df[target_column].isna().sum())
+
+    return {
+        "target_column": target_column,
+        "task_type": task_type,
+        "n_total": n_total,
+        "n_missing_label": n_missing_label,
+        "n_unique": n_unique,
+        "value_counts": {str(k): int(v) for k, v in value_counts.items()},
+        "value_counts_pct": {str(k): float(v) for k, v in value_counts_pct.items()},
+        "scale_pos_weight": scale_pos_weight,
+        "class_balance_warning": class_balance_warning,
+        "anomaly_labels": anomaly_labels,
+        "label_stats": {
+            "mean": round(float(y.mean()), 4) if pd.api.types.is_numeric_dtype(y) else None,
+            "std": round(float(y.std()), 4) if pd.api.types.is_numeric_dtype(y) else None,
+            "min": round(float(y.min()), 4) if pd.api.types.is_numeric_dtype(y) else None,
+            "max": round(float(y.max()), 4) if pd.api.types.is_numeric_dtype(y) else None,
+        },
+    }
+
+
 # ── PCA 辅助分析 ──────────────────────────────────────────────────────────────
 
 def get_pca_analysis(dataset: Dataset, n_components: int = 10) -> dict[str, Any]:

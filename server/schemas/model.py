@@ -100,6 +100,15 @@ class SinglePredictResponse(BaseModel):
 
 # ── 报告 ──────────────────────────────────────────────────────────────────────
 
+class BrandConfig(BaseModel):
+    """企业品牌定制配置（G3-C）"""
+    logo_path: Optional[str] = Field(None, description="企业 Logo 文件路径（本地绝对路径）")
+    watermark_text: Optional[str] = Field(None, description="水印文字（如「机密」「内部使用」）")
+    primary_color_hex: Optional[str] = Field(None, description="主色调十六进制颜色（如 #003087）")
+    company_name: Optional[str] = Field(None, description="企业名称，显示在页眉页脚")
+    footer_text: Optional[str] = Field(None, description="自定义页脚文字")
+
+
 class ReportGenerateRequest(BaseModel):
     model_id: int
     name: str = ""
@@ -117,6 +126,18 @@ class ReportGenerateRequest(BaseModel):
     narrative_depth: Optional[Literal["standard", "detailed"]] = "standard"
     # I3: 格式样式选择 - default/apa
     format_style: Optional[str] = "default"
+
+    # G3-C: 4 种预设模板类型
+    template_type: Optional[Literal[
+        "executive_brief",    # 管理层简报版
+        "business_execution", # 业务执行版
+        "technical_expert",   # 技术专家版
+        "compliance_audit",   # 合规审计版
+        "full_12_chapters",   # 完整 12 章版（默认）
+    ]] = Field("full_12_chapters", description="报告预设模板类型")
+
+    # G3-C: 企业品牌定制
+    brand_config: Optional[BrandConfig] = Field(None, description="企业品牌定制配置")
 
 
 class ReportCompareRequest(BaseModel):

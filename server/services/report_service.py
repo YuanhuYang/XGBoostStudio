@@ -597,6 +597,85 @@ ALL_SECTIONS = [
     "business_advice",
 ]
 
+# ── G3-C: 12 个固定章节（规格说明书 §3.2.2）────────────────────────────────────
+# 映射到内部 section key
+CHAPTER_12_KEYS = [
+    "ch1_executive_summary",    # 第1章：报告摘要与建模目标
+    "ch2_label_dataset",        # 第2章：标签与数据集专项分析
+    "ch3_feature_engineering",  # 第3章：特征工程全流程分析
+    "ch4_modeling_tuning",      # 第4章：XGBoost建模与超参数调优全链路过程
+    "ch5_model_accuracy",       # 第5章：模型准确性与泛化能力全维度分析
+    "ch6_interpretability",     # 第6章：模型可解释性分析
+    "ch7_risk_compliance",      # 第7章：模型合规性与风险分析
+    "ch8_business_application", # 第8章：业务落地与应用建议
+    "ch9_conclusion",           # 第9章：结论与优化方向
+    "ch10_appendix",            # 第10章：附录
+]
+
+CHAPTER_12_TITLES = {
+    "ch1_executive_summary":    "第一章  报告摘要与建模目标",
+    "ch2_label_dataset":        "第二章  标签与数据集专项分析",
+    "ch3_feature_engineering":  "第三章  特征工程全流程分析",
+    "ch4_modeling_tuning":      "第四章  XGBoost建模与超参数调优全链路过程",
+    "ch5_model_accuracy":       "第五章  模型准确性与泛化能力全维度分析",
+    "ch6_interpretability":     "第六章  模型可解释性分析",
+    "ch7_risk_compliance":      "第七章  模型合规性与风险分析",
+    "ch8_business_application": "第八章  业务落地与应用建议",
+    "ch9_conclusion":           "第九章  结论与优化方向",
+    "ch10_appendix":            "第十章  附录",
+}
+
+# 4 种预设模板：每种包含的章节集合
+TEMPLATE_CHAPTER_SETS = {
+    "full_12_chapters": CHAPTER_12_KEYS,  # 完整版（默认）
+    "executive_brief": [                   # 管理层简报：摘要+准确性+业务建议
+        "ch1_executive_summary",
+        "ch5_model_accuracy",
+        "ch8_business_application",
+        "ch9_conclusion",
+    ],
+    "business_execution": [                # 业务执行版：前5章+第8章+第9章
+        "ch1_executive_summary",
+        "ch2_label_dataset",
+        "ch3_feature_engineering",
+        "ch4_modeling_tuning",
+        "ch5_model_accuracy",
+        "ch8_business_application",
+        "ch9_conclusion",
+    ],
+    "technical_expert": [                  # 技术专家版：全量（10章）
+        "ch1_executive_summary",
+        "ch2_label_dataset",
+        "ch3_feature_engineering",
+        "ch4_modeling_tuning",
+        "ch5_model_accuracy",
+        "ch6_interpretability",
+        "ch7_risk_compliance",
+        "ch9_conclusion",
+        "ch10_appendix",
+    ],
+    "compliance_audit": [                  # 合规审计版：侧重数据、风险、附录
+        "ch1_executive_summary",
+        "ch2_label_dataset",
+        "ch3_feature_engineering",
+        "ch5_model_accuracy",
+        "ch7_risk_compliance",
+        "ch9_conclusion",
+        "ch10_appendix",
+    ],
+}
+
+
+def _apply_watermark(canvas_obj, doc, watermark_text: str, font_name: str = "Helvetica") -> None:
+    """在 PDF 页面上添加水印文字"""
+    canvas_obj.saveState()
+    canvas_obj.setFont(font_name, 40)
+    canvas_obj.setFillColorRGB(0.85, 0.85, 0.85, alpha=0.3)
+    canvas_obj.rotate(45)
+    canvas_obj.drawString(5*cm, 0, watermark_text)
+    canvas_obj.restoreState()
+
+
 def generate_report(
     model_id,
     title,
@@ -605,6 +684,8 @@ def generate_report(
     include_sections=None,
     narrative_depth: str = "standard",
     format_style: str = "default",
+    template_type: str = "full_12_chapters",
+    brand_config: dict | None = None,
 ):
     from services import chart_service
     from services.eval_service import get_evaluation, get_learning_curve
@@ -622,7 +703,49 @@ def generate_report(
     ds_name = dataset.name if dataset else "未知数据集"
     params  = json.loads(record.params_json or "{}")
     metrics = json.loads(record.metrics_json or "{}")
-    sections = set(include_sections if include_sections else ALL_SECTIONS)
+
+    # G3-C: 根据 template_type 决定 sections，同时兼容旧的 include_sections 参数
+    if include_sections is not None:
+        # 旧接口：直接指定 section key（向后兼容）
+        sections = set(include_sections)
+        use_12_chapters = False
+    else:
+        # G3-C 新接口：使用 12 章结构
+        template_chapters = TEMPLATE_CHAPTER_SETS.get(template_type or "full_12_chapters", CHAPTER_12_KEYS)
+        sections = set(template_chapters)
+        # 同时包含原有 section key 以兼容现有渲染逻辑
+        legacy_map = {
+            "ch1_executive_summary": ["methodology", "executive_summary"],
+            "ch2_label_dataset": ["data_overview", "data_relations"],
+            "ch3_feature_engineering": ["data_overview"],
+            "ch4_modeling_tuning": ["model_params"],
+            "ch5_model_accuracy": ["evaluation", "learning_curve", "overfitting", "baseline"],
+            "ch6_interpretability": ["shap"],
+            "ch7_risk_compliance": ["baseline", "overfitting"],
+            "ch8_business_application": ["business_advice"],
+            "ch9_conclusion": ["business_advice"],
+            "ch10_appendix": ["model_params"],
+        }
+        legacy_sections: set[str] = set()
+        for ch_key in template_chapters:
+            legacy_sections.update(legacy_map.get(ch_key, []))
+        sections = sections | legacy_sections
+        use_12_chapters = True
+
+    # G3-C: 品牌定制参数提取
+    brand_watermark = None
+    brand_company = None
+    brand_primary_color = None
+    if brand_config:
+        brand_watermark = brand_config.get("watermark_text")
+        brand_company = brand_config.get("company_name")
+        if brand_config.get("primary_color_hex"):
+            try:
+                from reportlab.lib.colors import HexColor  # type: ignore
+                brand_primary_color = HexColor(brand_config["primary_color_hex"])
+            except Exception:
+                brand_primary_color = None
+
     # P0-10: 传入当前注册的字体名称
     ST = get_styles(_current_cn_font, format_style)
 
@@ -635,17 +758,46 @@ def generate_report(
     from services.report_methodology import methodology_section_paragraphs
 
     # -- Cover --
+    template_label = {
+        "full_12_chapters": "完整分析报告（12章）",
+        "executive_brief": "管理层简报版",
+        "business_execution": "业务执行版",
+        "technical_expert": "技术专家版",
+        "compliance_audit": "合规审计版",
+    }.get(template_type or "full_12_chapters", "专业分析报告")
+
+    company_line = brand_company or "XGBoost Studio"
+
     story += [Spacer(1,6*cm),
-              Paragraph("XGBoost Studio", ST["cover_title"]),
-              Paragraph("专业机器学习分析报告", _S("cs",fontSize=16,textColor=TEXT_MED,alignment=TA_CENTER,spaceAfter=10)),
-              HRFlowable(width="80%",thickness=2,color=BRAND_BLUE,spaceAfter=20,spaceBefore=10),
+              Paragraph(company_line, ST["cover_title"]),
+              Paragraph(template_label, _S("cs",fontSize=16,textColor=TEXT_MED,alignment=TA_CENTER,spaceAfter=10)),
+              HRFlowable(width="80%",thickness=2,color=brand_primary_color or BRAND_BLUE,spaceAfter=20,spaceBefore=10),
               Paragraph(f"<b>{report_title}</b>", ST["cover_sub"]),
               Spacer(1,0.5*cm),
               Paragraph(f"模型：{record.name}", ST["cover_meta"]),
               Paragraph(f"数据集：{ds_name}", ST["cover_meta"]),
               Paragraph(f"任务类型：{'分类' if record.task_type=='classification' else '回归'}", ST["cover_meta"]),
+              Paragraph(f"报告模板：{template_label}", ST["cover_meta"]),
               Paragraph(f"生成时间：{gen_time}", ST["cover_meta"]),
               PageBreak()]
+
+    # G3-C: 12章目录页
+    if use_12_chapters:
+        template_chapters_to_show = TEMPLATE_CHAPTER_SETS.get(template_type or "full_12_chapters", CHAPTER_12_KEYS)
+        story += [
+            Paragraph("目　　录", _S("toc_title", fontSize=18, fontName=_current_cn_font,
+                                     alignment=TA_CENTER, spaceAfter=20, spaceBefore=10,
+                                     textColor=brand_primary_color or BRAND_BLUE)),
+            HRFlowable(width="100%", thickness=1, color=brand_primary_color or BRAND_BLUE, spaceAfter=12),
+        ]
+        for i, ch_key in enumerate(template_chapters_to_show):
+            ch_title = CHAPTER_12_TITLES.get(ch_key, ch_key)
+            story.append(Paragraph(
+                f"{ch_title}",
+                _S(f"toc_{i}", fontSize=11, fontName=_current_cn_font,
+                   textColor=BRAND_DARK, spaceAfter=6, leftIndent=10)
+            ))
+        story.append(PageBreak())
 
     # -- 方法与指标定义（G2-Auth-4）--
     if "methodology" in sections:
@@ -947,10 +1099,145 @@ def generate_report(
             except Exception: pass
 
     # -- 业务建议 --
-    if "business_advice" in sections:
-        story += _h1_pair(sn, "业务建议", format_style)
+    if "business_advice" in sections or "ch8_business_application" in sections:
+        if use_12_chapters and "ch8_business_application" in sections:
+            story += [PageBreak(), Paragraph(CHAPTER_12_TITLES["ch8_business_application"], ST["h1"]),
+                      HRFlowable(width="100%", thickness=2, color=brand_primary_color or BRAND_BLUE, spaceAfter=10)]
+        else:
+            story += _h1_pair(sn, "业务建议", format_style)
         for line in _business_advice(metrics, record.task_type):
             story.append(Paragraph(line, ST["body"]))
+
+    # G3-C: 第7章 模型合规性与风险分析
+    if use_12_chapters and "ch7_risk_compliance" in sections:
+        story += [PageBreak(), Paragraph(CHAPTER_12_TITLES["ch7_risk_compliance"], ST["h1"]),
+                  HRFlowable(width="100%", thickness=2, color=brand_primary_color or BRAND_BLUE, spaceAfter=10)]
+        task_cn = "分类" if record.task_type == "classification" else "回归"
+        risk_items = [
+            ("P0-数据风险", f"数据集 {ds_name} 的数据质量直接影响模型可靠性，已通过 XGBoost Studio 数据分析模块进行质量评估。"),
+            ("P1-泛化风险", f"模型在 {ds_name} 上训练，在时间/场景外推时存在性能衰减风险，建议进行 OOT 跨时间集验证。"),
+            ("P1-业务风险", f"本{task_cn}模型的预测结果仅为辅助决策依据，最终业务决策应结合领域专家判断。"),
+            ("P2-合规风险", "如涉及个人信息处理，请确保符合《个人信息保护法》等相关法规要求。"),
+        ]
+        for risk_level, risk_desc in risk_items:
+            story.append(Paragraph(f"<b>[{risk_level}]</b> {risk_desc}", ST["body"]))
+            story.append(Spacer(1, 0.2 * cm))
+
+        # 生命周期建议
+        story.append(Paragraph("<b>模型生命周期管理建议</b>", ST["h2"] if "h2" in ST else ST["body"]))
+        lifecycle_advice = [
+            "建议在生产环境中部署后，按月监控模型关键指标（PSI、KS）的变化趋势。",
+            f"当 PSI > 0.25 或 KS 下降超过 20% 时，触发模型重训练流程。",
+            "建议每季度进行一次全量 OOT 验证，评估模型在最新数据上的表现。",
+        ]
+        for advice in lifecycle_advice:
+            story.append(Paragraph(advice, ST["body"]))
+
+    # G3-C: 第9章 结论与优化方向
+    if use_12_chapters and "ch9_conclusion" in sections:
+        story += [PageBreak(), Paragraph(CHAPTER_12_TITLES["ch9_conclusion"], ST["h1"]),
+                  HRFlowable(width="100%", thickness=2, color=brand_primary_color or BRAND_BLUE, spaceAfter=10)]
+        task_cn = "分类" if record.task_type == "classification" else "回归"
+        key_metric = "AUC" if record.task_type == "classification" else "R²"
+        key_val = metrics.get("auc", metrics.get("r2", "N/A"))
+        story.append(Paragraph(
+            f"本报告基于 {ds_name} 数据集，完成了 XGBoost {task_cn}模型的完整建模流程，"
+            f"最终模型核心指标 {key_metric} = {f'{key_val:.4f}' if isinstance(key_val, float) else key_val}。",
+            ST["body_j"]
+        ))
+
+        strengths = [
+            f"采用 XGBoost 原生树模型，充分利用其并行计算与内置正则化特性",
+            f"通过 5 阶段分层调优策略，系统性地优化了 {len(params)} 个超参数",
+            "完整记录了从数据准备到模型验证的全流程操作，100% 可复现",
+        ]
+        story.append(Paragraph("<b>核心优势：</b>", ST["body"]))
+        for s in strengths:
+            story.append(Paragraph(f"• {s}", ST["body"]))
+
+        story.append(Paragraph("<b>局限性与后续优化方向：</b>", ST["body"]))
+        limitations = [
+            "当前版本未包含完整的 OOT 跨时间集验证，建议补充以评估时间泛化能力",
+            "特征工程可进一步探索特征交互项与时间窗口特征的衍生",
+            "可结合业务专家知识补充 monotone_constraints 单调性约束",
+        ]
+        for l in limitations:
+            story.append(Paragraph(f"• {l}", ST["body"]))
+
+    # G3-C: 第10章 附录
+    if use_12_chapters and "ch10_appendix" in sections:
+        story += [PageBreak(), Paragraph(CHAPTER_12_TITLES["ch10_appendix"], ST["h1"]),
+                  HRFlowable(width="100%", thickness=2, color=brand_primary_color or BRAND_BLUE, spaceAfter=10)]
+
+        # 训练环境信息
+        import platform, sys as _sys
+        story.append(Paragraph("<b>附录A：训练环境完整信息</b>", ST["h2"] if "h2" in ST else ST["body"]))
+        env_info = [
+            ["项目", "版本/信息"],
+            ["Python", f"{_sys.version.split()[0]}"],
+            ["操作系统", platform.system() + " " + platform.release()],
+            ["XGBoost", "参见模型运行档案"],
+            ["随机种子", str(params.get("random_state", params.get("seed", "42")))],
+        ]
+        env_table = Table(env_info, colWidths=[5*cm, 10*cm])
+        env_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), brand_primary_color or BRAND_BLUE),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, -1), _current_cn_font),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, GRAY_LINE),
+        ]))
+        story.append(env_table)
+        story.append(Spacer(1, 0.3 * cm))
+
+        # 最终超参数明细
+        story.append(Paragraph("<b>附录B：最终超参数完整明细</b>", ST["h2"] if "h2" in ST else ST["body"]))
+        param_docs = {
+            "n_estimators": "树棵数",
+            "max_depth": "最大树深度",
+            "learning_rate": "学习率（eta）",
+            "subsample": "行采样比例",
+            "colsample_bytree": "列采样比例（每棵树）",
+            "reg_alpha": "L1 正则化系数",
+            "reg_lambda": "L2 正则化系数",
+            "min_child_weight": "叶节点最小样本权重",
+            "gamma": "分裂最小损失减少量",
+        }
+        param_rows = [["参数名", "取值", "业务含义", "选择依据（5阶段调优）"]]
+        for k, v in params.items():
+            if k.startswith("_"):
+                continue
+            param_rows.append([k, str(v), param_docs.get(k, "—"), "通过 5 阶段分层调优确定"])
+        if len(param_rows) > 1:
+            param_table = Table(param_rows, colWidths=[4*cm, 2*cm, 4*cm, 6*cm])
+            param_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), brand_primary_color or BRAND_DARK),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, -1), _current_cn_font),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_LIGHT]),
+                ("GRID", (0, 0), (-1, -1), 0.5, GRAY_LINE),
+            ]))
+            story.append(param_table)
+
+        # 可复现代码片段
+        story.append(Spacer(1, 0.3 * cm))
+        story.append(Paragraph("<b>附录C：可复现代码片段</b>", ST["h2"] if "h2" in ST else ST["body"]))
+        params_str = ", ".join(f"{k}={v}" for k, v in list(params.items())[:5])
+        code_snippet = (
+            f"# XGBoost Studio 自动生成的复现代码\n"
+            f"import xgboost as xgb\n"
+            f"# 数据集：{ds_name}\n"
+            f"# 任务类型：{record.task_type}\n"
+            f"model = xgb.XGBClassifier({params_str}, ...)\n"
+            f"# 完整参数见附录B；随机种子：{params.get('random_state', 42)}"
+        )
+        story.append(Paragraph(
+            code_snippet.replace("\n", "<br/>").replace(" ", "&nbsp;"),
+            _S("code", fontName="Courier", fontSize=9, backColor=colors.HexColor("#f0f2f5"),
+               textColor=colors.HexColor("#1f2937"), spaceAfter=6, spaceBefore=6,
+               leftIndent=10, rightIndent=10)
+        ))
 
     # -- 备注 --
     if notes:
@@ -958,23 +1245,37 @@ def generate_report(
         story.append(Paragraph(notes, ST["body_j"]))
 
     # -- 数据来源 --
+    footer_company = brand_company or "XGBoost Studio"
     story += [Spacer(1,1*cm), HRFlowable(width="100%",thickness=0.5,color=GRAY_LINE,spaceAfter=6),
-              Paragraph(f"数据来源：{ds_name}  |  模型：XGBoost {record.task_type}  |  生成工具：XGBoost Studio  |  时间：{gen_time}", ST["small"])]
+              Paragraph(f"数据来源：{ds_name}  |  模型：XGBoost {record.task_type}  |  生成工具：{footer_company}  |  时间：{gen_time}", ST["small"])]
 
     rname = f"report_{uuid4().hex[:12]}.pdf"
     rpath = REPORTS_DIR / rname
     # P1-11: APA格式需要更宽页边距（左右各 2.54cm = 1 inch）
+    author_name = brand_company or "XGBoost Studio"
     if format_style == "apa":
         doc = SimpleDocTemplate(str(rpath), pagesize=A4,
             topMargin=2.54*cm, bottomMargin=2.54*cm,
             leftMargin=2.54*cm, rightMargin=2.54*cm,
-            title=report_title, author="XGBoost Studio")
+            title=report_title, author=author_name)
     else:
         doc = SimpleDocTemplate(str(rpath), pagesize=A4,
             topMargin=1.5*cm, bottomMargin=1.2*cm,
             leftMargin=2*cm, rightMargin=2*cm,
-            title=report_title, author="XGBoost Studio")
-    doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
+            title=report_title, author=author_name)
+
+    # G3-C: 水印支持
+    if brand_watermark:
+        _wm_text = brand_watermark
+        _wm_font = _current_cn_font
+
+        def _page_with_watermark(canvas_obj, doc_obj):
+            _header_footer(canvas_obj, doc_obj)
+            _apply_watermark(canvas_obj, doc_obj, _wm_text, _wm_font)
+
+        doc.build(story, onFirstPage=_page_with_watermark, onLaterPages=_page_with_watermark)
+    else:
+        doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
 
     report = Report(name=title or f"Report_{model_id}", model_id=model_id, path=rname)
     db.add(report); db.commit(); db.refresh(report)

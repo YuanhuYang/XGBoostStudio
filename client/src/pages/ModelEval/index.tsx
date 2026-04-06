@@ -2,14 +2,40 @@ import React, { useState, useEffect } from 'react'
 import {
   Card, Row, Col, Button, Typography, Space, Select, Steps,
   Tabs, Table, Tag, Alert, message, Statistic, Divider, Slider, Progress,
+  Badge,
 } from 'antd'
-import { ExperimentOutlined, BarChartOutlined, SafetyOutlined, DatabaseOutlined, ToolOutlined, SettingOutlined, PlayCircleOutlined } from '@ant-design/icons'
+import {
+  ExperimentOutlined, BarChartOutlined, SafetyOutlined, DatabaseOutlined,
+  ToolOutlined, SettingOutlined, PlayCircleOutlined, BugOutlined,
+  LineChartOutlined, WarningOutlined, TeamOutlined,
+} from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { getLearningCurve } from '../../api/models'
 import { useAppStore } from '../../store/appStore'
 import HelpButton, { HelpItem } from '../../components/HelpButton'
 const { Title, Text } = Typography
+
+// ─── G3-B 新增类型 ────────────────────────────────────────────────────────────
+interface PdpIceResult {
+  feature: string; grid_values: number[]; pdp_mean: number[]; pdp_std: number[]
+  ice_lines: number[][]; task_type: string; interpretation: string
+}
+interface RobustnessResult {
+  test_type: string; baseline_score: number; metric: string; task_type: string
+  overall_robustness: string
+  perturbation_results: { perturbation: string; degradation?: number; severity: string; [key: string]: unknown }[]
+}
+interface BadSampleResult {
+  fp_count: number; fn_count: number; error_rate: number
+  bad_sample_analysis: { type: string; count: number; pct_of_test: number; root_causes: string[]; common_features: { feature: string; bad_mean: number; normal_mean: number }[] }[]
+  recommendations: string[]
+}
+interface FairnessResult {
+  group_column: string; fairness_concern: string; interpretation: string
+  group_metrics: { group: string; n: number; accuracy?: number; f1?: number; positive_rate?: number; rmse?: number; r2?: number }[]
+  fairness_gap: number | null
+}
 
 const ModelEvalPage: React.FC = () => {
   const activeModelId = useAppStore(s => s.activeModelId)
@@ -53,6 +79,20 @@ const ModelEvalPage: React.FC = () => {
   const [kfoldData, setKfoldData] = useState<Record<string, unknown> | null>(null)
   const [kfoldLoading, setKfoldLoading] = useState(false)
   const [loading, setLoading] = useState(false)
+
+  // G3-B 新增状态
+  const [pdpFeature, setPdpFeature] = useState('')
+  const [pdpData, setPdpData] = useState<PdpIceResult | null>(null)
+  const [pdpLoading, setPdpLoading] = useState(false)
+  const [robustnessType, setRobustnessType] = useState('feature_perturbation')
+  const [robustnessData, setRobustnessData] = useState<RobustnessResult | null>(null)
+  const [robustnessLoading, setRobustnessLoading] = useState(false)
+  const [badSampleData, setBadSampleData] = useState<BadSampleResult | null>(null)
+  const [badSampleLoading, setBadSampleLoading] = useState(false)
+  const [fairnessGroupCol, setFairnessGroupCol] = useState('')
+  const [fairnessData, setFairnessData] = useState<FairnessResult | null>(null)
+  const [fairnessLoading, setFairnessLoading] = useState(false)
+  const [evalColumns, setEvalColumns] = useState<string[]>([])
 
   useEffect(() => {
     if (!modelId) {
@@ -127,6 +167,64 @@ const ModelEvalPage: React.FC = () => {
       setLoading(false)
     }
   }
+
+  // G3-B 新增数据加载函数
+  const fetchPdpIce = async () => {
+    if (!modelId || !pdpFeature) { message.warning('请输入模型 ID 和特征名'); return }
+    setPdpLoading(true)
+    try {
+      const r = await apiClient.get(`/api/models/${modelId}/pdp-ice/${encodeURIComponent(pdpFeature)}`)
+      setPdpData(r.data as PdpIceResult)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || 'PDP/ICE 分析失败')
+    } finally { setPdpLoading(false) }
+  }
+
+  const fetchRobustness = async () => {
+    if (!modelId) { message.warning('请先加载模型评估'); return }
+    setRobustnessLoading(true)
+    try {
+      const r = await apiClient.post(`/api/models/${modelId}/robustness-test`, { test_type: robustnessType })
+      setRobustnessData(r.data as RobustnessResult)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '鲁棒性测试失败')
+    } finally { setRobustnessLoading(false) }
+  }
+
+  const fetchBadSample = async () => {
+    if (!modelId) { message.warning('请先加载模型评估'); return }
+    setBadSampleLoading(true)
+    try {
+      const r = await apiClient.get(`/api/models/${modelId}/bad-sample-diagnosis`)
+      setBadSampleData(r.data as BadSampleResult)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '坏样本诊断失败')
+    } finally { setBadSampleLoading(false) }
+  }
+
+  const fetchFairness = async () => {
+    if (!modelId || !fairnessGroupCol) { message.warning('请选择分组列'); return }
+    setFairnessLoading(true)
+    try {
+      const r = await apiClient.post(`/api/models/${modelId}/fairness-analysis`, { group_col: fairnessGroupCol })
+      setFairnessData(r.data as FairnessResult)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '公平性分析失败')
+    } finally { setFairnessLoading(false) }
+  }
+
+  // 加载模型特征列（用于 PDP 特征选择）
+  useEffect(() => {
+    if (!modelId) { setEvalColumns([]); return }
+    apiClient.get(`/api/models/${modelId}/evaluation`).then(r => {
+      const shap = (r.data as Record<string, unknown>)?.shap_summary as Array<{feature: string}> | undefined
+      if (shap) setEvalColumns(shap.map(s => s.feature).filter(Boolean))
+    }).catch(() => {})
+  }, [modelId])
 
   // 混淆矩阵
   const confData = evalData?.confusion_matrix as { labels: string[]; matrix: number[][] } | undefined
@@ -677,7 +775,198 @@ const ModelEvalPage: React.FC = () => {
                 </Card>
               )
             })()
-          }
+          },
+
+          // ─── G3-B: PDP / ICE ─────────────────────────────────────────────
+          {
+            key: 'pdp',
+            label: <span><LineChartOutlined /> PDP/ICE</span>,
+            children: (
+              <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
+                <Alert type="info" showIcon style={{ marginBottom: 12 }}
+                  message="偏依赖图（PDP）显示单个特征对预测结果的边际影响；ICE 图显示每个样本的个体条件期望曲线。可用于验证特征影响趋势与业务逻辑的一致性。" />
+                <Space style={{ marginBottom: 16 }} wrap>
+                  <Text style={{ color: '#94a3b8' }}>选择特征：</Text>
+                  <Select showSearch placeholder="选择要分析的特征" value={pdpFeature || undefined}
+                    onChange={v => setPdpFeature(v)}
+                    options={evalColumns.map(c => ({ value: c, label: c }))}
+                    style={{ width: 220 }} allowClear />
+                  <Button type="primary" icon={<LineChartOutlined />} onClick={fetchPdpIce} loading={pdpLoading}>
+                    生成 PDP/ICE
+                  </Button>
+                </Space>
+                {pdpData && (
+                  <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                    <Alert type="info" message={pdpData.interpretation} showIcon />
+                    <ReactECharts
+                      option={{
+                        title: { text: `${pdpData.feature} 的偏依赖图（PDP）与 ICE 曲线`, textStyle: { color: '#94a3b8', fontSize: 13 } },
+                        tooltip: { trigger: 'axis' },
+                        legend: { data: ['PDP均值', ...pdpData.ice_lines.slice(0, 5).map((_, i) => `ICE样本${i+1}`)], textStyle: { color: '#94a3b8' } },
+                        xAxis: { type: 'category', data: pdpData.grid_values.map(v => v.toFixed(2)), name: pdpData.feature, axisLabel: { color: '#94a3b8', rotate: 30 } },
+                        yAxis: { type: 'value', name: '预测值', axisLabel: { color: '#94a3b8' } },
+                        series: [
+                          {
+                            name: 'PDP均值', type: 'line', data: pdpData.pdp_mean,
+                            lineStyle: { color: '#f59e0b', width: 3 }, symbol: 'none',
+                          },
+                          ...pdpData.ice_lines.slice(0, 20).map((line, i) => ({
+                            name: i < 5 ? `ICE样本${i+1}` : undefined,
+                            type: 'line', data: line,
+                            lineStyle: { color: '#3b82f6', width: 0.5, opacity: 0.3 },
+                            symbol: 'none', showInLegend: i < 5,
+                          })),
+                        ],
+                        backgroundColor: 'transparent',
+                      }}
+                      style={{ height: 360 }}
+                    />
+                  </Space>
+                )}
+              </Card>
+            )
+          },
+
+          // ─── G3-B: 鲁棒性测试 ────────────────────────────────────────────
+          {
+            key: 'robust',
+            label: <span><SafetyOutlined /> 鲁棒性测试</span>,
+            children: (
+              <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
+                <Alert type="info" showIcon style={{ marginBottom: 12 }}
+                  message="鲁棒性压力测试：评估模型对特征扰动、样本扰动和极端值的抗干扰能力，验证生产环境的稳定性。" />
+                <Space style={{ marginBottom: 16 }} wrap>
+                  <Select value={robustnessType} onChange={setRobustnessType} style={{ width: 220 }}
+                    options={[
+                      { value: 'feature_perturbation', label: '特征扰动（噪声+缺失）' },
+                      { value: 'sample_perturbation', label: '样本扰动（随机剔除）' },
+                      { value: 'extreme', label: '极端值样本测试' },
+                    ]} />
+                  <Button type="primary" icon={<SafetyOutlined />} onClick={fetchRobustness} loading={robustnessLoading}>
+                    开始鲁棒性测试
+                  </Button>
+                </Space>
+                {robustnessData && (
+                  <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                    <Alert type={robustnessData.overall_robustness.includes('稳定') ? 'success' : 'warning'}
+                      message={robustnessData.overall_robustness} showIcon />
+                    <Row gutter={16}>
+                      <Col span={8}><Statistic title="基准得分" value={robustnessData.baseline_score.toFixed(4)} valueStyle={{ color: '#60a5fa' }} /></Col>
+                      <Col span={8}><Statistic title="测试指标" value={robustnessData.metric} /></Col>
+                      <Col span={8}><Statistic title="测试样本数" value={robustnessData.n_test_samples} /></Col>
+                    </Row>
+                    <Table size="small" pagination={false}
+                      dataSource={robustnessData.perturbation_results.map((r, i) => ({ ...r, key: i }))}
+                      columns={[
+                        { title: '扰动类型', dataIndex: 'perturbation', key: 'p' },
+                        { title: robustnessData.metric, dataIndex: robustnessData.metric, key: 'score', render: (v: number) => v != null ? v.toFixed(4) : '-' },
+                        { title: '相对基准偏差', dataIndex: 'degradation', key: 'deg', render: (v: number) => {
+                          if (v == null) return '-'
+                          const color = Math.abs(v) > 0.05 ? 'red' : Math.abs(v) > 0.02 ? 'orange' : 'green'
+                          return <Tag color={color}>{v > 0 ? `↓-${v.toFixed(4)}` : `↑+${Math.abs(v).toFixed(4)}`}</Tag>
+                        }},
+                        { title: '稳定性评级', dataIndex: 'severity', key: 'sev', render: (v: string) => (
+                          <Tag color={v === '稳定' || v === '基准' ? 'green' : v === '中等' ? 'orange' : 'red'}>{v}</Tag>
+                        )},
+                      ]} />
+                  </Space>
+                )}
+              </Card>
+            )
+          },
+
+          // ─── G3-B: 坏样本诊断 ────────────────────────────────────────────
+          {
+            key: 'badsample',
+            label: <span><BugOutlined /> 坏样本诊断</span>,
+            children: (
+              <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
+                <Alert type="info" showIcon style={{ marginBottom: 12 }}
+                  message="坏样本根因诊断（仅分类任务）：自动识别 FP/FN 错误预测样本，通过 K-Means 聚类发现共性特征，输出根因分析和优化建议。" />
+                <Button type="primary" icon={<BugOutlined />} onClick={fetchBadSample} loading={badSampleLoading} style={{ marginBottom: 16 }}>
+                  开始坏样本诊断
+                </Button>
+                {badSampleData && (
+                  <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                    <Row gutter={16}>
+                      <Col span={6}><Statistic title="假阳性 FP" value={badSampleData.fp_count} valueStyle={{ color: '#ff4d4f' }} /></Col>
+                      <Col span={6}><Statistic title="假阴性 FN" value={badSampleData.fn_count} valueStyle={{ color: '#faad14' }} /></Col>
+                      <Col span={6}><Statistic title="整体错误率" value={`${badSampleData.error_rate.toFixed(2)}%`} valueStyle={{ color: badSampleData.error_rate > 20 ? '#ff4d4f' : '#52c41a' }} /></Col>
+                    </Row>
+                    {badSampleData.recommendations.length > 0 && (
+                      <Alert type="warning" showIcon icon={<WarningOutlined />}
+                        message="优化建议"
+                        description={<ul style={{ margin: 0, paddingLeft: 16 }}>{badSampleData.recommendations.map((r, i) => <li key={i}>{r}</li>)}</ul>} />
+                    )}
+                    {badSampleData.bad_sample_analysis.map(ba => (
+                      <Card key={ba.type} size="small"
+                        title={<Space><Badge color={ba.type.includes('FP') ? 'red' : 'orange'} /><Text style={{ color: '#e2e8f0' }}>{ba.type}（{ba.count} 个，占测试集 {ba.pct_of_test}%）</Text></Space>}
+                        style={{ background: '#0f172a' }}>
+                        {ba.root_causes.length > 0 && (
+                          <div style={{ marginBottom: 8 }}>
+                            <Text style={{ color: '#94a3b8', fontSize: 12 }}>根因分析：</Text>
+                            {ba.root_causes.map((rc, i) => <div key={i} style={{ color: '#fbbf24', fontSize: 12 }}>{rc}</div>)}
+                          </div>
+                        )}
+                        {ba.common_features.length > 0 && (
+                          <Table size="small" pagination={false}
+                            dataSource={ba.common_features.map((f, i) => ({ ...f, key: i }))}
+                            columns={[
+                              { title: '特征', dataIndex: 'feature', key: 'f' },
+                              { title: '坏样本均值', dataIndex: 'bad_mean', key: 'bm', render: (v: number) => <Text style={{ color: '#ff4d4f' }}>{v.toFixed(4)}</Text> },
+                              { title: '正常样本均值', dataIndex: 'normal_mean', key: 'nm', render: (v: number) => <Text style={{ color: '#52c41a' }}>{v.toFixed(4)}</Text> },
+                            ]} />
+                        )}
+                      </Card>
+                    ))}
+                  </Space>
+                )}
+              </Card>
+            )
+          },
+
+          // ─── G3-B: 公平性分析 ────────────────────────────────────────────
+          {
+            key: 'fairness',
+            label: <span><TeamOutlined /> 公平性分析</span>,
+            children: (
+              <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
+                <Alert type="info" showIcon style={{ marginBottom: 12 }}
+                  message="算法公平性分析：按分组字段（如性别、年龄段、地区）计算各子群的预测准确性偏差，验证模型无歧视性预测偏差，输出人口统计公平差异（DPD）。" />
+                <Space style={{ marginBottom: 16 }} wrap>
+                  <Text style={{ color: '#94a3b8' }}>分组列：</Text>
+                  <Select showSearch placeholder="选择分组字段（如 Sex、Age 等）"
+                    value={fairnessGroupCol || undefined}
+                    onChange={v => setFairnessGroupCol(v)}
+                    options={evalColumns.map(c => ({ value: c, label: c }))}
+                    style={{ width: 220 }} allowClear />
+                  <Button type="primary" icon={<TeamOutlined />} onClick={fetchFairness} loading={fairnessLoading}>
+                    运行公平性分析
+                  </Button>
+                </Space>
+                {fairnessData && (
+                  <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                    <Alert
+                      type={fairnessData.fairness_concern === '低' ? 'success' : fairnessData.fairness_concern === '中' ? 'warning' : 'error'}
+                      message={fairnessData.interpretation} showIcon
+                      description={fairnessData.demographic_parity_difference != null ? `人口统计公平差异（DPD）= ${fairnessData.demographic_parity_difference.toFixed(4)}（理想值 < 0.1）` : undefined}
+                    />
+                    <Table size="small" pagination={false}
+                      dataSource={fairnessData.group_metrics.map((r, i) => ({ ...r, key: i }))}
+                      columns={[
+                        { title: '分组', dataIndex: 'group', key: 'g' },
+                        { title: '样本数', dataIndex: 'n', key: 'n' },
+                        { title: 'Accuracy', dataIndex: 'accuracy', key: 'acc', render: (v?: number) => v != null ? <Tag color={v >= 0.8 ? 'green' : v >= 0.6 ? 'blue' : 'red'}>{v.toFixed(4)}</Tag> : '-' },
+                        { title: 'F1', dataIndex: 'f1', key: 'f1', render: (v?: number) => v != null ? v.toFixed(4) : '-' },
+                        { title: '正向预测率', dataIndex: 'positive_rate', key: 'pr', render: (v?: number) => v != null ? `${(v * 100).toFixed(1)}%` : '-' },
+                        { title: 'RMSE', dataIndex: 'rmse', key: 'rmse', render: (v?: number) => v != null ? v.toFixed(4) : '-' },
+                        { title: 'R²', dataIndex: 'r2', key: 'r2', render: (v?: number) => v != null ? v.toFixed(4) : '-' },
+                      ]} />
+                  </Space>
+                )}
+              </Card>
+            )
+          },
         ]} />
       )}
     </div>

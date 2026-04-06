@@ -8,7 +8,8 @@
 
 ## 文档与默认上下文（索引）
 
-- **日常研发 / 下一迭代**：优先 [`需求文档.md`](../docs/product/需求文档.md)、[`验收标准文档.md`](../docs/product/验收标准文档.md)、[`迭代计划.md`](../docs/product/迭代计划.md)（按需）、[`功能需求与验收状态.md`](../docs/product/功能需求与验收状态.md)、[`验收-AC证据矩阵.md`](../docs/product/验收-AC证据矩阵.md)、[`验收追踪.md`](../docs/product/验收追踪.md)；**签核与多视角术语**见 [`项目管理术语-五领域.md`](../docs/product/项目管理术语-五领域.md)；章程见 **`docs/iterations/<迭代ID>/章程.md`**（只打开与当期任务相关的迭代子目录）。
+- **产品设计 / 技术架构 / 业务流程**（当前版本 v0.3.0）：优先 **[`docs/wiki/`](../docs/wiki/README.md)**（七篇知识库文档，与代码同步维护）。
+- **历史迭代过程文档**（验收矩阵、迭代计划、AC证据等）：已归档至 [`docs/archive/legacy-product/`](../docs/archive/legacy-product/)，不再作为日常研发参考，需要时用 **`@`** 精确路径打开。
 - **执行记录**（各迭代目录下的 **`执行记录.md`**）、**跨迭代抽样**（[`抽样-F3-分模块.md`](../docs/evidence/抽样-F3-分模块.md)）为 **审计与全量验收留痕**；若配置了 Cursor 忽略规则，可避免默认索引整树 `docs/`，需要时仍用 **`@`** 精确路径打开。
 
 ## 能力与配置（规则 / Skill / 提示词）
@@ -26,7 +27,7 @@
 | **项目 Skill（研发实现）** | 指南后落地功能模块、衔接全量测试 | `.cursor/skills/xgboost-studio-rd-implementation/SKILL.md` |
 | **项目 Skill（测试交付闭环）** | 分析→设计→自动化→全量执行→修缺陷 + DoD | `.cursor/skills/xgboost-studio-test-delivery/SKILL.md` |
 | **项目 Skill（文档管家）** | `docs/` 目录结构、命名、链接与迭代目录对齐 [`CONVENTIONS.md`](../docs/CONVENTIONS.md) | `.cursor/skills/xgboost-studio-doc-steward/SKILL.md` |
-| **项目 Skill（版本与发布）** | 产品版本号（SemVer）与迭代 ID、[`版本与发布.md`](../docs/product/版本与发布.md) | `.cursor/skills/xgboost-studio-release-versioning/SKILL.md` |
+| **项目 Skill（版本与发布）** | 产品版本号（SemVer）与迭代 ID（参考 [`docs/wiki/01-product-overview.md`](../docs/wiki/01-product-overview.md)） | `.cursor/skills/xgboost-studio-release-versioning/SKILL.md` |
 | **项目 Skill（迭代方向分流）** | 方向意图 → Subagent / Skill 选路 | `.cursor/skills/xgboost-studio-iteration-intents/SKILL.md` |
 | **可复制提示词** | Plan + PM + 多迭代 A/B/C（分段 0/A/B/C/D） | `.cursor/prompts/multi-agent-review-and-test.md` |
 | **`.cursor` 索引** | Skill / Rule / Prompt / Commands / Subagent 手卡 | `.cursor/README.md` |
