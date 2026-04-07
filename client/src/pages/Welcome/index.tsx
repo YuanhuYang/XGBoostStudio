@@ -111,7 +111,7 @@ const WelcomePage: React.FC = () => {
               <Text type="secondary" style={{ fontSize: 13 }}>正在加载示例列表…</Text>
             ) : builtinSamples.length === 0 ? (
               <Text type="secondary" style={{ fontSize: 13 }}>
-                无法从后端加载示例目录。请确认服务已启动；若刚升级过前端，请同步重新构建并替换 <Text code>xgboost-server.exe</Text>，使内置示例 key 与当前版本一致。
+                无法从后端加载示例目录。请确认服务已启动；若刚升级过安装包，请重新构建并同步内置后端（PyInstaller 产物），使内置示例 key 与当前版本一致。
               </Text>
             ) : (
               builtinSamples.map(s => (

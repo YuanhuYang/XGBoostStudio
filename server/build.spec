@@ -1,12 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
 PyInstaller 构建配置
-输出：dist/xgboost-server.exe（单文件，含完整 Python + 所有依赖）
+输出：Windows 为 dist/xgboost-server.exe；macOS/Linux 为 dist/xgboost-server（无扩展名）。
 """
 import sys
-from pathlib import Path
 
 block_cipher = None
+# UPX 在 macOS 上易引发签名/稳定性问题；Linux 上亦先关闭以优先保证可运行。
+_use_upx = sys.platform == 'win32'
 
 # 收集所有需要的数据文件
 added_files = [
@@ -115,7 +116,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=_use_upx,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,

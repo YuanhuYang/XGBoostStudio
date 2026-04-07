@@ -102,17 +102,20 @@ uv run python -m cli.main
 
 > **完全离线可用**：安装包已内置 Python 3.12 解释器 + 全部依赖库
 
-### macOS 安装（即将支持）
+### macOS 安装
 
-1. 从 Release 页面下载 `XGBoost-Studio-x.x.x.dmg`
-2. 双击打开，拖拽应用到 Applications 文件夹
-3. 从 Launchpad 或 Finder 启动应用
+1. 从 [Release 页面](https://github.com/YuanhuYang/XGBoostStudio/releases) 下载 `.dmg` 或 `.zip`（文件名以实际 Tag 为准）
+2. 打开 dmg 后拖拽应用到 Applications（zip 则解压后按提示运行）
+3. 若提示未签名应用，请在「系统设置 → 隐私与安全性」中放行或使用右键「打开」
 
-> 开发者在 macOS 可通过源码方式运行，无需等待 DMG 发布。
+> 细节与兼容性见 Wiki [`11-mac-linux-distribution.md`](../wiki/11-mac-linux-distribution.md)。
 
-### Linux 用户
+### Linux 用户（桌面包）
 
-参考下文"Linux 浏览器访问"部分。
+1. 从 [Release 页面](https://github.com/YuanhuYang/XGBoostStudio/releases) 下载 `.AppImage` 或 `.deb`
+2. AppImage：`chmod +x` 后执行；deb：使用系统包管理器安装
+
+> 亦可仅用浏览器开发态访问，见下文「Linux 浏览器访问」。桌面包说明见 [`11-mac-linux-distribution.md`](../wiki/11-mac-linux-distribution.md)。
 
 ---
 
