@@ -62,12 +62,23 @@ if [[ "$OS_UNAME" == Darwin ]]; then
       echo "[错误] 无法执行 arch -x86_64，不能生成 x64 后端；macOS 发布包请在 Apple Silicon 或 GitHub Actions macos-latest 上构建。" >&2
       exit 1
     fi
+    # 须使用 x86_64 专属 .venv：复用 arm64 的 .venv 时 Pillow 等 .so 为 arm64，PyInstaller 打 x64 包会报 IncompatibleBinaryArchError
     arch -x86_64 /bin/bash -c "
       set -euo pipefail
       cd '$ROOT/server'
-      rm -rf build dist
-      uv sync --all-groups --frozen
-      uv run pyinstaller build.spec --noconfirm
+      rm -rf build dist .venv-x64
+      # 每条 uv 前加 arch -x86_64，避免 arm64 的 uv 本体在 Rosetta shell 里仍走原生 arm64
+      arch -x86_64 uv venv .venv-x64 --python 3.12
+      export VIRTUAL_ENV='$ROOT/server/.venv-x64'
+      export PATH=\"\$VIRTUAL_ENV/bin:\$PATH\"
+      PY=\"\$VIRTUAL_ENV/bin/python3\"
+      if ! file \"\$PY\" | grep -q x86_64; then
+        echo '[错误] .venv-x64 解释器不是 x86_64，无法构建 Intel 后端。' >&2
+        file \"\$PY\" || true
+        exit 1
+      fi
+      arch -x86_64 uv sync --all-groups --frozen --active
+      arch -x86_64 uv run --active pyinstaller build.spec --noconfirm
     "
     cp -f "$ROOT/server/dist/xgboost-server" "$X64_OUT"
     chmod +x "$X64_OUT"

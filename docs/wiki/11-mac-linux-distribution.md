@@ -64,7 +64,7 @@ chmod +x scripts/build-all.sh
 
 | 平台 | 行为 |
 |------|------|
-| **macOS** | 在 **Apple Silicon** 上：原生 PyInstaller → `xgboost-server-arm64`；**Rosetta (`arch -x86_64`)** 再打一份 x86_64 → `xgboost-server-x64`；然后 `npm ci` + `npm run build` → 仓库根 `dist/` 下 arm64/x64 的 dmg/zip。 |
+| **macOS** | 在 **Apple Silicon** 上：默认 `.venv` 原生 PyInstaller → `xgboost-server-arm64`；Intel 后端使用 **独立 `server/.venv-x64`**（Rosetta 下 `arch -x86_64 uv venv` + `uv sync --active`，避免 arm64 的 Pillow 等 `.so` 混入导致 PyInstaller `IncompatibleBinaryArchError`）→ `xgboost-server-x64`；然后 `npm ci` + `npm run build` → 仓库根 `dist/` 下 arm64/x64 的 dmg/zip。 |
 | **Linux** | 仅 PyInstaller + 同步 `client/resources/xgboost-server`；**不**执行 Electron 打包。随后请自行 `npm run dev:web` 或仅用后端/CLI。 |
 
 可选：`--skip-server`、`--skip-client`。
