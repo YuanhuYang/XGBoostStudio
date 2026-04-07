@@ -40,6 +40,27 @@ jobs:
           npm run test -- --run
           npm run typecheck
 
+  # 不跑完整 macOS 构建；仅校验 build-all.sh 与 uv x86_64 darwin 发行包解压逻辑（PR 上尽早发现脚本回归）
+  verify-macos-build-prep:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            shell: bash
+          - os: windows-latest
+            shell: pwsh
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify (Bash)
+        if: matrix.shell == 'bash'
+        run: bash scripts/verify-macos-build-prep.sh
+      - name: Verify (PowerShell)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: ./scripts/verify-macos-build-prep.ps1
+
   # playwright:
   #   runs-on: ubuntu-latest
   #   defaults:

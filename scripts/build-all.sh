@@ -8,6 +8,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/fetch-uv-x86_64-apple-darwin.sh
+source "$ROOT/scripts/lib/fetch-uv-x86_64-apple-darwin.sh"
 SKIP_SERVER=false
 SKIP_CLIENT=false
 
@@ -69,21 +71,7 @@ if [[ "$OS_UNAME" == Darwin ]]; then
     mkdir -p "$UV_X64_DIR"
     if [[ ! -x "$UV_X64_BIN" ]]; then
       echo "  下载 astral-sh/uv $UV_TAG (uv-x86_64-apple-darwin.tar.gz)..."
-      UV_TMP="$(mktemp -d)"
-      if ! curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_TAG}/uv-x86_64-apple-darwin.tar.gz" \
-        -o "$UV_TMP/uv.tgz"; then
-        rm -rf "$UV_TMP"
-        echo "[错误] 无法下载 uv x86_64 发行包（版本 ${UV_TAG}）。可设置环境变量 UV_VERSION 为已发布的 tag。" >&2
-        exit 1
-      fi
-      if ! tar -xzf "$UV_TMP/uv.tgz" -C "$UV_TMP"; then
-        rm -rf "$UV_TMP"
-        echo "[错误] 解压 uv 发行包失败。" >&2
-        exit 1
-      fi
-      mv "$UV_TMP/uv" "$UV_X64_BIN"
-      chmod +x "$UV_X64_BIN"
-      rm -rf "$UV_TMP"
+      xs_fetch_uv_x86_64_apple_darwin "$UV_TAG" "$UV_X64_BIN"
     fi
     if ! file "$UV_X64_BIN" | grep -q x86_64; then
       echo "[错误] 缓存的 uv 不是 x86_64: $(file "$UV_X64_BIN")" >&2
