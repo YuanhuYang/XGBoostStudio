@@ -335,6 +335,7 @@ const SmartWorkflow: React.FC = () => {
       try {
         const { job_id } = await startAutoMLJob({
           dataset_id: selectedDatasetId,
+          target_column: targetColumn || undefined,
           skip_tuning: automlFast,
           max_tuning_trials: automlFast ? 0 : automlTrials,
           smart_clean: automlSmartClean,

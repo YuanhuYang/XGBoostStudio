@@ -40,6 +40,8 @@ _KW_TARGET_SUFFIX = frozenset({'target', 'label', 'class', 'output', 'prediction
 
 _KW_ID = frozenset({'id', 'index', 'idx', 'name', 'uuid', 'key', 'pk', 'rowid', 'row'})
 
+_SINGLE_LETTER_COORDS = frozenset(set('abcdefghijklmnopqrstuvwxyz'))
+
 _SOFTMAX_TEMP = 0.15
 
 
@@ -63,6 +65,9 @@ def recommend_target_columns(df: pd.DataFrame) -> list[dict[str, Any]]:
     n_cols = len(df.columns)
     candidates: list[dict[str, Any]] = []
 
+    single_letter_cols = {c for c in df.columns if len(c) == 1 and c.lower() in _SINGLE_LETTER_COORDS}
+    has_coord_system = len(single_letter_cols) >= 2
+
     for i, col in enumerate(df.columns):
         col_lower = col.lower()
         tokens_list = tokenize_col_name(col)
@@ -84,9 +89,16 @@ def recommend_target_columns(df: pd.DataFrame) -> list[dict[str, Any]]:
             score += 0.25
             reasons.append("列名含价格/金额关键词")
 
-        if tokens & _KW_FINAL:
+        has_final = bool(tokens & _KW_FINAL)
+        has_price = bool(tokens & _KW_PRICE)
+
+        if has_final:
             score += 0.10
             reasons.append("含最终/实际语义前缀")
+
+        if has_final and has_price:
+            score += 0.20
+            reasons.append("同时含最终语义+价格语义（强目标信号）")
 
         if last_token in _KW_TARGET_SUFFIX:
             score += 0.10
@@ -115,6 +127,10 @@ def recommend_target_columns(df: pd.DataFrame) -> list[dict[str, Any]]:
                 reasons.append("数值型且具有一定方差")
 
         # ── 惩罚信号 ──
+        if has_coord_system and col in single_letter_cols:
+            score -= 0.35
+            reasons.append("单字母列且存在坐标系（可能为空间维度）")
+
         # 浮点列高基数是回归目标的正常特征，仅对整型/字符串列施加惩罚
         if n_rows > 50 and n_unique >= n_rows * 0.95 and not pd.api.types.is_float_dtype(df[col]):
             score -= 0.30

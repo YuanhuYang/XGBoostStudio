@@ -97,6 +97,46 @@ def test_single_strong_candidate():
     assert cands[0]["confidence"] >= 0.80
 
 
+def test_cnc_milling_xyz_not_target():
+    """CNC 数据中 X/Y/Z 是空间坐标，ManualPrice 才是目标。"""
+    import numpy as np
+    rng = np.random.default_rng(42)
+    n = 200
+    df = pd.DataFrame({
+        "PartID": range(n),
+        "X": rng.uniform(10, 500, n),
+        "Y": rng.uniform(10, 500, n),
+        "Z": rng.uniform(5, 200, n),
+        "Volume": rng.uniform(100, 50000, n),
+        "BilletPrice": rng.uniform(10, 1000, n),
+        "MinPrice": rng.uniform(50, 5000, n),
+        "ManualPrice": rng.uniform(100, 8000, n),
+    })
+    cands = recommend_target_columns(df)
+    assert cands[0]["col"] == "ManualPrice", (
+        f"CNC 场景 Top-1 应为 ManualPrice, got '{cands[0]['col']}'. "
+        f"Top-3: {[(c['col'], c['confidence']) for c in cands[:3]]}"
+    )
+    assert cands[0]["confidence"] >= 0.50
+    xyz_cols = {c["col"] for c in cands[:3]}
+    assert "X" not in xyz_cols and "Y" not in xyz_cols and "Z" not in xyz_cols, (
+        f"X/Y/Z 不应出现在 Top-3: {[(c['col'], c['confidence']) for c in cands[:3]]}"
+    )
+
+
+def test_final_price_compound_boost():
+    """FinalCost / ActualPrice 等组合应获得额外加分。"""
+    n = 100
+    df = pd.DataFrame({
+        "feat1": range(n),
+        "feat2": range(n, 2 * n),
+        "FinalCost": [float(x) for x in range(n)],
+    })
+    cands = recommend_target_columns(df)
+    assert cands[0]["col"] == "FinalCost"
+    assert cands[0]["confidence"] >= 0.60
+
+
 def test_confidence_output_format():
     """验证输出字段格式契合前端 API 契约。"""
     df = pd.DataFrame({"x": [1, 2], "target": [0, 1]})
