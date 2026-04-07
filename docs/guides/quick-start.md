@@ -110,12 +110,13 @@ uv run python -m cli.main
 
 > 细节与兼容性见 Wiki [`11-mac-linux-distribution.md`](../wiki/11-mac-linux-distribution.md)。
 
-### Linux 用户（桌面包）
+### Linux 用户（后端 + 浏览器 / CLI）
 
-1. 从 [Release 页面](https://github.com/YuanhuYang/XGBoostStudio/releases) 下载 `.AppImage` 或 `.deb`
-2. AppImage：`chmod +x` 后执行；deb：使用系统包管理器安装
+1. 从 [Release 页面](https://github.com/YuanhuYang/XGBoostStudio/releases) 下载 **`xgboost-server-vX.Y.Z-linux-x64.tar.gz`**
+2. 解压并 `chmod +x xgboost-server`，运行后端；另开终端在 `client/` 执行 `npm ci && npm run dev:web`，浏览器访问 `http://localhost:5173`
+3. 命令行编排见 [`xs-studio-cli.md`](xs-studio-cli.md)
 
-> 亦可仅用浏览器开发态访问，见下文「Linux 浏览器访问」。桌面包说明见 [`11-mac-linux-distribution.md`](../wiki/11-mac-linux-distribution.md)。
+> 无 Linux Electron 安装包。完整说明见 [`11-mac-linux-distribution.md`](../wiki/11-mac-linux-distribution.md)；亦可纯源码开发态，见下文「Linux 浏览器访问」。
 
 ---
 

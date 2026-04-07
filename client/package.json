@@ -110,19 +110,6 @@
       ],
       "category": "public.app-category.productivity"
     },
-    "linux": {
-      "extraResources": [
-        {
-          "from": "resources/xgboost-server",
-          "to": "xgboost-server"
-        }
-      ],
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Utility"
-    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
