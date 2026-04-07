@@ -23,7 +23,8 @@
     "test:e2e:ci": "playwright test",
     "build-poc": "tsc --project e2e/poc-demo/tsconfig.json",
     "clean-poc": "rm -rf e2e/poc-demo/dist",
-    "poc": "npm run build-poc && node e2e/poc-demo/dist/cli.js"
+    "poc": "npm run build-poc && node e2e/poc-demo/dist/cli.js",
+    "generate:icons": "uv run --directory ../server --with pillow python ../scripts/generate_brand_icons.py && node ./scripts/emit-icns.mjs"
   },
   "dependencies": {
     "antd": "^5.22.0",
@@ -58,6 +59,7 @@
     "electron-vite": "^2.3.0",
     "jsdom": "^29.0.1",
     "playwright": "^1.59.1",
+    "png2icons": "^2.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
@@ -66,6 +68,7 @@
   "build": {
     "appId": "com.xgbooststudio.app",
     "productName": "XGBoost Studio",
+    "icon": "build/icon.png",
     "directories": {
       "buildResources": "build",
       "output": "../dist"
@@ -75,6 +78,7 @@
       "dist/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "extraResources": [
         {
           "from": "resources/xgboost-server.exe",
@@ -98,15 +102,32 @@
       ]
     },
     "mac": {
+      "icon": "build/icon.icns",
       "extraResources": [
         {
-          "from": "resources/xgboost-server",
-          "to": "xgboost-server"
+          "from": "resources/xgboost-server-arm64",
+          "to": "xgboost-server-arm64"
+        },
+        {
+          "from": "resources/xgboost-server-x64",
+          "to": "xgboost-server-x64"
         }
       ],
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.productivity"
     },
@@ -115,7 +136,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "XGBoost Studio"
+      "shortcutName": "XGBoost Studio",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     },
     "dmg": {
       "contents": [

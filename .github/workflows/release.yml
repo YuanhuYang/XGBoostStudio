@@ -46,6 +46,7 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -125,11 +126,17 @@ jobs:
           body: |
             **安装包说明**
 
-            - **Windows**：`Setup` 为 NSIS 安装包；另一 `.exe` 为 portable 免安装版。
-            - **macOS**：`.dmg` / `.zip`；当前 CI 产物**未做代码签名与公证**，首次打开可能需在「隐私与安全性」中放行或使用右键打开。
-            - **Linux**：**不发布 Electron**。Release 提供 `xgboost-server-<tag>-linux-x64.tar.gz`（PyInstaller 单文件后端）；解压后赋予可执行权限运行，再配合浏览器（`npm run dev:web` 等）与 CLI，见 `docs/wiki/11-mac-linux-distribution.md`。
+            - **Windows**：`Setup` 为 NSIS 安装包；另一 `.exe` 为 portable 免安装版。若启动后界面纯白，可尝试快捷方式目标后追加 `--disable-gpu`，或设置环境变量 `XGBOOST_STUDIO_DISABLE_GPU=1` 后启动；亦可查看 `%APPDATA%\xgboost-studio\main-process-diagnostics.log`（加载失败 / 渲染进程崩溃会写入）。
+            - **macOS**：同时提供 **Apple Silicon（文件名含 `-arm64`）** 与 **Intel（文件名含 `-x64`）** 的 `.dmg` / `.zip`，请按本机 CPU 选择。当前 CI 产物**未做代码签名与公证**，首次打开可能需在「隐私与安全性」中放行或使用右键打开。
+            - **Linux**：**不发布 Electron**。Release 提供 `xgboost-server-<tag>-linux-x64.tar.gz`（PyInstaller 单文件后端）；解压后赋予可执行权限运行，再配合浏览器（`npm run dev:web` 等）与 CLI。
 
-            Windows / macOS 桌面包见 `docs/wiki/10-windows-distribution.md` 与同页姊妹篇。
+            **文档（GitHub Wiki）**
+
+            - Windows 分发：<https://github.com/${{ github.repository }}/wiki/10-windows-distribution>
+            - macOS / Linux 分发：<https://github.com/${{ github.repository }}/wiki/11-mac-linux-distribution>
+            - 知识库首页：<https://github.com/${{ github.repository }}/wiki/Home>
+
+            源码中的 Markdown：`docs/wiki/10-windows-distribution.md`、`docs/wiki/11-mac-linux-distribution.md`。若 Wiki 仍为默认欢迎页，请在仓库 Actions secrets 中配置 `WIKI_PUSH_TOKEN`，并运行 **Sync GitHub Wiki** 工作流完成同步。
           files: release-flat/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

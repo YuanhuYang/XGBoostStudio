@@ -1,4 +1,13 @@
-# 将 docs/wiki 同步到 GitHub Wiki（.wiki.git）。需先在仓库 Wiki 创建首页，并配置 WIKI_PUSH_TOKEN。
+# 将 docs/wiki 同步到 GitHub Wiki（.wiki.git）。
+#
+# 前置条件：
+# 1. 在仓库网页启用 Wiki 并至少保存过一次首页（默认欢迎页即可）。
+# 2. Settings → Secrets and variables → Actions → Repository secrets：WIKI_PUSH_TOKEN
+#    - Fine-grained PAT：对该仓库勾选 Wiki 写入权限。
+#    - Classic PAT：勾选 repo（含 wiki）。
+# 未配置 WIKI_PUSH_TOKEN 时，推送步骤会跳过并以 notice 提示（勿在 job 级 if 使用 secrets，否则 workflow 无法解析）。
+#
+# 触发：push 到 main/master 且变更 docs/wiki/**（或本脚本/本 workflow）；或手动 workflow_dispatch。
 name: Sync GitHub Wiki
 
 on:
@@ -13,7 +22,6 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: ${{ secrets.WIKI_PUSH_TOKEN != '' }}
     permissions:
       contents: read
     steps:
@@ -35,6 +43,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
+          if [ -z "${WIKI_PUSH_TOKEN}" ]; then
+            echo "::notice::WIKI_PUSH_TOKEN 未配置，已跳过 Wiki 推送。请在 Settings → Secrets and variables → Actions 中添加具备 Wiki 写入权限的 PAT。"
+            exit 0
+          fi
           set -e
           git clone "https://x-access-token:${WIKI_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" "${RUNNER_TEMP}/wiki_repo"
           cd "${RUNNER_TEMP}/wiki_repo"

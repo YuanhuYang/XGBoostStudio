@@ -13,6 +13,10 @@ const App: React.FC = () => {
     const win = window as unknown as Window & {
       electron?: {
         server: {
+          getConnectionState: () => Promise<{
+            status: 'stopped' | 'starting' | 'running' | 'error'
+            errorMessage: string | null
+          }>
           onReady: (cb: () => void) => () => void
           onConnecting: (cb: (d: { attempt: number; max: number }) => void) => () => void
           onError: (cb: (msg: string) => void) => () => void
@@ -21,9 +25,51 @@ const App: React.FC = () => {
     }
 
     if (win.electron) {
+      type Conn = { status: string; errorMessage: string | null }
+      let pollTimer: ReturnType<typeof setInterval> | null = null
+      let pollAttempts = 0
+      const MAX_POLL_ATTEMPTS = 120
+
+      const applyConnectionState = (state: Conn) => {
+        if (state.status === 'running') {
+          setServerReady(true)
+          setServerError(null)
+          setConnectingProgress(null)
+          if (pollTimer !== null) {
+            clearInterval(pollTimer)
+            pollTimer = null
+          }
+        } else if (state.status === 'error') {
+          setServerReady(false)
+          setServerError(state.errorMessage ?? '后端服务异常')
+          setConnectingProgress(null)
+          if (pollTimer !== null) {
+            clearInterval(pollTimer)
+            pollTimer = null
+          }
+        }
+      }
+
+      const pullConnectionState = () => {
+        void win.electron!.server.getConnectionState().then(applyConnectionState)
+      }
+
+      // 避免 server:ready / server:error 早于 React 注册监听器而丢失
+      pullConnectionState()
+      pollTimer = setInterval(() => {
+        pollAttempts += 1
+        if (pollAttempts > MAX_POLL_ATTEMPTS) {
+          if (pollTimer !== null) clearInterval(pollTimer)
+          pollTimer = null
+          return
+        }
+        pullConnectionState()
+      }, 600)
+
       // Electron 模式：监听主进程事件
       const unsubReady = win.electron.server.onReady(() => {
         setServerReady(true)
+        setServerError(null)
         setConnectingProgress(null)
       })
       const unsubConnecting = win.electron.server.onConnecting((d) => {
@@ -34,6 +80,7 @@ const App: React.FC = () => {
         setServerReady(false)
       })
       return () => {
+        if (pollTimer !== null) clearInterval(pollTimer)
         unsubReady()
         unsubConnecting()
         unsubError()
