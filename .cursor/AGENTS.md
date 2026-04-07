@@ -8,8 +8,9 @@
 
 ## 文档与默认上下文（索引）
 
-- **产品设计 / 技术架构 / 业务流程**（当前版本 v0.3.0）：优先 **[`docs/wiki/`](../docs/wiki/README.md)**（七篇知识库文档，与代码同步维护）。
-- **历史迭代过程文档**（验收矩阵、迭代计划、AC证据等）：已归档至 [`docs/archive/legacy-product/`](../docs/archive/legacy-product/)，不再作为日常研发参考，需要时用 **`@`** 精确路径打开。
+- **产品设计 / 技术架构 / 业务流程**（当前版本 **v0.5.x**）：优先 **[`docs/wiki/`](../docs/wiki/README.md)**（知识库 **10 篇** Markdown `01`–`10`，与代码同步；其中 **`10-windows-distribution`** 未列入应用内 `DOCS_MANIFEST`，见 Wiki README 说明）。
+- **历史产品规格与验收**（需求文档、验收标准、追踪矩阵等）：已迁至 [`docs/archive/legacy-product/`](../docs/archive/legacy-product/)，**不再使用空的 `docs/product/`**；日常以 Wiki + 迭代章程为准，需要历史材料时用 **`@`** 精确路径打开。
+- **历史迭代过程文档**（各迭代执行记录等）：仍位于 [`docs/iterations/`](../docs/iterations/)。
 - **执行记录**（各迭代目录下的 **`执行记录.md`**）、**跨迭代抽样**（[`抽样-F3-分模块.md`](../docs/evidence/抽样-F3-分模块.md)）为 **审计与全量验收留痕**；若配置了 Cursor 忽略规则，可避免默认索引整树 `docs/`，需要时仍用 **`@`** 精确路径打开。
 
 ## 能力与配置（规则 / Skill / 提示词）
@@ -45,13 +46,13 @@
   - 安装 **含开发组** 依赖（含 `pytest`、`httpx` 等，见 [`server/pyproject.toml`](../server/pyproject.toml) 的 `[dependency-groups] dev`）：`uv sync --all-groups`（推荐）或等价方式安装 dev 组。
   - **API 自动化回归（无需先起服务）**：`uv run pytest`（默认不收集 `tests/acceptance_test.py`，见 `server/tests/conftest.py` 中 `collect_ignore`）。**G1 信任链**：`tests/test_trust_chain_contract.py`、`tests/test_authority_breast_cancer_pipeline.py`（章程：[`章程.md`](../docs/iterations/G1/章程.md)，按需查阅）。
   - **端到端验收**：需 **API 已监听**（端口以项目配置为准，验收脚本当前为 `18899`）：`python tests/acceptance_test.py`。
-  - **有模型时的报告 PDF 快验**（可选）：`python tests/e2e_validate.py`（无模型时跳过报告步骤，见脚本文档字符串与 [`验收追踪.md`](../docs/product/验收追踪.md)）。
+  - **有模型时的报告 PDF 快验**（可选）：`python tests/e2e_validate.py`（无模型时跳过报告步骤，见脚本文档字符串与 [`验收追踪.md`](../docs/archive/legacy-product/验收追踪.md)）。
 - **客户端**：`cd client && npm install && npm run test -- --run && npm run typecheck`（Vitest 最小集：`src/constants/reportSections.test.ts`）。
 - **脚本式验收（需已起服务）**：亦可由 GitHub Actions **手动工作流** [`.github/workflows/acceptance.yml`](../.github/workflows/acceptance.yml) 执行 `tests/acceptance_test.py`。
 - **协作资产**：本目录（`.cursor/`）含规则、Skill、提示词、**Commands**、**Subagents**（`.cursor/agents/*.md`，见 [`.cursor/README.md`](README.md) § Subagents）；与仓库文档一并克隆后，在 Cursor 中可共享同一套编排与测试上下文。
 - **一页迭代启动**：在 Cursor 运行命令 **`/pm-迭代启动`**（或打开 [`.cursor/commands/pm-迭代启动.md`](commands/pm-迭代启动.md)），在参数中写入 **产品方向**；项目经理角色将拉通 Harness 流程并给出 **按会话拆分的 Subagent 表**，五领域审视建议 **5 次短会话 + 1 次汇总**（无关领域可跳过，见 [`.cursor/agents/consensus-review.md`](agents/consensus-review.md)），以控制上下文与 Token。
-- **里程碑 / 发版检查**：[`RELEASE_CHECKLIST.md`](../docs/product/RELEASE_CHECKLIST.md)（产品级全量命令与实测摘录模板）。
-- **迭代计划 ↔ 验收映射**：[`验收追踪.md`](../docs/product/验收追踪.md)。
+- **里程碑 / 发版检查**：[`RELEASE_CHECKLIST.md`](../docs/archive/legacy-product/RELEASE_CHECKLIST.md)（产品级全量命令与实测摘录模板）。
+- **迭代计划 ↔ 验收映射**：[`验收追踪.md`](../docs/archive/legacy-product/验收追踪.md)。
 
 ## 长时间稳定执行的习惯
 

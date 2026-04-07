@@ -225,7 +225,7 @@ XGBoost 支持 `monotone_constraints` 参数，可强制某个特征对预测结
 
 **分类任务**：后端将目标列做数值化（编码）后再参与分箱均值与 Spearman，使单调性结论与 `monotone_constraints` 的数值方向一致。
 
-**教学 UI（前端）**：在 **智能向导** 与 **模型调优** 模式下（`showTeachingUi`），`FeatureAnalysis` 页 IV/KS/PSI 等 Tab 标题旁显示概念 Popover（阈值与原理简述）；专家模式不展示。详见 [`01-product-overview.md`](01-product-overview.md)。
+**教学 UI（前端）**：在 **智能向导**、**数据处理** 与 **模型调优** 模式下（`showTeachingUi`，即 `guided` / `preprocess` / `learning`），`FeatureAnalysis` 页 IV/KS/PSI 等 Tab 标题旁显示概念 Popover（阈值与原理简述）；**专家分析** 不展示。导航与模式以 [`01-product-overview.md`](01-product-overview.md)、[`02-architecture.md`](02-architecture.md) 为准。
 
 ### 结论判定
 
@@ -301,6 +301,7 @@ XGBoost 对共线性具有一定天然鲁棒性（树模型每步仅选最优分
 | 版本 | 变更摘要 |
 |------|----------|
 | v0.5.0 | 全文「版本对应」与产品 v0.5.x 对齐；分析能力无破坏性变更 |
+| v0.5.x | §教学 UI：`showTeachingUi` 含 **数据处理**；与四模式、[`02-architecture.md`](02-architecture.md) 对齐 |
 | v0.4.x | 文首增加「质量综合分」链至 Wiki `09`；新增§二「目标列智能推荐」：词边界匹配 + 基数信号 + softmax 归一化，10 数据集正确率 10/10；分类目标下单调性分析与 `monotone_constraints` 建议对齐；向导/调优下 IV/KS/PSI 概念 Popover |
 | v0.3.0 | G3-A 落地：新增 IV/KS/PSI/单调性/标签分析/三类泄露检测 API + FeatureAnalysis 页面扩展为 10 Tab |
 | v0.2.0 | 基础特征分析（分布/相关/VIF/PCA）落地 |

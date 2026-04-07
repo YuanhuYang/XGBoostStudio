@@ -2,7 +2,7 @@
 
 ## Scope And Source Of Truth
 - 这是本仓库 **GitHub Copilot** 的工作区级指令文件。与 Cursor 共用的仓库级约定、测试命令与 Skill 索引见 **[`.cursor/AGENTS.md`](../.cursor/AGENTS.md)**。
-- 需求与验收以 `docs/product/需求文档.md`、`docs/product/验收标准文档.md` 为准。
+- **当前产品与架构**以 **[`docs/wiki/01-product-overview.md`](../docs/wiki/01-product-overview.md)**、[`docs/wiki/02-architecture.md`](../docs/wiki/02-architecture.md) 及**代码**为准。历史需求/验收见 [`docs/archive/legacy-product/`](../docs/archive/legacy-product/)（**勿使用已清空的 `docs/product/` 路径**）。
 - 工程流程与提交规范以 `docs/guides/开发规范.md` 为准。
 - 部署与环境问题优先参考 `docs/guides/部署说明.md`。
 
@@ -41,7 +41,7 @@
 ## Link-First References
 - 总览与快速开始：`README.md`
 - 开发流程与提交规范：`docs/guides/开发规范.md`
-- 功能规格：`docs/product/需求文档.md`
-- 验收标准：`docs/product/验收标准文档.md`
+- 历史功能规格：`docs/archive/legacy-product/需求文档.md`
+- 历史验收标准：`docs/archive/legacy-product/验收标准文档.md`
 - 部署、镜像与常见问题：`docs/guides/部署说明.md`
 - 历史自动化上下文（仅参考，不作为当前事实来源）：`docs/guides/AGENT_PROMPT.md`

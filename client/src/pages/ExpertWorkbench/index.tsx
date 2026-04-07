@@ -354,7 +354,7 @@ const EXPERT_HELP_EMPTY: PageHelpPayload = {
     {
       title: '这个页面做什么？',
       content:
-        '在专家模式下查看当前主模型的验证指标摘要，并快捷跳转调优、评估、导出 .ubj；适合 CLI AutoML 跑完后从深链进入。',
+        '在专家分析模式下查看当前主模型的验证指标摘要，并快捷跳转模型评估、分析报告、交互预测与导出 .ubj；训练与超参请切换到「模型调优」。适合 CLI AutoML 跑完后从深链进入。',
     },
     {
       title: '如何选定模型？',
@@ -384,7 +384,7 @@ const EXPERT_HELP_SINGLE: PageHelpPayload = {
     {
       title: '多模型对比在哪？',
       content:
-        '在专家模式顶栏「对比模型」多选同划分下的其它模型（含主模型至多 8 个），本页会切换为多模型并排对比（含差值列与推荐标签）；也可在「模型管理」勾选多个模型打开弹窗对比（与工作台状态独立）。',
+        '在专家分析模式顶栏「对比模型」多选同划分下的其它模型（含主模型至多 8 个），本页会切换为多模型并排对比（含差值列与推荐标签）；也可在「模型管理」勾选多个模型打开弹窗对比（与工作台状态独立）。',
     },
   ],
 }
@@ -969,7 +969,7 @@ const ExpertWorkbenchPage: React.FC = () => {
           showIcon
           style={{ marginTop: 16, background: '#1e293b', borderColor: '#334155' }}
           message="尚未选择模型"
-          description="请先在顶栏选择主模型与训练划分，或到「模型管理」选定模型后再进入专家分析。"
+          description="请先在顶栏选择主模型与训练划分，或到「模型管理」选定模型后再使用专家分析模式。"
         />
         <Space style={{ marginTop: 16 }}>
           <Button type="primary" onClick={() => go('model-management')}>前往模型管理</Button>

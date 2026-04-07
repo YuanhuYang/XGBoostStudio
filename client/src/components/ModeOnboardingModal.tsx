@@ -55,14 +55,14 @@ const onboardingContent: Record<WorkflowMode, {
     accentColor: '#a78bfa',
     steps: [
       { title: '从调优工作台开始', description: '查看数据集、划分与主模型状态，按推荐进入各子页', icon: <BarChartOutlined /> },
-      { title: '前置条件', description: '须已在顶栏选择数据集，并在「数据处理 → 特征工程」完成划分', icon: <ReadOutlined /> },
+      { title: '前置条件', description: '须已激活数据集（进入本模式前会校验），并在顶栏选择训练划分；新建划分请用「数据处理 → 特征工程」', icon: <ReadOutlined /> },
       { title: '训练与超参调优', description: '参数配置、模型训练与超参数调优；参数页可使用教学卡片与参数实验室', icon: <ExperimentOutlined /> },
       { title: '确定主模型', description: '在模型管理中对比与登记，将满意模型设为主模型上下文', icon: <BookOutlined /> },
     ],
   },
   expert: {
     title: '欢迎使用专家分析模式',
-    subtitle: '侧重多模型对比、评估、报告与预测交付；不包含模型训练与超参数搜索',
+    subtitle: '侧栏为模型工作台与评估/管理/报告/预测；顶栏可选对比模型。不含参数配置、训练与超参搜索（请在「模型调优」完成）',
     icon: <ExperimentOutlined style={{ fontSize: 32, color: '#22c55e' }} />,
     accentColor: '#22c55e',
     steps: [
@@ -105,7 +105,7 @@ const ModeOnboardingModal: React.FC<ModeOnboardingModalProps> = ({ mode, open, o
         <div style={{ marginBottom: 12 }}>{content.icon}</div>
         <Title level={4} style={{ marginBottom: 4 }}>{content.title}</Title>
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>{content.subtitle}</Paragraph>
-        <Tag color={content.accentColor} style={{ marginBottom: 20 }}>v0.4 新特性</Tag>
+        <Tag color={content.accentColor} style={{ marginBottom: 20 }}>v0.5 · 四模式导航</Tag>
       </div>
 
       <Steps

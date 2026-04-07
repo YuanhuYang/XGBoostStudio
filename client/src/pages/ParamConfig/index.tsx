@@ -175,14 +175,14 @@ const ParamConfigPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      {/* E3: 向导 / 模型调优：教学卡片与参数实验（专家模式不展示） */}
+      {/* E3: 向导 / 数据处理 / 模型调优：教学卡片与参数实验（专家分析不展示） */}
       {showTeaching && (
         <Alert
           type="success"
           showIcon
           icon={<ReadOutlined />}
           message="参数教学已开启"
-          description="智能向导与模型调优模式下默认展示教学卡片（算法直觉、调参效果、过拟合风险）。点击「⚗️ 参数实验」可对比两套参数的训练效果。"
+          description="智能向导、数据处理与模型调优模式下默认展示教学卡片（算法直觉、调参效果、过拟合风险）。点击「⚗️ 参数实验」可对比两套参数的训练效果。"
           style={{ marginBottom: 16 }}
           action={
             <Button
@@ -356,7 +356,7 @@ const ParamConfigPage: React.FC = () => {
         </Col>
       </Row>
 
-      {/* E4: 参数对比实验（向导 / 模型调优） */}
+      {/* E4: 参数对比实验（向导 / 数据处理 / 模型调优） */}
       <ParamLabModal
         open={labOpen}
         onClose={() => setLabOpen(false)}

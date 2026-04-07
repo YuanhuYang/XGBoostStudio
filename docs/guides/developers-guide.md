@@ -121,47 +121,40 @@ XGBoostStudio/
 │   │   └── preload.ts         # 预加载脚本（IPC 上下文隔离）
 │   ├── src/
 │   │   ├── api/               # HTTP API 客户端（axios）
-│   │   ├── pages/             # 页面组件
-│   │   ├── components/        # 可复用组件
-│   │   ├── store/             # Zustand 全局状态
-│   │   ├── types/             # TypeScript 类型定义
-│   │   └── styles/            # 全局样式
-│   ├── package.json           # 依赖清单
-│   └── electron.vite.config.ts # Vite + Electron 构建配置
+│   │   ├── pages/             # 页面：Welcome、Documentation、SmartWorkflow、双工作台、各业务页等
+│   │   ├── components/        # MainLayout（四模式）、ModeSwitcher、…
+│   │   ├── store/             # Zustand appStore（workflowMode 等）
+│   │   ├── docs/docSources.ts # 应用内文档打包（glob）
+│   │   ├── constants/docsManifest.ts
+│   │   ├── types/
+│   │   └── styles/
+│   ├── package.json
+│   └── electron.vite.config.ts
 │
 ├── server/                    # 后端（FastAPI + SQLAlchemy）
-│   ├── main.py                # 应用入口，FastAPI 服务器
+│   ├── main.py                # 应用入口，FastAPI 服务器 @ 18899
 │   ├── db/
-│   │   ├── models.py          # SQLAlchemy ORM 数据模型
-│   │   └── database.py        # 数据库连接、初始化、路径管理
-│   ├── routers/               # API 路由（路由层）
-│   │   ├── datasets.py, params.py, training.py, automl.py 等
-│   │   └── 责任：参数校验、路由分发（AutoML：`/api/automl/*`，见 `docs/wiki/08-automl-wizard.md`）
-│   ├── services/              # 业务逻辑（服务层）
-│   │   ├── dataset_service.py, feature_service.py 等
-│   │   └── 责任：算法实现、数据处理、调用 XGBoost/SHAP 等
-│   ├── schemas/               # Pydantic 数据验证 Schema
-│   └── pyproject.toml         # 依赖清单（uv 管理）
+│   ├── routers/               # datasets, params, training, models, tuning, reports, prediction, wizard, automl
+│   ├── services/
+│   ├── schemas/
+│   ├── cli/                   # xs-studio REPL / run
+│   ├── tests/
+│   └── pyproject.toml
 │
-├── scripts/                   # 跨平台脚本
-│   ├── build.py               # 构建脚本（Python，支持 Windows/macOS/Linux）
-│   ├── dev.py                 # 开发启动脚本（Python，支持 Windows/macOS/Linux）
-│   ├── start.sh               # Bash 启动脚本（macOS/Linux）
-│   └── start.ps1              # PowerShell 启动脚本（Windows）
+├── scripts/                   # Windows 构建：build-all.ps1、build-server.ps1、build-client.ps1 等
 │
-├── docs/                      # 文档
-│   ├── quick-start.md         # 快速开始（三种场景）
-│   ├── developers-guide.md    # 本文件
-│   ├── requirements.md        # 功能需求文档
-│   ├── acceptance-criteria.md # 验收标准
-│   ├── deployment.md          # 部署说明（含 Docker）
-│   └── ...
+├── docs/                      # 工程文档（详见 docs/README.md）
+│   ├── wiki/                  # 产品/架构知识库（v0.5.x，与代码同步）
+│   ├── guides/                # quick-start、本文件、开发规范、部署说明、xs-studio-cli …
+│   ├── iterations/            # 迭代章程与执行记录
+│   └── archive/legacy-product/  # 历史需求与验收
 │
-├── README.md                  # 项目概览（根目录）
-├── .github/
-│   └── copilot-instructions.md # 项目级 AI 指令
-└── .gitignore                 # Git 忽略列表
+├── README.md
+├── .github/copilot-instructions.md
+└── .gitignore
 ```
+
+产品模式与导航细节见 [`docs/wiki/01-product-overview.md`](../wiki/01-product-overview.md)、[`docs/wiki/02-architecture.md`](../wiki/02-architecture.md)。
 
 ---
 

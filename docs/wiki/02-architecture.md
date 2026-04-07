@@ -1,7 +1,7 @@
 # XGBoost Studio · 技术架构
 
 > **版本对应**：v0.5.0  
-> **最后更新**：2026-04-07（v0.5.0：文档中心前端模块；`client`/`server` 版本号对齐）
+> **最后更新**：2026-04-07（v0.5.x：四模式导航、顶栏划分/主模型/专家对比、应用内文档中心；`client`/`server` 版本号对齐）
 
 ---
 
@@ -53,82 +53,94 @@
 
 ```
 client/src/
-├── pages/           # 十页功能模块（每页一个目录，index.tsx 主入口）
-│   ├── Welcome/
-│   ├── SmartWorkflow/       # 智能向导（6 步；响应 workflowMode + showTeachingUi）
-│   ├── DataImport/          # 数据导入
-│   ├── FeatureAnalysis/     # 特征分析（IV/KS/PSI/泄露检测 + 概念卡片，guided/learning 显示）
+├── pages/                   # 路由页（MainLayout.pageMap 的 PageKey → 组件）
+│   ├── Welcome/             # 欢迎页
+│   ├── Documentation/       # 文档中心（v0.5；react-markdown + MermaidBlock）
+│   ├── ExpertWorkbench/     # 专家分析 · 模型工作台（pageKey: expert-hub）
+│   ├── LearningWorkbench/   # 模型调优 · 调优工作台（pageKey: learning-hub）
+│   ├── SmartWorkflow/       # 智能向导 · 向导工作台（pageKey: smart-workflow；6 步）
+│   ├── DataImport/          # 数据工作台（pageKey: data-import）
+│   ├── FeatureAnalysis/     # 特征分析（教学 UI：showTeachingUi）
 │   ├── FeatureEngineering/  # 特征工程
-│   ├── ParamConfig/         # 参数配置（LearningPanel + ParamLabModal，guided/learning）
-│   ├── ModelTraining/       # 模型训练（收敛解释卡 guided/learning + isTraining）
-│   ├── ModelEval/           # 模型评估（PDP/ICE/… + 指标 Tooltip guided/learning）
-│   ├── ModelTuning/         # 超参数调优（5阶段 + 最优点 markPoint）
-│   ├── ModelManagement/     # 模型管理（专家模式 AUC/KS 差值列）
-│   ├── Report/              # 分析报告（12章 PDF）
+│   ├── ParamConfig/         # 参数配置（LearningPanel + ParamLabModal）
+│   ├── ModelTraining/       # 模型训练（收敛解释卡 + isTraining）
+│   ├── ModelEval/           # 模型评估（指标 Tooltip 等）
+│   ├── ModelTuning/         # 超参数调优（5 阶段 + 最优点 markPoint）
+│   ├── ModelManagement/     # 模型管理（AUC/KS 差值列等）
+│   ├── Report/              # 分析报告（12 章 PDF）
 │   └── Prediction/          # 交互式预测
 ├── store/
-│   └── appStore.ts          # Zustand 全局状态（v0.4 扩展）
-│                            #   核心 ID：activeDatasetId / activeSplitId / activeModelId
-│                            #   交互状态：workflowMode / workflowStep / sidebarCollapsed
-│                            #   v0.4 新增：previousMode / modeFirstVisit / isTraining
-│                            #   持久化：workflowMode + sidebarCollapsed → localStorage
+│   └── appStore.ts          # Zustand：activeDatasetId / activeSplitId / activeModelId
+│                            #   workflowMode: guided | preprocess | learning | expert
+│                            #   workflowStep / sidebarCollapsed / modeFirstVisit / isTraining …
+│                            #   持久化：workflowMode、侧栏、向导步骤、活跃 ID → localStorage
 ├── api/                     # 后端 API 调用封装
-│   ├── client.ts            # Axios 实例（baseURL: 127.0.0.1:18899）
+│   ├── client.ts            # Axios（baseURL: 127.0.0.1:18899）
 │   ├── datasets.ts
 │   ├── training.ts
 │   ├── models.ts
 │   ├── tuning.ts
 │   ├── reports.ts
 │   ├── wizard.ts            # 向导 Pipeline + Lab 实验
-│   ├── automl.ts            # 全自动建模：启动作业、拉取结果（SSE 使用 BASE_URL + EventSource）
+│   ├── automl.ts            # AutoML：POST 作业、SSE 进度（EventSource）
 │   └── ...
+├── docs/
+│   └── docSources.ts        # import.meta.glob 打入 docs/wiki、docs/guides、根 README 原文
 ├── utils/
-│   └── teachingUi.ts        # showTeachingUi：guided/learning 启用教学 UI，expert 关闭
-├── components/              # 共享组件
-│   ├── MainLayout.tsx       # 三态侧边栏 + 模式切换器 + 顶栏单上下文 Tag + Ctrl+K（专家）
-│   ├── ModeSwitcher.tsx     # Segmented：向导 / 调优 / 专家
-│   ├── LearningPanel.tsx    # 参数教学卡片（算法直觉/风险条/效果箭头）
-│   ├── ParamLabModal.tsx    # 参数对比实验 Modal
-│   ├── ModeTransitionModal.tsx  # 训练中切换模式确认弹窗
-│   ├── ModeOnboardingModal.tsx  # 模式首次进入新手引导弹窗
-│   ├── ParamExplainCard.tsx # 参数卡片（showTeachingUi 时内嵌 LearningPanel）
+│   └── teachingUi.ts        # showTeachingUi：guided | preprocess | learning → true；expert → false
+├── components/
+│   ├── MainLayout.tsx       # 四态侧栏 + ModeSwitcher + 顶栏划分/主模型/专家对比 + Ctrl+K
+│   ├── ModeSwitcher.tsx     # Segmented：智能向导 / 数据处理 / 模型调优 / 专家分析
+│   ├── LearningPanel.tsx
+│   ├── ParamLabModal.tsx
+│   ├── ModeTransitionModal.tsx
+│   ├── ModeOnboardingModal.tsx
+│   ├── ParamExplainCard.tsx
 │   ├── HelpButton.tsx
 │   └── ...
 └── constants/
-    └── reportSections.ts    # 12章定义 + 4种模板 + 旧版章节（向后兼容）
+    ├── docsManifest.ts      # DOCS_MANIFEST：应用内文档目录 id / 分组 / fileBase
+    └── reportSections.ts    # 12 章定义 + 4 种模板（向后兼容）
 ```
+
+### 应用内文档中心（v0.5）
+
+- **页面**：`client/src/pages/Documentation/index.tsx`，默认打开文档 id `wiki-01-product-overview`（与代码内 `DEFAULT_DOC_ID` 一致）。
+- **目录**：`constants/docsManifest.ts` 中 `DOCS_MANIFEST`，分组 `project`（根 README）/ `wiki`（`01`–`09`）/ `guides`（精选 `docs/guides/*.md`）。
+- **正文加载**：`docSources.ts` 使用 `import.meta.glob('../../../docs/wiki/*.md')` 等构建期注入；**未**列入 manifest 的 Markdown（例如 [`10-windows-distribution.md`](10-windows-distribution.md)）不会出现在应用内左侧目录，但仍可在仓库或 GitHub 阅读。
+- **互链**：文内相对 `.md` 链接经 `findDocByFileBase` 解析后在应用内切换篇目；Mermaid 由 `MermaidBlock` 渲染。
 
 ### 全局状态流（Zustand appStore）
 
 ```
-activeDatasetId ──► FeatureAnalysis / FeatureEngineering / DataImport
-activeSplitId   ──► ModelTraining / ModelTuning / Prediction
+activeDatasetId ──► DataImport / FeatureAnalysis / FeatureEngineering
+activeSplitId   ──► ModelTraining / ModelTuning / Prediction / 顶栏模型列表过滤
 activeModelId   ──► ModelEval / ModelTuning / Report / Prediction
 
-workflowMode ──────► MainLayout（侧边栏 + 顶栏上下文 Tag）
-              ├──► guided   → 极简侧边栏；顶栏仅数据集 Tag
-              ├──► learning → 侧栏仅 训练/调优/管理；顶栏仅划分 Tag；进入前须 activeDatasetId
-              └──► expert   → 完整 10 模块；顶栏仅主模型 Tag；Ctrl+K
+workflowMode ──────► MainLayout（侧栏菜单项 + 部分页面可达性）
+              ├──► guided    → 侧栏仅「向导工作台」；点击其它侧栏项 → 暂离向导确认
+              ├──► preprocess→ 侧栏仅数据工作台 / 特征分析 / 特征工程；离开三页 → 离开数据处理确认
+              ├──► learning  → 侧栏「调优工作台」+ 参数配置 / 训练 / 超参调优 / 管理；进入前须 activeDatasetId
+              └──► expert    → 侧栏「模型工作台」+ 评估 / 管理 / 报告 / 预测（无训练、超参、数据处理、向导）
 
-showTeachingUi(workflowMode) ──► ParamExplainCard / SmartWorkflow / ParamConfig / FeatureAnalysis / ModelTraining / ModelEval
-              ├──► guided | learning → true（教学卡片、参数实验、概念按钮、收敛卡、指标 Tooltip）
-              └──► expert → false
+顶栏（各模式均展示）──► 训练划分 Select、主模型 Select
+专家模式额外 ─────────► 对比模型多选 Select（依赖已选划分与主模型）
+
+showTeachingUi(workflowMode) ──► guided | preprocess | learning → true；expert → false
 ```
 
-三个 ID 跨页面自动传递，切换到任何模块时均预填当前活跃 ID，无需手动输入。**v0.4 增强**：三个 ID 在模式切换时严格不清零（注释标记为「跨模式共享状态」），向导会话从 localStorage 恢复时同步更新全局 ID。
+三个 ID 跨页面自动传递。**跨模式不清零**；向导步骤与活跃 ID 从 localStorage 恢复时写回 store。
 
-### 三模式侧边栏状态机（v0.4，v0.4.x 收窄调优侧栏）
+### 四模式侧栏与命令面板（与实现对齐）
 
-```
-guided  ─── 进入 ──► 自动折叠至 56px，仅显示「智能向导」
-         └─ 点击非向导项 ──► 拦截确认弹窗（已保存进度）
+| `workflowMode` | 侧栏菜单（摘要） | Ctrl+K 可搜索页面（摘要） |
+|----------------|------------------|---------------------------|
+| `guided` | 向导工作台 | 含全部功能页 + 文档 + 各工作台 |
+| `preprocess` | 数据工作台、特征分析、特征工程 | 仅上述三数据页 + 文档 |
+| `learning` | 调优工作台 + 参数配置 / 训练 / 调优 / 管理 | 同 guided（全量可搜） |
+| `expert` | 模型工作台 + 评估 / 管理 / 报告 / 预测 | **排除**数据处理、向导、调优工作台、参数配置、训练、调优 |
 
-learning ─── 进入 ──► 宽 220px，仅「模型训练 / 超参数调优 / 模型管理」+「已学」角标
-          └─ 无智能向导侧栏项（划分经顶栏 Tag 去特征工程）
-
-expert ─── 进入 ──► 自动展开至 220px，全 10 模块
-        └─ 点击「智能向导」 ──► setWorkflowMode('guided')
-```
+持久化恢复默认页：`expert` → `expert-hub`，`learning` → `learning-hub`，`preprocess` → `data-import`，其余 → `smart-workflow`。
 
 ---
 
@@ -245,9 +257,10 @@ SSE 事件字段说明见 [`04-model-training.md`](04-model-training.md) 和 [`0
 
 | 版本 | 变更摘要 |
 |------|----------|
+| v0.5.x | **四模式** `preprocess`；专家侧栏收窄；顶栏 **训练划分 / 主模型** + 专家 **对比模型**；`showTeachingUi` 含 `preprocess`；与 [`01-product-overview.md`](01-product-overview.md) 同步 |
 | v0.5.0 | 应用内 **文档中心**（`client/src/pages/Documentation` + `docsManifest` + `docSources` glob）；`client/package.json` 与 `server/pyproject.toml` 版本统一为 **0.5.0** |
 | v0.4.0 | I6-ThreeModeUX：三模式交互架构；`MainLayout` 三态侧栏；专家 Ctrl+K；教学组件落地 |
-| v0.4.x | 顶栏单 Tag；调优侧栏收窄；UI「学习」→「调优」；`teachingUi.ts` 向导默认教学、专家关闭 |
+| v0.4.x | 顶栏曾按模式突出单上下文（Tag）；调优侧栏收窄；UI「学习」→「模型调优」；`teachingUi.ts` 向导与调优默认教学、专家关闭（v0.5 顶栏已改为划分/主模型下拉 + 专家对比） |
 | v0.4+ AutoML | 新增 `routers/automl.py`、`services/automl_service.py`；`training_service.train_and_persist_sync`；`tuning_service.run_lite_tuning_best_params`；`SmartWorkflow` Step 0 全自动建模 UI；**`server/cli/` xs-studio**；Wiki [`08-automl-wizard.md`](08-automl-wizard.md) |
 | v0.3.0 | G3-A：新增 leakage_service.py + feature_service 扩展；G3-B：tuning_service 重构为5阶段 + eval_service 扩展 PDP/ICE/OOT/鲁棒性；G3-C：report_service 重构为12章 + BrandConfig schema |
 | v0.2.0 | 模型运行档案（provenance）、K折协议、数据叙事（G2-R1）落地 |
