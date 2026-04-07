@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.0-blue" />
+  <img src="https://img.shields.io/badge/version-0.5.0-blue" />
   <img src="https://img.shields.io/badge/platform-Windows%20✓-success" />
   <img src="https://img.shields.io/badge/platform-macOS-yellowgreen" />
   <img src="https://img.shields.io/badge/platform-Linux-yellowgreen" />
@@ -33,10 +33,11 @@
 | 🗂 **模型管理** | 注册表、多版本对比（McNemar 检验）、运行档案（可复现） |
 | 📄 **12章专业PDF报告** | 4 种预设模板（管理层/业务/技术/合规）+ 企业品牌定制 + 水印 |
 | 🤔 **交互预测** | 单样本表单 + SHAP 实时解释 + 批量文件预测 |
+| 📚 **应用内文档中心** | 构建期打包 `docs/wiki`、`docs/guides` 与根目录 `README`：左侧目录分组、GFM 排版、Mermaid、右侧 h2/h3 锚点导航；文内 `.md` 互链在应用内跳转（离线可读） |
 
 ---
 
-## 🎯 三种用户体验（v0.4 全面落地）
+## 🎯 三种用户体验（v0.5 当前版本；三模式自 v0.4 定型）
 
 | 模式 | 适用人群 | 核心特点 |
 |------|----------|----------|
@@ -48,7 +49,17 @@
 
 ---
 
-## 🆕 v0.4.0 新增能力（I6 三模式交互架构）
+## 🆕 v0.5.0 新增与优化
+
+**应用内文档与知识库**
+- 新页面「文档中心」：`README`、Wiki 九章、常用 guides 同一处阅读；顶栏 **文档**、欢迎页 **打开文档中心**、命令面板（Ctrl+K）搜索 **产品文档** 均可进入
+- Web 部署时可通过深链直达：`https://你的域名/?xsPage=documentation`（需已配置前端路由与后端就绪逻辑，与现有 `xsPage` 引导一致）
+- 仓库内 Markdown 仍可在 GitHub / 本地直接打开；与客户端内排版版内容同源（构建时 `import.meta.glob` 打入前端包）
+- **版本对齐**：`client/package.json` 与 `server/pyproject.toml` 均为 **0.5.0**，Windows 安装包文件名为 `XGBoost-Studio-Setup-0.5.0.exe`
+
+---
+
+## v0.4.0 新增能力（I6 三模式交互架构）
 
 **全局模式切换器**
 - 顶部 Header Segmented（🎯 向导 / 🔧 调优 / ⚙️ 专家），localStorage 持久化
@@ -110,7 +121,7 @@
 
 ### ① Windows 用户（推荐）
 ```
-1. 下载 XGBoost-Studio-Setup-0.4.0.exe
+1. 下载 XGBoost-Studio-Setup-0.5.0.exe
 2. 双击安装（自动内置 Python + 全部依赖，完全离线）
 3. 从桌面快捷方式启动
 ```
@@ -212,14 +223,19 @@ cd client
 npm run typecheck
 ```
 
-当前测试覆盖：后端含 G3-A/B/C 与 **AutoML**（`tests/test_automl.py`）等套件 + 前端含 v0.4 `appStore` 三模式状态测试与 `teachingUi` 开关测试；具体数量以本地 `pytest` / `npm run test:unit` 为准。
+当前测试覆盖：后端含 G3-A/B/C 与 **AutoML**（`tests/test_automl.py`）等套件 + 前端含 `appStore` 三模式、`teachingUi` 与文档中心等相关测试；具体数量以本地 `pytest` / `npm run test:unit` 为准。
 
 ---
 
 ## 📚 文档
 
+**阅读方式**
+- **在应用内（推荐）**：顶栏 **文档** → 左侧选篇目，支持目录、搜索（Ctrl+K → 产品文档）、表格与 Mermaid；内容随安装包 / Web 构建一并分发，无需单独联网拉取文档站。
+- **在仓库中**：下表链接在 GitHub / Gitee 网页上会打开对应 `.md` 渲染页，便于评审与分享单篇。
+
 | 文档 | 内容 |
 |------|------|
+| [📑 Wiki 索引与快速导航](docs/wiki/README.md) | 知识库总目录、按角色跳转、更新规范 |
 | [📖 产品概览](docs/wiki/01-product-overview.md) | 产品定位、三类用户画像、功能模块总览 |
 | [🏗 技术架构](docs/wiki/02-architecture.md) | 进程模型、前后端结构、数据存储、API 规范 |
 | [🔬 数据分析](docs/wiki/03-data-analysis.md) | IV/KS/PSI/单调性/泄露检测设计思路与判读规则 |
@@ -228,6 +244,7 @@ npm run typecheck
 | [📊 模型评估](docs/wiki/06-model-evaluation.md) | OOT/PDP/ICE/鲁棒性/坏样本/公平性分析 |
 | [📄 PDF报告](docs/wiki/07-pdf-report.md) | 12章结构、4种模板、品牌定制、自动生成逻辑 |
 | [⚡ 全自动建模与向导](docs/wiki/08-automl-wizard.md) | AutoML API、编排步骤、能力边界、向导 Step 0 入口说明 |
+| [🧹 数据质量与智能清洗](docs/wiki/09-data-quality-unified-and-smart-clean.md) | 统一质量分、智能清洗启发式、`preprocessing_log_json` 与 PDF 审计口径 |
 | [⚡ 快速开始](docs/guides/quick-start.md) | 三种启动方式 + 常见问题 |
 | [👨‍💻 开发者指南](docs/guides/developers-guide.md) | 环境配置、代码规范、跨平台开发 |
 | [⌨️ xs-studio CLI](docs/guides/xs-studio-cli.md) | 交互式 AutoML REPL、`run` 子命令、与前端并行 |
@@ -237,7 +254,7 @@ npm run typecheck
 
 ## 🏗 技术栈
 
-**前端**：Electron 28 + React 18 + TypeScript + Ant Design 5 + ECharts 5 + Zustand + react-pdf  
+**前端**：Electron 28 + React 18 + TypeScript + Ant Design 5 + ECharts 5 + Zustand + react-pdf；文档阅读（react-markdown、remark-gfm、rehype-slug、Mermaid）  
 **后端**：Python 3.12 + FastAPI + XGBoost 3.x + Optuna 4.x + SHAP + Pandas + Scipy + Statsmodels + ReportLab  
 **存储**：SQLite（元数据）+ 本地文件系统（模型 .ubj + PDF 报告）  
 **打包**：electron-builder（客户端）+ PyInstaller（服务端 exe）
@@ -289,4 +306,4 @@ MIT License — 自由使用、修改、分发
 ---
 
 **GitHub**: [YuanhuYang/XGBoostStudio](https://github.com/YuanhuYang/XGBoostStudio)
-**Version**: v0.4.0 | **Updated**: 2026-04-06
+**Version**: v0.5.0 | **Updated**: 2026-04-07

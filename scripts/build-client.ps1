@@ -24,7 +24,7 @@ try {
     }
     npm run build
     if ($LASTEXITCODE -ne 0) { Write-Host "[错误] 构建失败" -ForegroundColor Red; exit 1 }
-    Write-Host "[✓] 构建完成" -ForegroundColor Green
+    Write-Host "[✓] 构建完成 — 仓库根 dist\：XGBoost Studio Setup *.exe（安装包）、XGBoost Studio *.exe（免安装，无 Setup）" -ForegroundColor Green
 }
 finally {
     Pop-Location

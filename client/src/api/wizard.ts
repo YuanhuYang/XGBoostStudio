@@ -52,6 +52,10 @@ export interface DatasetSummary {
   task_hint: string
   quality_score: number
   missing_rate: number
+  /** 与数据工作台质量报告一致 */
+  outlier_rate: number
+  duplicate_rate: number
+  quality_suggestions: string[]
   columns: DatasetColumn[]
   recommendations: string[]
   candidate_targets: CandidateTarget[]

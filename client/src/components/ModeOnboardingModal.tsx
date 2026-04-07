@@ -30,7 +30,7 @@ const onboardingContent: Record<WorkflowMode, {
     icon: <DatabaseOutlined style={{ fontSize: 32, color: '#38bdf8' }} />,
     accentColor: '#38bdf8',
     steps: [
-      { title: '数据导入', description: '上传或选择数据集并在顶栏激活上下文', icon: <DatabaseOutlined /> },
+      { title: '数据工作台', description: '上传或选择数据集并在顶栏激活上下文', icon: <DatabaseOutlined /> },
       { title: '特征分析', description: 'IV/KS/PSI 等质量洞察，为工程与建模提供依据', icon: <BarChartOutlined /> },
       { title: '特征工程与划分', description: '完成特征处理并创建训练用 Split，供模型调优模式使用', icon: <ToolOutlined /> },
       { title: '与向导的关系', description: '六步智能向导仍在「智能向导」模式中；本模式适合分步深耕数据准备', icon: <BulbOutlined /> },

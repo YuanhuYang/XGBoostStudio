@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -42,6 +43,8 @@ def run_one_shot(args: argparse.Namespace) -> int:
                 "train_ratio": args.train_ratio,
                 "random_seed": args.random_seed,
             }
+            if args.no_smart_clean:
+                body["smart_clean"] = False
             if args.target_column:
                 body["target_column"] = args.target_column
             job_id = client.start_automl_job(body)
@@ -59,6 +62,9 @@ def run_one_shot(args: argparse.Namespace) -> int:
             ch = res.get("chosen_recommendation") or {}
             print(f"split_id={res.get('split_id')} 候选 model_ids={ids}", flush=True)
             print(f"chosen_model_id={ch.get('model_id')}", flush=True)
+            pp = res.get("pipeline_plan")
+            if pp:
+                print(f"pipeline_plan={json.dumps(pp, ensure_ascii=False)}", flush=True)
             if args.pdf:
                 if len(ids) >= 2:
                     cr = client.compare_reports(ids)
@@ -145,6 +151,11 @@ def main() -> None:
     run.add_argument("--pdf", action="store_true", help="生成对比与各模型 PDF")
     run.add_argument("--skip-tuning", action="store_true")
     run.add_argument("--max-tuning-trials", type=int, default=12)
+    run.add_argument(
+        "--no-smart-clean",
+        action="store_true",
+        help="跳过智能去重/填缺失/IQR 截断（默认同 API 开启）",
+    )
     run.add_argument("--target-column", default=None)
     run.add_argument("--train-ratio", type=float, default=0.8)
     run.add_argument("--random-seed", type=int, default=42)

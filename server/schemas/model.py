@@ -139,6 +139,13 @@ class ReportGenerateRequest(BaseModel):
     # G3-C: 企业品牌定制
     brand_config: Optional[BrandConfig] = Field(None, description="企业品牌定制配置")
 
+    # 与主报告合并展示的对比模型（不含主模型）；最多 8 个
+    compare_model_ids: Optional[list[int]] = Field(
+        None,
+        max_length=8,
+        description="对比模型 ID 列表，将写入 PDF 附录 D",
+    )
+
 
 class ReportCompareRequest(BaseModel):
     model_ids: list[int] = Field(..., min_length=2, description="至少选择2个模型")

@@ -19,12 +19,15 @@ import {
   RobotOutlined,
   SearchOutlined,
   HomeOutlined,
+  ReadOutlined,
 } from '@ant-design/icons'
 import { useAppStore, type WorkflowMode } from '../store/appStore'
 import apiClient from '../api/client'
 import ModeSwitcher from './ModeSwitcher'
 import ModeTransitionModal from './ModeTransitionModal'
 import ModeOnboardingModal from './ModeOnboardingModal'
+import HelpButton from './HelpButton'
+import { getStaticPageHelp } from '../constants/pageHelp'
 
 // 页面懒加载
 import DataImportPage from '../pages/DataImport'
@@ -41,12 +44,17 @@ import SmartWorkflowPage from '../pages/SmartWorkflow'
 import WelcomePage from '../pages/Welcome'
 import ExpertWorkbenchPage from '../pages/ExpertWorkbench'
 import LearningWorkbenchPage from '../pages/LearningWorkbench'
+import DocumentationPage from '../pages/Documentation'
 
 const { Sider, Content, Header } = Layout
 const { Text } = Typography
 
 /** 顶栏主模型下拉与 /api/models 对齐的轻量行类型 */
 type ExpertModelRow = { id: number; name: string }
+
+/** 专家顶栏对比集合：主模型 + 对比模型，总数上限与报告页「对比模型」规模一致 */
+const MAX_EXPERT_COMPARE_MODEL_IDS = 8
+const MAX_EXPERT_COMPARE_EXTRAS = MAX_EXPERT_COMPARE_MODEL_IDS - 1
 
 /** 顶栏训练划分下拉（与 GET /api/datasets/splits/list 对齐） */
 type HeaderSplitRow = {
@@ -60,6 +68,7 @@ type HeaderSplitRow = {
 
 export type PageKey =
   | 'welcome'
+  | 'documentation'
   | 'expert-hub'
   | 'learning-hub'
   | 'smart-workflow'
@@ -95,6 +104,7 @@ const pageCompletion: Record<PageKey, (state: {
   activeModelId: number | null
 }) => boolean> = {
   welcome: () => true,
+  documentation: () => true,
   'expert-hub': () => true,
   'learning-hub': () => true,
   'smart-workflow': () => true,
@@ -111,7 +121,8 @@ const pageCompletion: Record<PageKey, (state: {
 }
 
 const pageLabels: Partial<Record<PageKey, string>> = {
-  'data-import': '数据导入',
+  documentation: '产品文档',
+  'data-import': '数据工作台',
   'feature-analysis': '特征分析',
   'feature-engineering': '特征工程',
   'param-config': '参数配置',
@@ -160,7 +171,8 @@ const EXPERT_NAV_EXCLUDED_PAGE_KEYS: PageKey[] = [
 
 // ── 数据处理模式菜单 ─────────────────────────────────────────────────────────
 const buildPreprocessMenu = (): MenuProps['items'] => [
-  { key: 'data-import', icon: <DatabaseOutlined />, label: '数据导入' },
+  { key: 'data-import', icon: <DatabaseOutlined />, label: '数据工作台' },
+  { type: 'divider' },
   { key: 'feature-analysis', icon: <BarChartOutlined />, label: '特征分析' },
   { key: 'feature-engineering', icon: <ToolOutlined />, label: '特征工程' },
 ]
@@ -171,34 +183,14 @@ const buildGuidedMenu = (): MenuProps['items'] => [
 ]
 
 // ── 模型调优模式菜单（工作台与四项子模块之间含 divider，与专家/向导一致）──────────────
-const buildLearningMenu = (state: {
-  activeDatasetId: number | null
-  activeSplitId: number | null
-  activeModelId: number | null
-}): MenuProps['items'] => {
-  const done = (key: PageKey) => pageCompletion[key](state)
-  const label = (key: PageKey, text: string) => (
-    <span>
-      {text}
-      {done(key) && (
-        <Tag
-          color="purple"
-          style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', marginLeft: 4, verticalAlign: 'middle' }}
-        >
-          已学
-        </Tag>
-      )}
-    </span>
-  )
-  return [
-    { key: 'learning-hub', icon: <HomeOutlined />, label: '调优工作台' },
-    { type: 'divider' },
-    { key: 'param-config', icon: <SettingOutlined />, label: label('param-config', '参数配置') },
-    { key: 'model-training', icon: <PlayCircleOutlined />, label: label('model-training', '模型训练') },
-    { key: 'model-tuning', icon: <ThunderboltOutlined />, label: label('model-tuning', '超参数调优') },
-    { key: 'model-management', icon: <AppstoreOutlined />, label: label('model-management', '模型管理') },
-  ]
-}
+const buildLearningMenu = (): MenuProps['items'] => [
+  { key: 'learning-hub', icon: <HomeOutlined />, label: '调优工作台' },
+  { type: 'divider' },
+  { key: 'param-config', icon: <SettingOutlined />, label: '参数配置' },
+  { key: 'model-training', icon: <PlayCircleOutlined />, label: '模型训练' },
+  { key: 'model-tuning', icon: <ThunderboltOutlined />, label: '超参数调优' },
+  { key: 'model-management', icon: <AppstoreOutlined />, label: '模型管理' },
+]
 
 // ── 专家分析模式菜单（不含训练与超参调优）──────────────────────────────────────
 const buildExpertMenu = (): MenuProps['items'] => [
@@ -216,6 +208,7 @@ const buildExpertMenu = (): MenuProps['items'] => [
 
 const pageMap: Record<PageKey, React.ReactNode> = {
   welcome: <WelcomePage />,
+  documentation: <DocumentationPage />,
   'expert-hub': <ExpertWorkbenchPage />,
   'learning-hub': <LearningWorkbenchPage />,
   'smart-workflow': <SmartWorkflowPage />,
@@ -233,10 +226,11 @@ const pageMap: Record<PageKey, React.ReactNode> = {
 
 // 所有可搜索页面（用于 Ctrl+K 命令面板）
 const searchablePages: { key: PageKey; label: string; group: string }[] = [
+  { key: 'documentation', label: '产品文档', group: '帮助' },
   { key: 'expert-hub', label: '模型工作台', group: '入口' },
   { key: 'learning-hub', label: '调优工作台', group: '入口' },
   { key: 'smart-workflow', label: '向导工作台', group: '入口' },
-  { key: 'data-import', label: '数据导入', group: '数据处理' },
+  { key: 'data-import', label: '数据工作台', group: '数据处理' },
   { key: 'feature-analysis', label: '特征分析', group: '数据处理' },
   { key: 'feature-engineering', label: '特征工程', group: '数据处理' },
   { key: 'param-config', label: '超参数配置', group: '模型构建' },
@@ -285,8 +279,20 @@ const MainLayout: React.FC = () => {
     setActiveSplitId,
     setActiveModelId,
     setActiveDatasetName,
+    expertCompareModelIds,
     setExpertCompareModelIds,
+    pageHelpOverride,
   } = useAppStore()
+
+  const pageHelpContent = useMemo(() => {
+    if (currentPage === 'expert-hub' && pageHelpOverride) return pageHelpOverride
+    return getStaticPageHelp(currentPage)
+  }, [currentPage, pageHelpOverride])
+
+  const goDocumentation = useCallback(() => {
+    setCurrentPage('documentation')
+    localStorage.setItem('xgb_launched_before', '1')
+  }, [])
 
   // Ctrl+K 命令面板状态
   const [cmdOpen, setCmdOpen] = useState(false)
@@ -317,7 +323,9 @@ const MainLayout: React.FC = () => {
   /** 顶栏主模型下拉：按当前激活划分的 split_id 拉取 /api/models */
   const [expertModels, setExpertModels] = useState<ExpertModelRow[]>([])
   const [expertModelsLoading, setExpertModelsLoading] = useState(false)
+  const [splitDropdownOpen, setSplitDropdownOpen] = useState(false)
   const [primaryModelDropdownOpen, setPrimaryModelDropdownOpen] = useState(false)
+  const [compareModelDropdownOpen, setCompareModelDropdownOpen] = useState(false)
 
   const fetchHeaderSplits = useCallback(async () => {
     if (!serverReady) return
@@ -359,11 +367,25 @@ const MainLayout: React.FC = () => {
     if (activeSplitId === null) {
       setExpertModels([])
       setActiveModelId(null)
+      setExpertCompareModelIds([])
       return
     }
     if (!serverReady) return
     void fetchPrimaryModelsForSplit()
-  }, [activeSplitId, serverReady, fetchPrimaryModelsForSplit, setActiveModelId])
+  }, [activeSplitId, serverReady, fetchPrimaryModelsForSplit, setActiveModelId, setExpertCompareModelIds])
+
+  /** 当前划分下模型列表刷新后，裁剪无效的对比 ID，避免工作台请求幽灵模型 */
+  useEffect(() => {
+    if (workflowMode !== 'expert') return
+    if (activeSplitId === null) return
+    if (expertModelsLoading) return
+    const cur = useAppStore.getState().expertCompareModelIds
+    if (cur.length === 0) return
+    const valid = new Set(expertModels.map(m => m.id))
+    const filtered = cur.filter(id => valid.has(id))
+    if (filtered.length === cur.length) return
+    setExpertCompareModelIds(filtered.length >= 2 ? filtered : [])
+  }, [expertModels, expertModelsLoading, activeSplitId, workflowMode, setExpertCompareModelIds])
 
   // 专家模式首次进入且有 activeModel → 顶部短时 message（不占布局）
   useEffect(() => {
@@ -521,6 +543,11 @@ const MainLayout: React.FC = () => {
       const detail = (e as CustomEvent<string>).detail
       if (!detail || !Object.prototype.hasOwnProperty.call(pageMap, detail)) return
       const pageKey = detail as PageKey
+      if (pageKey === 'documentation') {
+        setCurrentPage('documentation')
+        localStorage.setItem('xgb_launched_before', '1')
+        return
+      }
       const { workflowMode, setWorkflowMode, activeSplitId } = useAppStore.getState()
       if (workflowMode === 'preprocess' && !PREPROCESS_MODULE_PAGE_KEYS.includes(pageKey)) {
         const nextMode = workflowModeForPageKey(pageKey)
@@ -629,7 +656,7 @@ const MainLayout: React.FC = () => {
     : workflowMode === 'guided'
       ? buildGuidedMenu()
       : workflowMode === 'learning'
-        ? buildLearningMenu({ activeDatasetId, activeSplitId, activeModelId })
+        ? buildLearningMenu()
         : buildExpertMenu()
 
   const recommendedNextStep = pageOrder.find(
@@ -640,13 +667,17 @@ const MainLayout: React.FC = () => {
     ? [currentPage, recommendedNextStep]
     : [currentPage]
 
-  // Ctrl+K：专家模式不列出训练类页；数据处理模式仅列出三数据页
+  const sideMenuSelectedKeys = currentPage === 'documentation' ? [] : selectedKeys
+
+  // Ctrl+K：专家模式不列出训练类页；数据处理模式仅列出三数据页；产品文档始终可搜
   const commandPages = useMemo(() => {
     if (workflowMode === 'expert') {
       return searchablePages.filter(p => !EXPERT_NAV_EXCLUDED_PAGE_KEYS.includes(p.key))
     }
     if (workflowMode === 'preprocess') {
-      return searchablePages.filter(p => PREPROCESS_MODULE_PAGE_KEYS.includes(p.key))
+      return searchablePages.filter(
+        p => p.key === 'documentation' || PREPROCESS_MODULE_PAGE_KEYS.includes(p.key),
+      )
     }
     return searchablePages
   }, [workflowMode])
@@ -677,6 +708,7 @@ const MainLayout: React.FC = () => {
 
   const handleSplitSelectChange = useCallback(
     (id: number | null) => {
+      setExpertCompareModelIds([])
       if (id === null) {
         setActiveSplitId(null)
         setActiveModelId(null)
@@ -694,38 +726,73 @@ const MainLayout: React.FC = () => {
       }
       message.success(`已选择训练划分：${label}`)
     },
-    [headerSplits, setActiveSplitId, setActiveDatasetId, setActiveDatasetName, setActiveModelId],
+    [headerSplits, setActiveSplitId, setActiveDatasetId, setActiveDatasetName, setActiveModelId, setExpertCompareModelIds],
   )
 
   const handlePrimaryModelChange = useCallback(
     (v: number | null) => {
+      const prevPrimary = useAppStore.getState().activeModelId
+      const prevCompare = useAppStore.getState().expertCompareModelIds
+
       setActiveModelId(v)
+
       if (v === null) {
+        setExpertCompareModelIds([])
         message.success('已清除主模型')
         return
       }
+
+      if (prevCompare.length > 0) {
+        const extras = prevCompare.filter(id => id !== prevPrimary)
+        const merged = [v, ...extras.filter(e => e !== v)]
+        const valid = new Set(expertModels.map(m => m.id))
+        const next = merged.filter(id => valid.has(id))
+        setExpertCompareModelIds(next.length >= 2 ? next : [])
+      }
+
       const opt = expertModelSelectOptions.find(o => o.value === v)
       message.success(`已选择主模型：${opt?.label ?? `#${v}`}`)
     },
-    [expertModelSelectOptions, setActiveModelId],
+    [expertModelSelectOptions, expertModels, setActiveModelId, setExpertCompareModelIds],
+  )
+
+  const handleExpertCompareExtrasChange = useCallback(
+    (extras: number[]) => {
+      const primary = useAppStore.getState().activeModelId
+      if (primary === null) return
+      const deduped: number[] = []
+      const seen = new Set<number>()
+      for (const id of extras) {
+        if (id === primary || seen.has(id)) continue
+        seen.add(id)
+        deduped.push(id)
+        if (deduped.length >= MAX_EXPERT_COMPARE_EXTRAS) break
+      }
+      if (deduped.length === 0) setExpertCompareModelIds([])
+      else setExpertCompareModelIds([primary, ...deduped])
+    },
+    [setExpertCompareModelIds],
+  )
+
+  const expertCompareExtraOptions = useMemo(
+    () =>
+      activeModelId === null
+        ? []
+        : expertModelSelectOptions.filter(o => o.value !== activeModelId),
+    [expertModelSelectOptions, activeModelId],
+  )
+
+  const expertCompareExtrasValue = useMemo(
+    () => expertCompareModelIds.filter(id => id !== activeModelId),
+    [expertCompareModelIds, activeModelId],
   )
 
   // 侧边栏宽度：各模式统一，避免切换时主内容区横向跳动
   const siderWidth = 220
 
   return (
+    <>
     <Layout style={{ height: '100vh', background: '#0f172a' }}>
-      {/* 全局错误 Banner */}
-      {globalError && (
-        <Alert
-          type="error"
-          message={globalError}
-          closable
-          onClose={() => setGlobalError(null)}
-          style={{ borderRadius: 0, zIndex: 1000 }}
-        />
-      )}
-
       {/* 侧边栏 */}
       <Sider
         collapsed={sidebarCollapsed}
@@ -801,7 +868,7 @@ const MainLayout: React.FC = () => {
         >
           <Menu
             mode="inline"
-            selectedKeys={selectedKeys}
+            selectedKeys={sideMenuSelectedKeys}
             items={menuItems}
             style={{
               background: 'transparent',
@@ -868,7 +935,8 @@ const MainLayout: React.FC = () => {
               />
             </div>
             <Tooltip
-              title="选择用于训练/评估的数据划分；新建划分请打开「数据处理 → 特征工程」。上传原始数据请打开「数据导入」。"
+              title="选择用于训练/评估的数据划分；新建划分请打开「数据处理 → 特征工程」。上传原始数据请打开「数据工作台」。"
+              open={splitDropdownOpen ? false : undefined}
             >
               <Select
                 className="main-layout-primary-model-select"
@@ -876,12 +944,14 @@ const MainLayout: React.FC = () => {
                 allowClear
                 showSearch
                 optionFilterProp="label"
+                open={splitDropdownOpen}
                 placeholder="训练划分 — 点击选择 —"
                 loading={headerSplitsLoading}
                 value={activeSplitId ?? undefined}
                 options={splitSelectOptions}
                 onChange={v => handleSplitSelectChange(v ?? null)}
                 onOpenChange={open => {
+                  setSplitDropdownOpen(open)
                   if (open) void fetchHeaderSplits()
                 }}
                 prefix={<ScissorOutlined style={{ color: '#94a3b8', fontSize: 14 }} />}
@@ -892,7 +962,10 @@ const MainLayout: React.FC = () => {
                 }
               />
             </Tooltip>
-            <Tooltip title={activeSplitId ? '仅列出当前训练划分下可用的模型（含同数据集 legacy 模型）；可搜索名称。' : '请先在顶栏选择「训练划分」，再选择主模型。'}>
+            <Tooltip
+              title={activeSplitId ? '仅列出当前训练划分下可用的模型（含同数据集 legacy 模型）；可搜索名称。' : '请先在顶栏选择「训练划分」，再选择主模型。'}
+              open={primaryModelDropdownOpen ? false : undefined}
+            >
               <Select
                 className={`main-layout-primary-model-select${activeSplitId ? '' : ' main-layout-primary-model-select--no-split'}`}
                 popupClassName="main-layout-model-select-dropdown"
@@ -922,19 +995,91 @@ const MainLayout: React.FC = () => {
                 }
               />
             </Tooltip>
+            {workflowMode === 'expert' ? (
+              <Tooltip
+                title={
+                  !activeSplitId
+                    ? '请先在顶栏选择「训练划分」。'
+                    : !activeModelId
+                      ? '请先选择「主模型」，再添加同划分下的对比模型（至多 7 个，含主模型共 8 个）。'
+                      : '与主模型同一训练划分下的其它模型；清空则模型工作台回到单模型视图。'
+                }
+                open={compareModelDropdownOpen ? false : undefined}
+              >
+                <Select
+                  mode="multiple"
+                  className={`main-layout-primary-model-select${activeModelId && activeSplitId ? '' : ' main-layout-primary-model-select--no-split'}`}
+                  popupClassName="main-layout-model-select-dropdown"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  open={compareModelDropdownOpen}
+                  placeholder={
+                    !activeSplitId
+                      ? '对比模型 — 请先选择训练划分 —'
+                      : !activeModelId
+                        ? '对比模型 — 请先选择主模型 —'
+                        : '对比模型（可选，多选）'
+                  }
+                  loading={expertModelsLoading}
+                  value={expertCompareExtrasValue}
+                  options={expertCompareExtraOptions}
+                  onChange={v => handleExpertCompareExtrasChange(v as number[])}
+                  onOpenChange={open => {
+                    if (open && activeSplitId === null) {
+                      message.warning('请先在顶栏选择「训练划分」。')
+                      setCompareModelDropdownOpen(false)
+                      return
+                    }
+                    if (open && activeModelId === null) {
+                      message.warning('请先选择主模型，再添加对比模型。')
+                      setCompareModelDropdownOpen(false)
+                      return
+                    }
+                    setCompareModelDropdownOpen(open)
+                    if (open) void fetchPrimaryModelsForSplit()
+                  }}
+                  disabled={!activeSplitId || !activeModelId}
+                  maxTagCount="responsive"
+                  prefix={<BarChartOutlined style={{ color: '#94a3b8', fontSize: 14 }} />}
+                  style={{ minWidth: 200, maxWidth: 360 }}
+                  notFoundContent={expertModelsLoading ? '加载中…' : '该划分下暂无其它模型可选'}
+                />
+              </Tooltip>
+            ) : null}
           </div>
 
-          <Tooltip title="命令面板（Ctrl+K）">
-            <Button
-              type="text"
-              size="small"
-              icon={<SearchOutlined />}
-              onClick={() => setCmdOpen(true)}
-              style={{ color: '#64748b', fontSize: 12, flexShrink: 0 }}
-            >
-              <span style={{ fontSize: 11 }}>Ctrl+K</span>
-            </Button>
-          </Tooltip>
+          <Space size={8} align="center" style={{ flexShrink: 0 }}>
+            <Tooltip title="Wiki、README 与开发指南（构建期打包）">
+              <Button
+                type="text"
+                size="small"
+                icon={<ReadOutlined />}
+                onClick={goDocumentation}
+                style={{
+                  color: currentPage === 'documentation' ? '#38bdf8' : '#64748b',
+                  fontSize: 12,
+                  flexShrink: 0,
+                }}
+              >
+                文档
+              </Button>
+            </Tooltip>
+            <Tooltip title="命令面板（Ctrl+K）">
+              <Button
+                type="text"
+                size="small"
+                icon={<SearchOutlined />}
+                onClick={() => setCmdOpen(true)}
+                style={{ color: '#64748b', fontSize: 12, flexShrink: 0 }}
+              >
+                <span style={{ fontSize: 11 }}>Ctrl+K</span>
+              </Button>
+            </Tooltip>
+            {pageHelpContent ? (
+              <HelpButton pageTitle={pageHelpContent.pageTitle} items={pageHelpContent.items} />
+            ) : null}
+          </Space>
         </Header>
 
         {/* 主内容区：flexBasis+minHeight 避免子项撑高后出现 1px 级「幽灵纵向滚动」；横向交给各页内部（如 Table scroll.x） */}
@@ -943,7 +1088,7 @@ const MainLayout: React.FC = () => {
           style={{
             overflowX: 'hidden',
             overflowY: 'auto',
-            padding: 16,
+            padding: currentPage === 'documentation' ? 12 : 16,
             background: '#0f172a',
             flex: '1 1 0%',
             minHeight: 0,
@@ -959,7 +1104,7 @@ const MainLayout: React.FC = () => {
           flexShrink: 0,
         }}>
           <Text style={{ color: '#475569', fontSize: 11 }}>
-            XGBoost Studio v{(window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '0.4.0'}
+            XGBoost Studio v{(window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '0.5.0'}
           </Text>
           <Text style={{ color: '#334155', fontSize: 11 }}>|</Text>
           {serverReady && !isOffline
@@ -1044,7 +1189,7 @@ const MainLayout: React.FC = () => {
       >
         <p>
           将前往「{preprocessLeaveTarget ? pageLabels[preprocessLeaveTarget] ?? preprocessLeaveTarget : ''}」。
-          数据导入与顶栏「训练划分 / 主模型」等上下文会保留；返回数据准备请切换回顶部「数据处理」模式。
+          数据工作台与顶栏「训练划分 / 主模型」等上下文会保留；返回数据准备请切换回顶部「数据处理」模式。
         </p>
       </Modal>
 
@@ -1086,6 +1231,13 @@ const MainLayout: React.FC = () => {
             <div
               key={p.key}
               onClick={() => {
+                if (p.key === 'documentation') {
+                  setCurrentPage('documentation')
+                  setCmdOpen(false)
+                  setCmdQuery('')
+                  localStorage.setItem('xgb_launched_before', '1')
+                  return
+                }
                 const st = useAppStore.getState()
                 const { workflowMode: wm, setWorkflowMode, activeSplitId: asp } = st
                 const nextMode = workflowModeForPageKey(p.key)
@@ -1129,6 +1281,29 @@ const MainLayout: React.FC = () => {
         </div>
       </Modal>
     </Layout>
+    {globalError && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 24,
+          zIndex: 1010,
+          maxWidth: 'min(420px, calc(100vw - 48px))',
+        }}
+      >
+        <Alert
+          type="error"
+          message={globalError}
+          closable
+          onClose={() => setGlobalError(null)}
+          style={{
+            borderRadius: 8,
+            boxShadow: '0 6px 16px rgba(0, 0, 0, 0.35)',
+          }}
+        />
+      </div>
+    )}
+    </>
   )
 }
 

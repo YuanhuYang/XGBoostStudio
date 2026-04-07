@@ -12,10 +12,9 @@ import {
 import ReactECharts from 'echarts-for-react'
 import apiClient from '../../api/client'
 import { getRequestErrorMessage } from '../../utils/apiError'
+import { formatUtcToBeijing } from '../../utils/datetime'
 import { useAppStore } from '../../store/appStore'
-import HelpButton from '../../components/HelpButton'
-
-const { Title, Text } = Typography
+const { Text } = Typography
 const { Panel } = Collapse
 
 // ─── 5 阶段定义（与后端保持一致） ────────────────────────────────────────────
@@ -294,7 +293,7 @@ const ModelTuningPage: React.FC = () => {
   const pct = trialHistory.length > 0 ? Math.round((trialHistory.length / nTrials) * 100) : 0
 
   const workflowSteps = [
-    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '数据工作台', icon: <DatabaseOutlined /> },
     { title: '特征分析', icon: <BarChartOutlined /> },
     { title: '特征工程', icon: <ToolOutlined /> },
     { title: '参数配置', icon: <SettingOutlined /> },
@@ -310,15 +309,6 @@ const ModelTuningPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
-        <RocketOutlined /> 超参数调优（5 阶段分层调优）
-      </Title>
-      <HelpButton pageTitle="超参数调优" items={[
-        { title: '为什么要分 5 个阶段调优？', content: '分层调优遵循 XGBoost 专家调优逻辑：先确定迭代次数基准，再优化树结构，再调采样策略，再加正则化，最后精细收尾。每阶段锁定最优参数传入下一阶段，逐步缩小搜索空间，效率远高于全参数同时搜索。' },
-        { title: '每个阶段调优什么参数？', content: '阶段1：n_estimators+learning_rate | 阶段2：max_depth+min_child_weight+gamma | 阶段3：subsample+colsample_bytree | 阶段4：reg_alpha+reg_lambda | 阶段5：降低lr+提高轮数精细化' },
-        { title: '试验次数设置多少合适？', content: '建议 50-100；系统自动将总次数均分到 5 个阶段（每阶段至少 5 次）。试验总次数越多，搜索越充分，但耗时也越长。' },
-      ]} />
-
       <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
         <Steps current={currentWorkflowStep} size="small" items={workflowSteps} />
       </Card>
@@ -392,7 +382,7 @@ const ModelTuningPage: React.FC = () => {
             <Card title={<Text style={{ color: '#e2e8f0' }}>最终最优参数</Text>}
               style={{ background: '#1e293b', border: '1px solid #334155' }}>
               {lastResultAt && status === 'completed' && trialHistory.length === 0 && (
-                <Alert type="info" message={`上次调优结果（${new Date(lastResultAt).toLocaleString('zh-CN')}）`} style={{ marginBottom: 10, fontSize: 12 }} showIcon />
+                <Alert type="info" message={`上次调优结果（${formatUtcToBeijing(lastResultAt)} 北京时间）`} style={{ marginBottom: 10, fontSize: 12 }} showIcon />
               )}
               <Statistic title="全局最优得分" value={bestScore.toFixed(4)} valueStyle={{ color: '#34d399', fontSize: 28 }} />
               {resultModelId && <Alert type="success" message={`模型已保存 ID: ${resultModelId}`} style={{ marginTop: 8 }} />}

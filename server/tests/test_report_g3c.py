@@ -164,6 +164,19 @@ class TestBrandConfigSchema:
         assert req.brand_config is not None
         assert req.brand_config.watermark_text == "CONFIDENTIAL"
 
+    def test_report_generate_request_compare_model_ids_optional(self):
+        """compare_model_ids 可选，默认 None"""
+        from schemas.model import ReportGenerateRequest
+        req = ReportGenerateRequest(model_id=1)
+        assert req.compare_model_ids is None
+
+    def test_report_generate_request_compare_model_ids_max_length(self):
+        """compare_model_ids 超过 8 个应校验失败"""
+        from pydantic import ValidationError
+        from schemas.model import ReportGenerateRequest
+        with pytest.raises(ValidationError):
+            ReportGenerateRequest(model_id=1, compare_model_ids=list(range(2, 12)))
+
 
 # ─── 报告服务单元测试 ─────────────────────────────────────────────────────────
 
@@ -337,6 +350,55 @@ def test_generate_report_missing_model_returns_404(client_for_report):
     assert resp.status_code == 404
 
 
+def test_generate_report_compare_model_missing_returns_404(client_for_report):
+    """对比模型不存在时应返回 404"""
+    client, model_id = client_for_report
+    if model_id is None:
+        pytest.skip("模型未创建")
+    resp = client.post("/api/reports/generate", json={
+        "model_id": model_id,
+        "template_type": "executive_brief",
+        "compare_model_ids": [999999],
+    })
+    assert resp.status_code == 404
+
+
+def test_generate_report_compare_model_ids_success(client_for_report):
+    """主报告附带对比模型时应成功，且报告类型为 single_with_compare"""
+    import time
+
+    client, model_id = client_for_report
+    if model_id is None:
+        pytest.skip("模型未创建")
+    mr = client.get(f"/api/models/{model_id}")
+    if mr.status_code != 200:
+        pytest.skip("无法读取模型")
+    split_id = mr.json().get("split_id")
+    if not split_id:
+        pytest.skip("无 split_id")
+    tr = client.post("/api/training/start", json={
+        "split_id": split_id,
+        "params": {"n_estimators": 12, "max_depth": 4},
+    })
+    if tr.status_code != 200:
+        pytest.skip("第二次训练未启动")
+    time.sleep(2)
+    models = client.get("/api/models").json()
+    other_ids = [m["id"] for m in models if m["id"] != model_id]
+    if not other_ids:
+        pytest.skip("需要至少两个模型做对比")
+    other = other_ids[0]
+    resp = client.post("/api/reports/generate", json={
+        "model_id": model_id,
+        "template_type": "executive_brief",
+        "compare_model_ids": [other],
+    })
+    assert resp.status_code == 200
+    rid = resp.json()["id"]
+    detail = client.get(f"/api/reports/{rid}")
+    assert detail.status_code == 200
+
+
 def test_report_list_returns_generated_reports(client_for_report):
     """生成报告后，列表接口应能返回该报告"""
     client, model_id = client_for_report
@@ -349,6 +411,136 @@ def test_report_list_returns_generated_reports(client_for_report):
     resp = client.get("/api/reports")
     assert resp.status_code == 200
     assert len(resp.json()) >= 1
+
+
+class TestReportTuningAndAccuracyNarrative:
+    """建模过程（调优诊断）与准确性叙事辅助逻辑。"""
+
+    def test_short_params_for_cell_truncates(self):
+        pytest.importorskip("reportlab")
+        from services.report_service import _short_params_for_cell
+
+        d = {f"k{i}": i for i in range(25)}
+        s = _short_params_for_cell(d, max_chars=40)
+        assert s.endswith("…")
+        assert len(s) <= 40
+
+    def test_resolve_tuning_task_by_model_id(self):
+        pytest.importorskip("reportlab")
+        import json
+
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from db.models import Base, Model, TuningTask
+        from services.report_service import _resolve_tuning_task
+
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        m = Model(
+            name="m",
+            path="f.ubj",
+            task_type="classification",
+            metrics_json="{}",
+            params_json="{}",
+        )
+        db.add(m)
+        db.commit()
+        db.refresh(m)
+
+        diag = {
+            "n_trials_requested": 2,
+            "n_trials_completed": 2,
+            "n_trials_failed": 0,
+            "direction": "maximize",
+            "strategy": "tpe",
+            "task_type": "classification",
+            "tuning_methodology": "5_phase_hierarchical",
+            "phase_records": [
+                {
+                    "phase_id": 1,
+                    "phase_name": "阶段一测试名",
+                    "phase_goal": "测试目标说明",
+                    "n_trials": 2,
+                    "n_completed": 2,
+                    "n_failed": 0,
+                    "best_score": 0.81,
+                    "effect_improvement": None,
+                    "best_params": {"max_depth": 4},
+                    "trials": [],
+                }
+            ],
+        }
+        tid = "t" * 32
+        tt = TuningTask(
+            id=tid,
+            status="completed",
+            strategy="tpe",
+            n_trials=5,
+            model_id=m.id,
+            best_score=0.81,
+            tuning_diagnostics_json=json.dumps(diag, ensure_ascii=False),
+        )
+        db.add(tt)
+        db.commit()
+
+        task, d = _resolve_tuning_task(db, m)
+        assert task is not None and task.id == tid
+        assert d is not None
+        assert d["strategy"] == "tpe"
+        assert len(d.get("phase_records") or []) == 1
+        assert d["phase_records"][0]["phase_name"] == "阶段一测试名"
+
+    def test_tuning_process_flowables_includes_phase_table(self):
+        pytest.importorskip("reportlab")
+        from reportlab.platypus import Table
+
+        from services.report_service import _tuning_process_flowables
+
+        diag = {
+            "n_trials_requested": 3,
+            "n_trials_completed": 3,
+            "n_trials_failed": 0,
+            "direction": "maximize",
+            "strategy": "tpe",
+            "task_type": "classification",
+            "tuning_methodology": "5_phase_hierarchical",
+            "phase_records": [
+                {
+                    "phase_id": 1,
+                    "phase_name": "P1",
+                    "phase_goal": "g",
+                    "n_trials": 1,
+                    "n_completed": 1,
+                    "n_failed": 0,
+                    "best_score": 0.5,
+                    "effect_improvement": None,
+                    "best_params": {"a": 1},
+                    "trials": [{"trial": 1, "score": 0.5, "params": {"a": 1}}],
+                }
+            ],
+        }
+        sn = [1, 0]
+        out = _tuning_process_flowables(None, diag, "standard", sn, "default")
+        assert any(isinstance(x, Table) for x in out)
+        assert sn[1] >= 1
+
+    def test_accuracy_conclusion_flowables_non_empty(self):
+        pytest.importorskip("reportlab")
+
+        from services.report_service import _accuracy_conclusion_flowables
+
+        metrics = {"accuracy": 0.88, "auc": 0.9}
+        eval_result = {
+            "overfitting_diagnosis": {"level": "low", "message": "ok"},
+            "baseline": {"strategy": "majority"},
+        }
+        sn = [5, 0]
+        out = _accuracy_conclusion_flowables(metrics, "classification", eval_result, sn, "default")
+        assert len(out) >= 1
+        assert sn[1] >= 1
 
 
 def test_reportSections_ts_constants():

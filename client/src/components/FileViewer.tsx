@@ -26,7 +26,7 @@ interface FileViewerProps {
  * 通用文件查看器容器组件
  *
  * 支持多种文件类型，自动路由到相应的查看器：
- * - PDF：使用 react-pdf
+ * - PDF：iframe 内嵌系统内置阅读器（与浏览器直接打开一致）
  * - Excel：预留接口（未来实现）
  * - CSV：预留接口（未来实现）
  *

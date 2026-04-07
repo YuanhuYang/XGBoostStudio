@@ -6,6 +6,24 @@ import { ServerManager } from './server-manager'
 let mainWindow: BrowserWindow | null = null
 const serverManager = new ServerManager()
 
+/** 阻止主窗口被内嵌 PDF / blob 预览劫持为顶层导航（否则整窗变白，只剩标题栏） */
+function shouldBlockMainTopNavigation(url: string): boolean {
+  if (url.startsWith('blob:') || url.startsWith('data:')) return true
+  try {
+    const u = new URL(url)
+    if (u.protocol === 'chrome-extension:' || u.protocol === 'chrome:') return true
+    if (
+      (u.hostname === '127.0.0.1' || u.hostname === 'localhost') &&
+      u.port === '18899'
+    ) {
+      return true
+    }
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -27,8 +45,35 @@ function createWindow(): void {
     // 窗口就绪后不立即显示，等待后端连接成功
   })
 
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (shouldBlockMainTopNavigation(navigationUrl)) {
+      event.preventDefault()
+      console.warn('[Main] 已阻止顶栏导航（避免 PDF 预览改写主窗口）:', navigationUrl.slice(0, 160))
+    }
+  })
+
+  // 对 blob:/data: 不要用 deny：内嵌 PDF 偶发 window.open(blob) 时，deny 可能导致顶栏被回写整页空白。
+  // 其它 URL 仍走系统浏览器；iframe 侧已加 sandbox 限制顶层导航。
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    const url = details.url
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          parent: mainWindow!,
+          width: 1200,
+          height: 820,
+          autoHideMenuBar: true,
+          webPreferences: {
+            preload: join(__dirname, '../preload/index.js'),
+            sandbox: false,
+            contextIsolation: true,
+            nodeIntegration: false,
+          },
+        },
+      }
+    }
+    shell.openExternal(url)
     return { action: 'deny' }
   })
 

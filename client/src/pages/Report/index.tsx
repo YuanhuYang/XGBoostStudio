@@ -1,20 +1,19 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Card, Table, Button, Space, Typography, Modal, Form, Input,
-  InputNumber, message, Popconfirm, Tag, Row, Col, Empty,
-  Checkbox, Spin, Select, Divider, Radio, ColorPicker, Tabs, Tooltip, Badge, List,
+  message, Popconfirm, Tag, Row, Col, Empty,
+  Checkbox, Spin, Select, Divider, Radio, ColorPicker, Tabs, Tooltip, Badge, List, Alert,
 } from 'antd'
 import {
-  FileTextOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined,
+  DownloadOutlined, DeleteOutlined, PlusOutlined, EyeOutlined,
   SaveOutlined, FolderOpenOutlined, CrownOutlined, CheckCircleOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import apiClient from '../../api/client'
+import apiClient, { BASE_URL } from '../../api/client'
 import { useAppStore } from '../../store/appStore'
-import HelpButton from '../../components/HelpButton'
 import PDFViewer from '../../components/PDFViewer'
 import {
-  REPORT_SECTION_OPTIONS, CHAPTERS_12, REPORT_TEMPLATES, type ReportTemplate as G3Template,
+  REPORT_SECTION_OPTIONS, CHAPTERS_12, REPORT_TEMPLATES, legacySectionKeysFromG3TemplateType,
 } from '../../constants/reportSections'
 import { listReportTemplates, createReportTemplate, deleteReportTemplate, type ReportTemplate } from '../../api/reports'
 import { formatUtcToBeijing } from '../../utils/datetime'
@@ -27,8 +26,17 @@ interface ReportRecord {
   id: number; name: string; model_id: number | null; path: string; created_at: string
 }
 
+const MAX_COMPARE_MODELS = 8
+
+interface ModelListRow {
+  id: number
+  name: string
+}
+
 const ReportPage: React.FC = () => {
   const activeModelId = useAppStore(s => s.activeModelId)
+  const activeSplitId = useAppStore(s => s.activeSplitId)
+  const activeDatasetId = useAppStore(s => s.activeDatasetId)
   const [reports, setReports] = useState<ReportRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [genModal, setGenModal] = useState(false)
@@ -36,6 +44,9 @@ const ReportPage: React.FC = () => {
   const [selectedSections, setSelectedSections] = useState<string[]>(SECTION_OPTIONS.map(o => o.value))
   const [formatStyle, setFormatStyle] = useState<'default' | 'apa'>('default')
   const [form] = Form.useForm()
+  const [modelOptions, setModelOptions] = useState<{ value: number; label: string }[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const primaryModelId = Form.useWatch('model_id', form)
 
   // G3-C 新增状态：12章模板选择
   const [selectedTemplateType, setSelectedTemplateType] = useState<string>('full_12_chapters')
@@ -55,27 +66,8 @@ const ReportPage: React.FC = () => {
   // PDF 预览相关状态
   const [previewModal, setPreviewModal] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null)
   const [previewFilename, setPreviewFilename] = useState<string>('')
-  const [previewLoading, setPreviewLoading] = useState(false)
-
-  const helpItems = [
-    {
-      title: '如何选择报告章节？',
-      content: '默认勾选全部章节，可以根据需要取消勾选不想要的章节。精简汇报模板只包含核心章节，完整存档模板包含所有章节。你可以将当前勾选保存为自定义模板，下次一键加载。',
-    },
-    {
-      title: 'APA 格式是什么？',
-      content: 'APA 格式是学术界通用的排版格式，字体更大、行距更宽、边距更大，符合学术发表要求。生成的 PDF 可以直接插入毕业论文或技术报告。',
-    },
-    {
-      title: '结果准确性在哪里证明？',
-      content: '报告中每个指标都附带简短说明和评级。完整解答请看项目文档的 report-interpretation.md，包含结果准确性证明、建模思路解读、指标含义。',
-    },
-    {
-      title: '报告生成失败怎么办？',
-      content: '确保模型已完成训练，模型 ID 正确。如果仍失败，检查后端日志是否有错误，重启后端服务后重试。',
-    },
-  ]
 
   const fetchReports = async () => {
     setLoading(true)
@@ -100,12 +92,35 @@ const ReportPage: React.FC = () => {
     fetchTemplates()
   }, [])
 
-  // 报告生成对话框打开时，预填当前活跃模型 ID
+  // 报告生成对话框打开时，预填当前活跃模型并拉取可选模型列表
   useEffect(() => {
-    if (genModal && activeModelId !== null) {
-      form.setFieldsValue({ model_id: activeModelId })
+    if (!genModal) return
+    if (activeModelId !== null) {
+      form.setFieldsValue({ model_id: activeModelId, compare_model_ids: [] })
+    } else {
+      form.setFieldsValue({ compare_model_ids: [] })
     }
-  }, [genModal, activeModelId, form])
+    setModelsLoading(true)
+    const params: Record<string, number> = {}
+    if (activeSplitId != null) params.split_id = activeSplitId
+    else if (activeDatasetId != null) params.dataset_id = activeDatasetId
+    apiClient
+      .get<ModelListRow[]>('/api/models', { params })
+      .then(r => {
+        const rows = r.data || []
+        setModelOptions(rows.map(m => ({ value: m.id, label: `${m.name} (#${m.id})` })))
+      })
+      .catch(() => {
+        message.error('加载模型列表失败')
+        setModelOptions([])
+      })
+      .finally(() => setModelsLoading(false))
+  }, [genModal, activeModelId, activeSplitId, activeDatasetId, form])
+
+  const compareOptions = useMemo(
+    () => modelOptions.filter(o => o.value !== primaryModelId),
+    [modelOptions, primaryModelId],
+  )
 
   const handleGenerate = async () => {
     const values = await form.validateFields()
@@ -136,12 +151,60 @@ const ReportPage: React.FC = () => {
         payload.include_sections = selectedSections.length < SECTION_OPTIONS.length ? selectedSections : undefined
       }
 
+      const cmp = (values.compare_model_ids as number[] | undefined)?.filter(Boolean) ?? []
+      if (cmp.length > 0) {
+        payload.compare_model_ids = cmp
+      }
+
+      // #region agent log
+      fetch('http://127.0.0.1:7268/ingest/0460b7c0-4c9a-4a36-a0b4-004d253d2509', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'eedc4d' },
+        body: JSON.stringify({
+          sessionId: 'eedc4d',
+          hypothesisId: 'H1',
+          location: 'Report/index.tsx:handleGenerate',
+          message: 'generate_report_payload',
+          data: {
+            model_id: payload.model_id,
+            compare_len: Array.isArray(payload.compare_model_ids) ? payload.compare_model_ids.length : 0,
+            compare_elt_types: Array.isArray(payload.compare_model_ids)
+              ? payload.compare_model_ids.map((x: unknown) => typeof x)
+              : [],
+            template_type: payload.template_type,
+            has_include_sections_key: 'include_sections' in payload,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
+      // #endregion
+
       await apiClient.post('/api/reports/generate', payload)
       message.success('报告生成成功')
       setGenModal(false)
       form.resetFields()
       fetchReports()
     } catch (e: unknown) {
+      // #region agent log
+      const em = e instanceof Error ? e.message : String(e)
+      const ax = e as { response?: { status?: number; data?: { detail?: unknown } } }
+      fetch('http://127.0.0.1:7268/ingest/0460b7c0-4c9a-4a36-a0b4-004d253d2509', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'eedc4d' },
+        body: JSON.stringify({
+          sessionId: 'eedc4d',
+          hypothesisId: 'H5',
+          location: 'Report/index.tsx:handleGenerate',
+          message: 'generate_report_catch',
+          data: {
+            errorMessage: em.slice(0, 500),
+            httpStatus: ax.response?.status ?? null,
+            detail: ax.response?.data?.detail ?? null,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
+      // #endregion
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail || '生成失败')
     } finally {
@@ -150,11 +213,30 @@ const ReportPage: React.FC = () => {
   }
 
   const loadTemplate = (template: ReportTemplate) => {
-    setSelectedSections(template.sections)
     setFormatStyle(template.format_style)
-    message.success(`已加载模板「${template.name}」`)
+    // 默认生成走 G3「template_type」，原先只改 selectedSections 会被忽略，需同步模式与预设
+    if (template.is_builtin && template.name === '精简汇报') {
+      setUseG3Chapters(true)
+      setSelectedTemplateType('executive_brief')
+      setSelectedSections(legacySectionKeysFromG3TemplateType('executive_brief'))
+      message.success(`已加载「${template.name}」（对应 12 章 · 管理层简报版）。请打开「生成新报告」在「报告模板」页确认后生成。`)
+    } else if (template.is_builtin && template.name === '完整存档') {
+      setUseG3Chapters(true)
+      setSelectedTemplateType('full_12_chapters')
+      setSelectedSections(legacySectionKeysFromG3TemplateType('full_12_chapters'))
+      message.success(`已加载「${template.name}」（对应 12 章 · 完整版）。请打开「生成新报告」在「报告模板」页确认后生成。`)
+    } else {
+      setUseG3Chapters(false)
+      setSelectedSections(template.sections.length ? template.sections : SECTION_OPTIONS.map(o => o.value))
+      message.success(`已加载「${template.name}」（旧版自由选择）。请打开「生成新报告」在「报告模板」页确认后生成。`)
+    }
     setTemplateModal(false)
   }
+
+  const sectionsForCustomTemplate = useMemo(
+    () => (useG3Chapters ? legacySectionKeysFromG3TemplateType(selectedTemplateType) : selectedSections),
+    [useG3Chapters, selectedTemplateType, selectedSections],
+  )
 
   const handleSaveTemplate = async () => {
     const values = await saveTemplateForm.validateFields()
@@ -162,7 +244,7 @@ const ReportPage: React.FC = () => {
       await createReportTemplate({
         name: values.name,
         description: values.description || '',
-        sections: selectedSections,
+        sections: sectionsForCustomTemplate,
         format_style: formatStyle,
       })
       message.success('模板保存成功')
@@ -193,19 +275,12 @@ const ReportPage: React.FC = () => {
     } catch { message.error('下载失败') }
   }
 
-  const handlePreview = async (id: number, name: string) => {
-    // 使用前端 PDFViewer 组件预览，而不是系统浏览器
-    try {
-      setPreviewLoading(true)
-      const pdfUrl = `http://127.0.0.1:18899/api/reports/${id}/download`
-      setPreviewUrl(pdfUrl)
-      setPreviewFilename(`${name}.pdf`)
-      setPreviewModal(true)
-    } catch (error) {
-      message.error('无法加载 PDF')
-    } finally {
-      setPreviewLoading(false)
-    }
+  const handlePreview = (id: number, name: string) => {
+    // iframe 内嵌 /preview（inline），效果与浏览器直接打开 PDF 一致
+    setPreviewUrl(`${BASE_URL}/api/reports/${id}/preview`)
+    setPreviewDownloadUrl(`${BASE_URL}/api/reports/${id}/download`)
+    setPreviewFilename(`${name}.pdf`)
+    setPreviewModal(true)
   }
 
   const handleDelete = async (id: number) => {
@@ -224,8 +299,8 @@ const ReportPage: React.FC = () => {
       title: '操作', key: 'action',
       render: (_, r) => (
         <Space>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => handlePreview(r.id, r.name)}>预览</Button>
-          <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(r.id, r.name)}>下载</Button>
+          <Button htmlType="button" size="small" icon={<EyeOutlined />} onClick={() => handlePreview(r.id, r.name)}>预览</Button>
+          <Button htmlType="button" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(r.id, r.name)}>下载</Button>
           <Popconfirm title="确认删除此报告？" onConfirm={() => handleDelete(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -236,18 +311,6 @@ const ReportPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ color: '#60a5fa', margin: 0 }}>
-          <FileTextOutlined /> 报告管理
-        </Title>
-        <HelpButton pageTitle="报告管理" items={helpItems} inHeader={true} />
-      </div>
-      <HelpButton pageTitle="报告管理" items={[
-        { title: '如何生成报告？', content: '点击「生成新报告」，输入模型 ID 并选择所需章节，系统将自动生成 PDF 报告。' },
-        { title: '如何选择包含章节？', content: '在生成对话框中勾选/反选对应章节，支持自定义 PDF 内容。' },
-        { title: '如何预览 PDF？', content: '点击操作列的「预览」按鈕，将在弹框中内嵌展示 PDF。' },
-      ]} />
-
       <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
         <Col>
           <Space align="center" style={{ marginRight: 16 }}>
@@ -293,8 +356,46 @@ const ReportPage: React.FC = () => {
               key: 'basic', label: '基本信息',
               children: (
                 <Form form={form} layout="vertical">
-                  <Form.Item name="model_id" label="模型 ID" rules={[{ required: true, message: '请输入模型ID' }]}>
-                    <InputNumber min={1} style={{ width: '100%' }} placeholder="输入模型ID" />
+                  <Form.Item name="model_id" label="主模型" rules={[{ required: true, message: '请选择主模型' }]}>
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      loading={modelsLoading}
+                      placeholder="选择要生成报告的主模型"
+                      options={modelOptions}
+                      onChange={(v: number) => {
+                        const cur = form.getFieldValue('compare_model_ids') as number[] | undefined
+                        if (Array.isArray(cur) && cur.includes(v)) {
+                          form.setFieldsValue({ compare_model_ids: cur.filter(id => id !== v) })
+                        }
+                      }}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="compare_model_ids"
+                    label="对比模型（可选，多选）"
+                    tooltip="将与主模型一并写入附录 D：指标表、参数对比及统计说明；最多 8 个"
+                    initialValue={[]}
+                    rules={[
+                      {
+                        validator: async (_, v: number[]) => {
+                          if (v && v.length > MAX_COMPARE_MODELS) {
+                            throw new Error(`对比模型最多 ${MAX_COMPARE_MODELS} 个`)
+                          }
+                        },
+                      },
+                    ]}
+                  >
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      loading={modelsLoading}
+                      placeholder="选择用于横向对比的模型（不含主模型）"
+                      options={compareOptions}
+                      maxTagCount="responsive"
+                    />
                   </Form.Item>
                   <Form.Item name="title" label="报告标题">
                     <Input placeholder="如：泰坦尼克生存预测模型报告" />
@@ -302,7 +403,7 @@ const ReportPage: React.FC = () => {
                   <Form.Item name="notes" label="备注说明">
                     <Input.TextArea rows={2} placeholder="可输入模型说明、实验背景等" />
                   </Form.Item>
-                  <Form.Item name="narrative_depth" label="数据关系分析深度" tooltip="仅影响数据章节" initialValue="standard">
+                  <Form.Item name="narrative_depth" label="数据关系分析深度" tooltip="影响「数据与变量关系」章节详略；选「详细」时，报告中调优过程会附带各阶段 Trial 抽样表。" initialValue="standard">
                     <Select options={[{ value: 'standard', label: '标准（较快）' }, { value: 'detailed', label: '详细（Spearman、更多图表）' }]} />
                   </Form.Item>
                   <Form.Item label="报表格式样式">
@@ -318,14 +419,28 @@ const ReportPage: React.FC = () => {
               key: 'template', label: <span><CrownOutlined /> 报告模板</span>,
               children: (
                 <Space direction="vertical" style={{ width: '100%' }} size={16}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     <Text style={{ color: '#e2e8f0', fontWeight: 600 }}>选择报告模板（G3-C 12章规格）</Text>
-                    <Space>
+                    <Space wrap>
                       <Text style={{ color: '#94a3b8', fontSize: 12 }}>使用12章规格</Text>
                       <Radio.Group value={useG3Chapters ? 'new' : 'legacy'} onChange={e => setUseG3Chapters(e.target.value === 'new')} optionType="button" size="small"
                         options={[{ value: 'new', label: '12章固定结构' }, { value: 'legacy', label: '旧版自由选择' }]} />
+                      <Button size="small" icon={<SaveOutlined />} onClick={() => setSaveTemplateModal(true)}>
+                        保存为我的模板
+                      </Button>
                     </Space>
                   </div>
+
+                  <Alert
+                    type="info"
+                    showIcon
+                    message={
+                      useG3Chapters
+                        ? `生成时将使用：12 章结构 · ${REPORT_TEMPLATES.find(t => t.type === selectedTemplateType)?.name ?? selectedTemplateType}`
+                        : `生成时将使用：旧版自由选择 · 已选 ${selectedSections.length} 个内容章节`
+                    }
+                    description="与「模板管理」中的加载结果一致；最终以本页当前选项为准。"
+                  />
 
                   {useG3Chapters ? (
                     <>
@@ -434,22 +549,21 @@ const ReportPage: React.FC = () => {
       <Modal
         title={`预览: ${previewFilename}`}
         open={previewModal}
+        destroyOnClose
         onCancel={() => {
           setPreviewModal(false)
           setPreviewUrl(null)
+          setPreviewDownloadUrl(null)
         }}
         footer={null}
         width="90%"
         style={{ top: 20 }}
-        bodyStyle={{ height: 'calc(100vh - 120px)', overflow: 'hidden' }}
+        bodyStyle={{ height: 'calc(100vh - 120px)', overflow: 'hidden', padding: 0 }}
       >
-        {previewLoading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
-            <Spin tip="加载 PDF 中..." />
-          </div>
-        ) : previewUrl ? (
+        {previewUrl ? (
           <PDFViewer
             source={previewUrl}
+            downloadUrl={previewDownloadUrl ?? undefined}
             filename={previewFilename}
             showDownload={true}
             showFullscreen={true}
@@ -513,6 +627,10 @@ const ReportPage: React.FC = () => {
               </Card>
             </div>
           ))}
+          <Divider style={{ margin: '8px 0' }} />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            将当前「生成新报告」里的模板与格式保存为自定义模板：打开生成对话框，切到「报告模板」页，点击「保存为我的模板」。
+          </Text>
         </Space>
       </Modal>
 
@@ -540,7 +658,8 @@ const ReportPage: React.FC = () => {
           </Form.Item>
           <Form.Item label="将要保存的配置">
             <Text type="secondary">
-              章节数：{selectedSections.length} 个，格式：{formatStyle === 'apa' ? 'APA 学术格式' : '默认格式'}
+              章节数：{sectionsForCustomTemplate.length} 个，格式：{formatStyle === 'apa' ? 'APA 学术格式' : '默认格式'}
+              {useG3Chapters && '（由当前 12 章预设映射为旧版章节令牌，便于列表与复用）'}
             </Text>
           </Form.Item>
         </Form>

@@ -22,6 +22,8 @@ class Dataset(Base):
     cols: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_column: Mapped[str | None] = mapped_column(String(100), nullable=True)
     task_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # classification/regression
+    # JSON 数组：用户在特征工程等流程中的预处理操作审计（供叙事 API 与 PDF）
+    preprocessing_log_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 

@@ -138,11 +138,18 @@ body,
 .mode-switcher-segmented .ant-segmented-item:not(:has(input:checked)):hover {
   color: #94a3b8 !important;
 }
+/* 选中项文字；背景交给 .item-selected，因动画结束后 thumb 会从 DOM 移除 */
 .mode-switcher-segmented .ant-segmented-item:has(input:checked) {
   color: #f8fafc !important;
   font-weight: 600;
-  background: transparent !important;
-  box-shadow: none !important;
+}
+/* 与 thumb 同款的持久高亮（thumb 仅在滑动动画期间存在） */
+.mode-switcher-segmented .ant-segmented-item-selected {
+  background: linear-gradient(135deg, #2563eb 0%, #6366f1 55%, #7c3aed 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(129, 140, 248, 0.55),
+    0 2px 10px rgba(37, 99, 235, 0.35) !important;
 }
 .mode-switcher-segmented .ant-segmented-thumb {
   background: linear-gradient(135deg, #2563eb 0%, #6366f1 55%, #7c3aed 100%) !important;
@@ -212,12 +219,17 @@ body,
   font-weight: 600;
 }
 
-/* Ant Design Message：默认顶部水平居中（left 50% + translateX），改为视口右上角，减少遮挡主内容区。
-   必须同时写 right，仅 left:auto + inset-inline-end 在部分环境下会回退成「贴左」静态位。 */
+/* Ant Design 5 Message：组件样式里 container 为 width:100%；若只改 left/right 仍占满视口，条内内容会像「贴左上」。
+   收窄容器并右对齐，与常见「右上提示」一致。 */
 .ant-message.ant-message-top {
   left: auto !important;
   right: 16px !important;
   transform: none !important;
+  width: auto !important;
+  max-width: min(480px, calc(100vw - 32px));
+  display: flex !important;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
 .ant-message .ant-message-notice {

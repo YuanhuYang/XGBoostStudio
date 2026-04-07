@@ -145,17 +145,17 @@ def get_evaluation(model_id: int, db: Session) -> dict[str, Any]:
         val_key = "accuracy" if model_rec.task_type == "classification" else "rmse"
         if overfitting_level == "high":
             msg = (
-                f"⚠️ 检测到明显过拟合：训练集{val_key.upper()} "
+                f"检测到明显过拟合：训练集{val_key.upper()} "
                 f"{base_metrics.get(train_key, ''):.4f} vs 验证集 {base_metrics.get(val_key, ''):.4f}，"
                 f"差距 {abs(gap):.4f}。建议：降低 max_depth、增大 reg_lambda/reg_alpha、提高 subsample。"
             )
         elif overfitting_level == "medium":
             msg = (
-                f"📊 轻微过拟合：训练/验证{val_key.upper()}差距 {abs(gap):.4f}，"
+                f"轻微过拟合：训练/验证{val_key.upper()}差距 {abs(gap):.4f}，"
                 "模型泛化能力尚可，可适当增加正则化。"
             )
         else:
-            msg = "✅ 过拟合风险低：训练集与验证集指标接近，模型泛化能力良好。"
+            msg = "过拟合风险低：训练集与验证集指标接近，模型泛化能力良好。"
         result["overfitting_diagnosis"] = {
             "level": overfitting_level,
             "gap": gap,

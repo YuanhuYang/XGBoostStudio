@@ -12,7 +12,6 @@ export interface HelpItem {
 interface HelpButtonProps {
   pageTitle?: string
   items?: HelpItem[]
-  inHeader?: boolean
 }
 
 const defaultItems: HelpItem[] = [
@@ -21,12 +20,9 @@ const defaultItems: HelpItem[] = [
   { title: '报告无法生成？', content: '确保模型已完成训练且评估指标已保存，若仍失败请重启后端服务。' },
 ]
 
-const HelpButton: React.FC<HelpButtonProps> = ({ pageTitle, items, inHeader = false }) => {
+const HelpButton: React.FC<HelpButtonProps> = ({ pageTitle, items }) => {
   const [open, setOpen] = useState(false)
   const helpItems = items ?? defaultItems
-
-  // 全局顶部模式启用后，仅在 Header 中渲染帮助入口
-  if (!inHeader) return null
 
   return (
     <>

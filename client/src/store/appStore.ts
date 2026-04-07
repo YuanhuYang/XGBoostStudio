@@ -2,6 +2,12 @@ import { create } from 'zustand'
 
 export type WorkflowMode = 'guided' | 'preprocess' | 'learning' | 'expert'
 
+/** 顶栏「帮助」抽屉内容（专家工作台按状态覆盖） */
+export interface PageHelpPayload {
+  pageTitle: string
+  items: { title: string; content: string }[]
+}
+
 const LS_MODE_KEY = 'xgbs_workflow_mode'
 const LS_SIDEBAR_KEY = 'xgbs_sidebar_collapsed'
 const LS_MODE_FIRST_VISIT_KEY = 'xgbs_mode_first_visit'
@@ -128,6 +134,8 @@ interface AppState {
   modeFirstVisit: Record<WorkflowMode, boolean>
   /** SSE 训练是否正在进行（由 ModelTraining 页面写入） */
   isTraining: boolean
+  /** 当前页自定义帮助（如专家工作台多状态）；非覆盖页应为 null */
+  pageHelpOverride: PageHelpPayload | null
 
   setServerReady: (ready: boolean) => void
   setServerError: (msg: string | null) => void
@@ -147,6 +155,7 @@ interface AppState {
   setWorkflowStep: (step: number) => void
   markModeVisited: (mode: WorkflowMode) => void
   setIsTraining: (training: boolean) => void
+  setPageHelpOverride: (payload: PageHelpPayload | null) => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -166,6 +175,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   workflowStep: 0,
   modeFirstVisit: loadModeFirstVisit(),
   isTraining: false,
+  pageHelpOverride: null,
 
   setServerReady: (ready) => set({ serverReady: ready }),
   setServerError: (msg) => set({ serverError: msg }),
@@ -215,4 +225,5 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ modeFirstVisit: updated })
   },
   setIsTraining: (training) => set({ isTraining: training }),
+  setPageHelpOverride: (payload) => set({ pageHelpOverride: payload }),
 }))

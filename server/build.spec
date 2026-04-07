@@ -15,6 +15,8 @@ added_files = [
     ('services', 'services'),
     ('schemas', 'schemas'),
     ('db', 'db'),
+    # 内置示例 CSV（import-sample 从 tests/data 读取；未打入则打包版会 404）
+    ('tests/data', 'tests/data'),
 ]
 
 a = Analysis(

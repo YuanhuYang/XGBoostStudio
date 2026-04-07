@@ -2,7 +2,7 @@
 
 在 [`server/cli`](../../server/cli) 下实现：默认**启动后端子进程**并进入 **REPL**，与浏览器中的前端（Vite/Electron）共用同一 API 与数据库。
 
-产品与 Wiki 中的能力边界、API 表、编排步骤见 **[全自动建模与向导（08-automl-wizard）](../wiki/08-automl-wizard.md)**（§2.2 命令行模式与本指南对应）。
+产品与 Wiki 中的能力边界、API 表、编排步骤见 **[全自动建模与向导（08-automl-wizard）](../wiki/08-automl-wizard.md)**（§2.2 命令行模式与本指南对应）。**统一质量分与智能清洗**口径、预处理审计与 PDF 的关系见 **[09-data-quality-unified-and-smart-clean](../wiki/09-data-quality-unified-and-smart-clean.md)**。非交互 `run` 与 REPL `automl` 均支持 **`--no-smart-clean`**（请求体 `smart_clean: false`），用于跳过去重/填缺失/IQR 截断、便于复现。
 
 ## 环境
 
@@ -38,9 +38,10 @@ uv run python -m cli.main --base-url http://127.0.0.1:18899
 ```bash
 uv run python -m cli.main run /path/to/data.csv --skip-tuning
 uv run python -m cli.main run ./data.xlsx --pdf --sheet Sheet1
+uv run python -m cli.main run ./data.csv --no-smart-clean
 ```
 
-常用参数：`--host` `--port` `--keep-server`（退出后保留 uvicorn）`--frontend-url` / `--print-frontend-url`（深链里的前端根地址，默认 `http://127.0.0.1:5173`，两参数等价）。
+常用参数：`--host` `--port` `--keep-server`（退出后保留 uvicorn）`--frontend-url` / `--print-frontend-url`（深链里的前端根地址，默认 `http://127.0.0.1:5173`，两参数等价）。`run` 成功结束后若服务端返回 **`pipeline_plan`**，会额外打印一行 JSON 摘要。
 
 ## 跨平台示例
 
@@ -71,7 +72,7 @@ uv run python -m cli.main
 | `load <路径> [sheet]` | 上传 CSV/XLSX |
 | `sample <key>` | 导入内置示例；**无参**时打印全部可用 `key`（与 `GET /api/datasets/builtin-samples` 及前端「添加示例数据」同源） |
 | `datasets` | 列出数据集 |
-| `automl [--skip-tuning] ...` | 全自动建模（SSE 进度） |
+| `automl [--skip-tuning] [--no-smart-clean] ...` | 全自动建模（SSE 进度）；`--no-smart-clean` 关闭智能清洗 |
 | `candidates` | 上次候选与系统推荐 |
 | `select <n>` / `select_model <id>` | 选用模型 |
 | `pdf [--compare-only\|--no-compare\|--selected]` | 生成 PDF |

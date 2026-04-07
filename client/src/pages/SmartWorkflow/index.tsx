@@ -9,8 +9,7 @@ import {
   FileTextOutlined, ThunderboltOutlined, BarChartOutlined, ExperimentOutlined,
   EditOutlined, ToolOutlined, BulbOutlined,
 } from '@ant-design/icons'
-import ParamLabModal from '../../components/ParamLabModal'
-import HelpButton from '../../components/HelpButton'
+import ParamLabModal from '@/components/ParamLabModal'
 import ReactECharts from 'echarts-for-react'
 import { useAppStore } from '../../store/appStore'
 import { listDatasets } from '../../api/datasets'
@@ -155,6 +154,7 @@ const SmartWorkflow: React.FC = () => {
 
   const [automlRunning, setAutomlRunning] = useState(false)
   const [automlFast, setAutomlFast] = useState(false)
+  const [automlSmartClean, setAutomlSmartClean] = useState(true)
   const [automlTrials, setAutomlTrials] = useState(12)
   const [automlLines, setAutomlLines] = useState<string[]>([])
   const [automlResult, setAutomlResult] = useState<AutoMLJobResult | null>(null)
@@ -337,6 +337,7 @@ const SmartWorkflow: React.FC = () => {
           dataset_id: selectedDatasetId,
           skip_tuning: automlFast,
           max_tuning_trials: automlFast ? 0 : automlTrials,
+          smart_clean: automlSmartClean,
         })
         const es = new EventSource(`${BASE_URL}/api/automl/jobs/${job_id}/progress`)
         automlEsRef.current = es
@@ -672,7 +673,7 @@ const SmartWorkflow: React.FC = () => {
     } else if (balancedParams) {
       setParamValues({ ...balancedParams })
       setSelectedPreset('balanced')
-      message.success('已恢复 AI 均衡推荐参数')
+      message.success('已恢复均衡智能推荐参数')
     }
   }
 
@@ -708,13 +709,6 @@ const SmartWorkflow: React.FC = () => {
 
   return (
     <div style={{ padding: '24px', maxWidth: 960, margin: '0 auto' }}>
-      <HelpButton pageTitle="向导工作台" items={[
-        { title: '这里是智能向导工作台吗？', content: '是的。侧栏「向导工作台」即本页：6 步分步引导，并含学习卡片、预处理「深入了解」与参数实验等；与顶栏「智能向导」模式对应。分步做数据导入、分析与划分请用顶栏「数据处理」模式。' },
-        { title: '向导模式与模型调优模式有何区别？', content: '两者均默认开启参数教学卡片、概念展开与参数实验。向导为 6 步全流程，并在各步提供可折叠的「学习指引 / 知识辅助」；模型调优侧栏以「调优工作台」为入口，下挂参数配置、训练、超参调优与模型管理，顶栏显示数据集、划分与主模型等上下文。' },
-        { title: '智能向导里「学习指引」在哪？', content: '在步骤 0～2、训练前等位置，标题含 📚 的折叠面板即为知识辅助；AI 预处理建议卡片底部的「深入了解」与调优模式一致，解释缺失值、高基数、不平衡等概念。' },
-        { title: '推荐流程是什么顺序？', content: '1.选择数据集 → 2.自动预处理 → 3.快速配置 → 4.训练模型 → 5.查看评估结果 → 6.导出报告。' },
-        { title: '实验室模式有什么用？', content: '实验室模式支持多参数组合对比，自动运行多次训练并汇总结果，适合快速探索最优参数组合。' },
-      ]} />
       {/* D3: 模式说明 Banner */}
       {workflowMode === 'guided' && (
         <Alert
@@ -805,7 +799,7 @@ const SmartWorkflow: React.FC = () => {
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
                     <li>选中的数据集会同步到<strong>顶栏</strong>，后续训练出的模型也会归在该数据集下，便于筛选「主模型」。</li>
                     <li>进入下一步后，会看到<strong>质量评分、任务类型提示、AI 预处理建议</strong>；与旧「学习/调优」模式相同，均可展开阅读原理说明。</li>
-                    <li>若暂无数据，请切换到顶部<strong>「数据处理」</strong>模式，在侧栏<strong>「数据导入」</strong>上传后再回到本向导。</li>
+                    <li>若暂无数据，请切换到顶部<strong>「数据处理」</strong>模式，在侧栏<strong>「数据工作台」</strong>上传后再回到本向导。</li>
                   </ul>
                 ),
               }]}
@@ -826,7 +820,7 @@ const SmartWorkflow: React.FC = () => {
             ))}
           </Select>
           {datasets.length === 0 && (
-            <Alert type="info" message="您还没有上传数据集，请先前往「数据导入」页面上传数据。" />
+            <Alert type="info" message="您还没有上传数据集，请先前往「数据工作台」页面上传数据。" />
           )}
           {summary && (() => {
             const qa = qualityScoreAlert(summary.quality_score)
@@ -839,6 +833,11 @@ const SmartWorkflow: React.FC = () => {
                     {summary.task_hint}
                     <br />
                     <Text type="secondary">{qa.description}</Text>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 12, marginTop: 6, display: 'inline-block' }}>
+                      缺失 {(summary.missing_rate * 100).toFixed(1)}% · 异常 {(summary.outlier_rate * 100).toFixed(1)}% ·
+                      重复行 {(summary.duplicate_rate * 100).toFixed(1)}%
+                    </Text>
                   </span>
                 }
                 showIcon
@@ -869,6 +868,12 @@ const SmartWorkflow: React.FC = () => {
                 description="结果为启发式推荐（含过拟合风险提示），不保证全局最优。完成后仍可使用上方「分步引导」微调流程。"
               />
               <Space wrap style={{ marginBottom: 12 }}>
+                <Tooltip title="与命令行 AutoML 一致：按阈值自动去重、数值中位数/类别众数填缺失、异常率偏高时 IQR 截断；写入数据集的预处理审计，报告 PDF 可见">
+                  <Space>
+                    <Switch checked={automlSmartClean} onChange={setAutomlSmartClean} disabled={automlRunning} />
+                    <Text>智能清洗（推荐）</Text>
+                  </Space>
+                </Tooltip>
                 <Tooltip title="跳过 Optuna 轻量搜索，仅训练「规则基线」与「保守正则」两个模型">
                   <Space>
                     <Switch checked={automlFast} onChange={setAutomlFast} disabled={automlRunning} />
@@ -903,6 +908,25 @@ const SmartWorkflow: React.FC = () => {
               )}
               {automlResult && (
                 <>
+                  {automlResult.pipeline_plan && (
+                    <Collapse
+                      size="small"
+                      style={{ marginBottom: 12 }}
+                      items={[{
+                        key: 'pipeline_plan',
+                        label: '流水线策略摘要（与 CLI / 报告预处理审计同源）',
+                        children: (
+                          <pre style={{
+                            fontSize: 11, margin: 0, whiteSpace: 'pre-wrap',
+                            color: '#94a3b8', fontFamily: 'monospace',
+                          }}
+                          >
+                            {JSON.stringify(automlResult.pipeline_plan, null, 2)}
+                          </pre>
+                        ),
+                      }]}
+                    />
+                  )}
                   <Divider orientation="left">候选模型（可选主模型）</Divider>
                   {automlResult.warnings?.length ? (
                     <Alert type="warning" showIcon style={{ marginBottom: 8 }} message={automlResult.warnings.join(' ')} />
@@ -950,13 +974,13 @@ const SmartWorkflow: React.FC = () => {
         </Card>
       )}
 
-      {/* ── Step 1: 数据分析 & AI 推荐预处理 ── */}
+      {/* ── Step 1: 数据分析 & 智能推荐预处理 ── */}
       {currentStep === 1 && summary && (
-        <Card title="Step 1：数据分析 & AI 推荐预处理">
+        <Card title="Step 1：数据分析 & 智能推荐预处理">
           <Row gutter={24} style={{ marginBottom: 16 }}>
-            <Col span={6}><Statistic title="样本数" value={summary.n_rows} /></Col>
-            <Col span={6}><Statistic title="特征数" value={summary.n_cols} /></Col>
-            <Col span={6}>
+            <Col span={4}><Statistic title="样本数" value={summary.n_rows} /></Col>
+            <Col span={4}><Statistic title="特征数" value={summary.n_cols} /></Col>
+            <Col span={4}>
               <Statistic
                 title="质量评分"
                 value={`${summary.quality_score}/100`}
@@ -969,7 +993,9 @@ const SmartWorkflow: React.FC = () => {
                 }
               />
             </Col>
-            <Col span={6}><Statistic title="缺失率" value={`${(summary.missing_rate * 100).toFixed(1)}%`} /></Col>
+            <Col span={4}><Statistic title="缺失率" value={`${(summary.missing_rate * 100).toFixed(1)}%`} /></Col>
+            <Col span={4}><Statistic title="异常率" value={`${(summary.outlier_rate * 100).toFixed(1)}%`} /></Col>
+            <Col span={4}><Statistic title="重复行" value={`${(summary.duplicate_rate * 100).toFixed(1)}%`} /></Col>
           </Row>
 
           {(() => {
@@ -1004,7 +1030,7 @@ const SmartWorkflow: React.FC = () => {
                 label: <Text style={{ color: '#93c5fd', fontSize: 13 }}>📚 知识辅助：如何阅读「数据分析与预处理」</Text>,
                 children: (
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
-                    <li><strong>质量评分</strong>：综合缺失、类型、规模等给出的健康度；低于 70 时建议优先按下方 AI 建议处理再划分。</li>
+                    <li><strong>质量评分</strong>：与数据工作台一致，综合缺失率、异常率、重复行等给出的健康度；低于 70 时建议优先按下方 AI 建议处理再划分。</li>
                     <li><strong>任务类型 / 目标列</strong>：若提示「未设置目标列」，属正常——在下一步「数据划分」里选定要预测的列后，类型与互信息图会更准确。</li>
                     <li><strong>每条 AI 建议卡片</strong>：除「推荐操作 / 预期改善 / 风险」外，请展开<strong>「深入了解」</strong>阅读建模背景（与调优模式一致）。</li>
                     <li><strong>名词速查</strong>：<em>高基数</em>＝类别取值种类很多；<em>缺失</em>＝该列部分样本无值；<em>类别不平衡</em>＝正负样本数量悬殊。</li>
@@ -1138,7 +1164,7 @@ const SmartWorkflow: React.FC = () => {
               目标列（要预测的列）
               {summary.candidate_targets?.length > 0 && (
                 <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                  — AI 推荐：{summary.candidate_targets[0]?.col}（{summary.candidate_targets[0]?.reason}）
+                  — 智能推荐：{summary.candidate_targets[0]?.col}（{summary.candidate_targets[0]?.reason}）
                 </Typography.Text>
               )}
             </Typography.Text>
@@ -1249,7 +1275,7 @@ const SmartWorkflow: React.FC = () => {
               ref={nextButtonRef}
               autoFocus
             >
-              下一步：AI 参数推荐
+              下一步：智能参数推荐
             </Button>
           </Space>
         </Card>
@@ -1257,7 +1283,7 @@ const SmartWorkflow: React.FC = () => {
 
       {/* ── Step 3: 参数配置 ── */}
       {currentStep === 3 && (
-        <Card title="Step 3：参数配置（AI 已为您推荐最优参数）">
+        <Card title="Step 3：参数配置（已根据数据智能推荐参数）">
           {/* ── 三预设方案按钮 ── */}
           <div style={{ marginBottom: 20 }}>
             <Typography.Text strong style={{ display: 'block', marginBottom: 10 }}>选择参数方案：</Typography.Text>
@@ -1283,7 +1309,7 @@ const SmartWorkflow: React.FC = () => {
                     <Typography.Text strong>⚖️ 均衡推荐</Typography.Text>
                   </Badge>
                   <br />
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap' }}>AI 基于数据推荐，绝大多数场景首选</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap' }}>基于数据的智能推荐，绝大多数场景首选</Typography.Text>
                 </Card>
               </Col>
               <Col>
@@ -1303,7 +1329,7 @@ const SmartWorkflow: React.FC = () => {
           {configNotes.length > 0 && (
             <Alert
               type="success"
-              message="AI 推荐说明"
+              message="智能推荐说明"
               description={<ul style={{ margin: 0, paddingLeft: 20 }}>{configNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
               showIcon
               style={{ marginBottom: 16 }}
@@ -1573,7 +1599,7 @@ const SmartWorkflow: React.FC = () => {
                 <Row gutter={16} style={{ marginBottom: 12 }}>
                   {primaryEntries.map(([k, v]) => (
                     <Col key={k} span={6}>
-                      <Statistic title={k.toUpperCase()} value={typeof v === 'number' ? v.toFixed(4) : v} />
+                      <Statistic title={k.toUpperCase()} value={typeof v === 'number' ? v.toFixed(4) : String(v)} />
                     </Col>
                   ))}
                 </Row>
@@ -1582,7 +1608,7 @@ const SmartWorkflow: React.FC = () => {
                 <Row gutter={16} style={{ marginBottom: 24 }}>
                   {secondaryEntries.map(([k, v]) => (
                     <Col key={k} span={6}>
-                      <Statistic title={k.toUpperCase()} value={typeof v === 'number' ? v.toFixed(4) : v}
+                      <Statistic title={k.toUpperCase()} value={typeof v === 'number' ? v.toFixed(4) : String(v)}
                         valueStyle={{ fontSize: 18, color: '#666' }} />
                     </Col>
                   ))}
@@ -1680,7 +1706,7 @@ const SmartWorkflow: React.FC = () => {
         onClose={() => setLabOpen(false)}
         splitId={selectedSplitId}
         paramValues={paramValues}
-        onApplyParams={(newParams) => setParamValues(newParams)}
+        onApplyParams={(newParams: Record<string, number | string>) => setParamValues(newParams)}
       />
 
     </div>

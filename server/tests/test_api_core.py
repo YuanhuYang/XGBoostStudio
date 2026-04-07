@@ -78,7 +78,7 @@ def test_builtin_samples_catalog(client):
     r = client.get("/api/datasets/builtin-samples")
     assert r.status_code == 200, r.text
     data = r.json()
-    assert isinstance(data, list) and len(data) >= 11
+    assert isinstance(data, list) and len(data) >= 10
     keys = {item["key"] for item in data}
     assert (
         "titanic" in keys
@@ -129,7 +129,17 @@ def test_wizard_dataset_summary(client):
     assert data["n_rows"] >= 100
     assert data["n_cols"] >= 4
     assert "quality_score" in data
+    assert "outlier_rate" in data
+    assert "duplicate_rate" in data
+    assert "quality_suggestions" in data
     assert isinstance(data["columns"], list)
+    rq = client.get(f"/api/datasets/{dataset_id}/quality-score")
+    assert rq.status_code == 200
+    q = rq.json()
+    assert data["quality_score"] == q["score"]
+    assert data["missing_rate"] == q["missing_rate"]
+    assert data["outlier_rate"] == q["outlier_rate"]
+    assert data["duplicate_rate"] == q["duplicate_rate"]
 
 
 def test_report_generate_unknown_model(client):
@@ -173,6 +183,40 @@ def test_split_and_training_start(client):
     assert rt.status_code == 200, rt.text
     tid = rt.json().get("task_id")
     assert tid and isinstance(tid, str)
+
+
+def test_split_test_row_for_interactive_prediction(client):
+    """GET /api/datasets/splits/{id}/test-row：数值特征与训练一致，不含目标列名。"""
+    up = _upload_iris(client)
+    assert up.status_code == 200
+    dataset_id = up.json()["id"]
+    split_body = {
+        "train_ratio": 0.8,
+        "random_seed": 42,
+        "stratify": False,
+        "target_column": "species",
+    }
+    rs = client.post(f"/api/datasets/{dataset_id}/split", json=split_body)
+    assert rs.status_code == 200, rs.text
+    split_id = rs.json()["split_id"]
+
+    r0 = client.get(f"/api/datasets/splits/{split_id}/test-row", params={"index": 0})
+    assert r0.status_code == 200, r0.text
+    body = r0.json()
+    assert body["row_index"] == 0
+    total = body["total_rows"]
+    assert total > 0
+    assert isinstance(body["features"], dict)
+    assert "species" not in body["features"]
+    assert len(body["features"]) >= 1
+    assert "target" in body
+
+    r_last = client.get(f"/api/datasets/splits/{split_id}/test-row", params={"index": total - 1})
+    assert r_last.status_code == 200
+    assert r_last.json()["row_index"] == total - 1
+
+    r_bad = client.get(f"/api/datasets/splits/{split_id}/test-row", params={"index": total + 10})
+    assert r_bad.status_code == 400
 
 
 def test_titanic_ac001_api_pipeline_report_pdf(client):

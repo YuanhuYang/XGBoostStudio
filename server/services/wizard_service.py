@@ -20,6 +20,7 @@ from db.database import DATA_DIR
 from db.models import Dataset
 from services.params_service import recommend_params as _recommend_params
 from services import training_service, eval_service, report_service
+from services import dataset_service as _dataset_service
 from services.dataset_service import _load_df
 from services.target_recommend import recommend_target_columns as _recommend_target_columns
 
@@ -59,11 +60,13 @@ def dataset_summary(dataset_id: int, db: Session) -> dict[str, Any]:
             col_info["n_unique"] = int(df[col].nunique())
         columns_info.append(col_info)
 
-    # 数据质量评分（0-100）
-    total_cells = n_rows * n_cols
-    missing_cells = int(df.isnull().sum().sum())
-    missing_rate = missing_cells / total_cells if total_cells > 0 else 0
-    quality_score = max(0, round(100 - missing_rate * 100 - (1 if n_rows < 100 else 0)))
+    # 与数据工作台 GET /quality-score 同一套口径（缺失 / 异常 / 重复加权）
+    q = _dataset_service.get_quality_score(dataset)
+    quality_score = float(q["score"])
+    missing_rate = float(q["missing_rate"])
+    outlier_rate = float(q["outlier_rate"])
+    duplicate_rate = float(q["duplicate_rate"])
+    quality_suggestions: list[str] = list(q["suggestions"])
 
     # 任务类型推断
     task_type = "unknown"
@@ -133,6 +136,9 @@ def dataset_summary(dataset_id: int, db: Session) -> dict[str, Any]:
         "task_hint": task_hint,
         "quality_score": quality_score,
         "missing_rate": round(missing_rate, 4),
+        "outlier_rate": round(outlier_rate, 4),
+        "duplicate_rate": round(duplicate_rate, 4),
+        "quality_suggestions": quality_suggestions,
         "columns": columns_info,
         "recommendations": recommendations,
         "candidate_targets": candidate_targets,

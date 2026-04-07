@@ -43,6 +43,11 @@ def test_automl_job_fast_mode_produces_candidates(client):
     assert len(data["candidates"]) >= 2
     assert "chosen_recommendation" in data
     assert data["chosen_recommendation"]["model_id"]
+    assert "pipeline_plan" in data
+    pp = data["pipeline_plan"]
+    assert "smart_clean" in pp
+    assert "split" in pp
+    assert pp["split"].get("resolved") == "random"
     for c in data["candidates"]:
         assert c["model_id"]
         assert c["name"]

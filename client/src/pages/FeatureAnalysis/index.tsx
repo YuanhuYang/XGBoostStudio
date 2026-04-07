@@ -2,12 +2,11 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   Card, Row, Col, Select, Button, Tabs, Table, Typography, Space,
   Tag, Spin, message, Statistic, Progress, Alert,
-  Steps, Badge, Tooltip, Popover, Collapse, Checkbox,
+  Badge, Tooltip, Popover, Collapse, Checkbox,
 } from 'antd'
 import { ReadOutlined } from '@ant-design/icons'
 import {
-  BarChartOutlined, ApartmentOutlined, DatabaseOutlined,
-  ToolOutlined, SettingOutlined, PlayCircleOutlined, SafetyOutlined,
+  BarChartOutlined, ApartmentOutlined, SafetyOutlined,
   LineChartOutlined, BulbOutlined, WarningOutlined, CheckCircleOutlined,
   RocketOutlined, StopOutlined,
 } from '@ant-design/icons'
@@ -17,11 +16,10 @@ import { getDataset, getDatasetStats } from '../../api/datasets'
 import { getDatasetSummary, type CandidateTarget } from '../../api/wizard'
 import { useAppStore } from '../../store/appStore'
 import { useDatasetColumns } from '../../hooks/useDatasetColumns'
-import HelpButton from '../../components/HelpButton'
 import type { ColumnStat } from '../../types'
 import { showTeachingUi } from '../../utils/teachingUi'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 // ─── 类型定义 ─────────────────────────────────────────────────────────────────
 interface DistTestResult {
@@ -147,16 +145,50 @@ const conceptCards: Record<string, { title: string; content: React.ReactNode }> 
   },
 }
 
-function ConceptCardButton({ conceptKey }: { conceptKey: string }) {
+function ConceptCardButton({ conceptKey, tagText }: { conceptKey: string; tagText?: string }) {
   const card = conceptCards[conceptKey]
   if (!card) return null
   return (
-    <Popover title={<><ReadOutlined style={{ color: '#a78bfa' }} /> {card.title}</>} content={card.content} trigger="click">
+    <Popover
+      title={<><ReadOutlined style={{ color: '#a78bfa' }} /> {card.title}</>}
+      content={card.content}
+      trigger="click"
+      placement="bottomLeft"
+      overlayStyle={{ maxWidth: 320 }}
+    >
       <Tag
         color="purple"
         style={{ cursor: 'pointer', fontSize: 10, marginLeft: 4, verticalAlign: 'middle' }}
       >
-        📖 概念
+        {tagText ?? '📖 概念'}
+      </Tag>
+    </Popover>
+  )
+}
+
+/** IV/KS 同页两个指标：合并为一个入口，Popover 内用 Tabs 区分，避免 Tab 标题旁堆两个相同「概念」标签 */
+function ConceptIvKsButton() {
+  return (
+    <Popover
+      title={<><ReadOutlined style={{ color: '#a78bfa' }} /> IV / KS 指标说明</>}
+      content={
+        <Tabs
+          size="small"
+          items={[
+            { key: 'iv', label: 'IV', children: conceptCards.iv.content },
+            { key: 'ks', label: 'KS', children: conceptCards.ks.content },
+          ]}
+        />
+      }
+      trigger="click"
+      placement="bottomLeft"
+      overlayStyle={{ maxWidth: 340 }}
+    >
+      <Tag
+        color="purple"
+        style={{ cursor: 'pointer', fontSize: 10, marginLeft: 4, verticalAlign: 'middle' }}
+      >
+        📖 IV / KS
       </Tag>
     </Popover>
   )
@@ -184,7 +216,7 @@ const FeatureAnalysisPage: React.FC = () => {
 
   // 原有状态
   const [distributions, setDistributions] = useState<Record<string, unknown>[]>([])
-  const [correlation, setCorrelation] = useState<{ matrix: number[][]; columns: string[] } | null>(null)
+  const [correlation, setCorrelation] = useState<{ matrix: (number | null)[][]; columns: string[] } | null>(null)
   const [corrMethod, setCorrMethod] = useState('pearson')
   const [vif, setVif] = useState<{ column: string; vif: number; level: string }[]>([])
   const [importance, setImportance] = useState<{ column: string; importance: number }[]>([])
@@ -203,9 +235,6 @@ const FeatureAnalysisPage: React.FC = () => {
   const [leakageData, setLeakageData] = useState<LeakageResult | null>(null)
   const [leakageTarget, setLeakageTarget] = useState('')
   const [leakageTimeCol, setLeakageTimeCol] = useState('')
-
-  const activeSplitId = useAppStore(s => s.activeSplitId)
-  const activeModelId = useAppStore(s => s.activeModelId)
 
   useEffect(() => {
     if (!activeDatasetId) {
@@ -276,7 +305,7 @@ const FeatureAnalysisPage: React.FC = () => {
       hasTarget,
       monoOk,
       psiOk,
-      targetMissingHint: '请先在上方选择建模目标列（已自动同步数据导入中的目标列，可改选）。',
+      targetMissingHint: '请先在上方选择建模目标列（已自动同步数据工作台中的目标列，可改选）。',
       monoMissingHint: '单调性需要至少一个数值型特征作为自变量，且目标列不能与唯一数值列重合。',
       psiMissingHint: 'PSI 需要时间/排序列；已尝试按列名或类型自动推荐，也可手动选择。',
     }
@@ -296,7 +325,7 @@ const FeatureAnalysisPage: React.FC = () => {
     opts?: { suppressErrorToast?: boolean; leakageTargetOverride?: string }
   ): Promise<boolean> => {
     if (!activeDatasetId) {
-      if (!opts?.suppressErrorToast) message.warning('请先在数据导入页面选择数据集')
+      if (!opts?.suppressErrorToast) message.warning('请先在数据工作台页面选择数据集')
       return false
     }
     setLoading(type)
@@ -306,7 +335,16 @@ const FeatureAnalysisPage: React.FC = () => {
         setDistributions((r.data as Record<string, unknown>[]) || [])
       } else if (type === 'corr') {
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/correlation`, { params: { method: corrMethod } })
-        setCorrelation(r.data)
+        const raw = r.data as { columns?: string[]; matrix?: unknown[][] } | null
+        const columns = Array.isArray(raw?.columns) ? raw.columns.map(String) : []
+        const matrix = Array.isArray(raw?.matrix)
+          ? raw.matrix.map(row => (Array.isArray(row) ? row.map(cell => {
+            if (cell == null) return null
+            const n = Number(cell)
+            return Number.isFinite(n) ? n : null
+          }) : []))
+          : []
+        setCorrelation(columns.length && matrix.length ? { columns, matrix } : { columns, matrix: [] })
       } else if (type === 'vif') {
         const r = await apiClient.get(`/api/datasets/${activeDatasetId}/feature-analysis/vif`)
         setVif((r.data as { column: string; vif: number; level: string }[]) || [])
@@ -373,7 +411,7 @@ const FeatureAnalysisPage: React.FC = () => {
 
   const runBatchAnalysis = useCallback(async () => {
     if (!activeDatasetId) {
-      message.warning('请先在数据导入页面选择数据集')
+      message.warning('请先在数据工作台页面选择数据集')
       return
     }
     if (!caps.hasTarget) {
@@ -426,12 +464,33 @@ const FeatureAnalysisPage: React.FC = () => {
     }
   }, [activeDatasetId, caps.hasTarget, caps.monoOk, caps.psiOk, caps.targetMissingHint, executeAnalysis, includeLeakageInBatch, targetCol])
 
-  const corrOption = correlation ? {
+  /** 后端对无法定义的相关系数返回 null；对 null 调用 toFixed 会抛错导致整页白屏 */
+  const corrHeatmapCell = (v: number | null | undefined): number => {
+    if (v == null) return 0
+    const n = Number(v)
+    return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : 0
+  }
+
+  const corrOption = correlation?.columns?.length && correlation.matrix?.length ? {
     tooltip: { trigger: 'item' },
     visualMap: { min: -1, max: 1, calculable: true, inRange: { color: ['#1d4ed8', '#e2e8f0', '#dc2626'] } },
     xAxis: { type: 'category', data: correlation.columns, axisLabel: { rotate: 45, fontSize: 10 } },
     yAxis: { type: 'category', data: [...correlation.columns].reverse() },
-    series: [{ type: 'heatmap', data: correlation.matrix.flatMap((row, i) => row.map((v, j) => [j, correlation.matrix.length - 1 - i, +v.toFixed(3)])), label: { show: correlation.columns.length <= 15, formatter: (p: { value: number[] }) => p.value[2].toFixed(2), fontSize: 9 } }]
+    series: [{
+      type: 'heatmap',
+      data: correlation.matrix.flatMap((row, i) =>
+        row.map((v, j) => [j, correlation.matrix.length - 1 - i, corrHeatmapCell(v)] as [number, number, number])
+      ),
+      label: {
+        show: correlation.columns.length <= 15,
+        formatter: (p: { value?: unknown[] }) => {
+          const z = p.value?.[2]
+          const n = typeof z === 'number' ? z : Number(z)
+          return Number.isFinite(n) ? n.toFixed(2) : ''
+        },
+        fontSize: 9,
+      },
+    }],
   } : null
 
   const impOption = importance.length > 0 ? {
@@ -453,20 +512,6 @@ const FeatureAnalysisPage: React.FC = () => {
     }},
   ]
 
-  const expertSteps = [
-    { title: '数据导入', icon: <DatabaseOutlined /> },
-    { title: '特征分析', icon: <BarChartOutlined /> },
-    { title: '特征工程', icon: <ToolOutlined /> },
-    { title: '参数配置', icon: <SettingOutlined /> },
-    { title: '模型训练', icon: <PlayCircleOutlined /> },
-  ]
-  const currentStep = (() => {
-    if (!activeDatasetId) return 0
-    if (!activeSplitId) return 1
-    if (!activeModelId) return 3
-    return 4
-  })()
-
   const targetSelector = (
     <Space wrap>
       <Text style={{ color: '#94a3b8' }}>目标列：</Text>
@@ -487,7 +532,7 @@ const FeatureAnalysisPage: React.FC = () => {
         })}
       </Select>
       {candidateTargets.length > 0 && !targetCol && (
-        <Text type="secondary" style={{ fontSize: 12 }}>AI 推荐：{candidateTargets[0].col}</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>智能推荐：{candidateTargets[0].col}</Text>
       )}
       {!caps.hasTarget && activeDatasetId ? (
         <Text type="warning" style={{ fontSize: 12 }}>未选目标列时，依赖目标的分析不可用</Text>
@@ -497,21 +542,7 @@ const FeatureAnalysisPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
-        <BarChartOutlined /> 特征分析
-      </Title>
-      <HelpButton pageTitle="特征分析" items={[
-        { title: '如何分析特征效力？', content: '在「IV/KS效力排名」Tab 选择目标列，分类任务输出 IV、KS、单特征AUC；回归任务输出相关系数、F值、R²。IV > 0.3 表示强预测效力。' },
-        { title: 'PSI 是什么？', content: 'PSI（群体稳定性指数）衡量特征跨时间窗口的分布稳定性。PSI < 0.1 稳定可用；0.1~0.25 需关注；> 0.25 建议剔除。' },
-        { title: 'monotone_constraints 如何使用？', content: '在「单调性分析」Tab 可获得每个特征的 monotone_constraints 建议值（1/-1/0），直接用于 XGBoost 参数配置，确保预测方向符合业务逻辑。' },
-        { title: '如何检测数据泄露？', content: '在「泄露检测」Tab 输入目标列，系统自动检测标签泄露（特征与标签高度相关）和时间穿越泄露，输出风险等级与修复建议。' },
-      ]} />
-
-      <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
-        <Steps current={currentStep} size="small" items={expertSteps} />
-      </Card>
-
-      {!activeDatasetId && <Alert message="请先在「数据导入」页面选择并设置目标列的数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
+      {!activeDatasetId && <Alert message="请先在「数据工作台」页面选择并设置目标列的数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
       {activeDatasetId && (
         <Card style={{ marginBottom: 16, background: '#1e293b', border: '1px solid #334155' }}>
@@ -654,7 +685,7 @@ const FeatureAnalysisPage: React.FC = () => {
 
           // ─── Tab 2：IV/KS/AUC 效力排名 ───────────────────────────────────
           {
-            key: 'ivks', label: <span><LineChartOutlined /> IV/KS效力排名{showTeaching && <ConceptCardButton conceptKey="iv" />}{showTeaching && <ConceptCardButton conceptKey="ks" />}</span>,
+            key: 'ivks', label: <span><LineChartOutlined /> IV/KS效力排名{showTeaching && <ConceptIvKsButton />}</span>,
             children: (
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }}
@@ -713,7 +744,7 @@ const FeatureAnalysisPage: React.FC = () => {
 
           // ─── Tab 3：PSI 稳定性 ────────────────────────────────────────────
           {
-            key: 'psi', label: <span><ApartmentOutlined /> PSI稳定性{showTeaching && <ConceptCardButton conceptKey="psi" />}</span>,
+            key: 'psi', label: <span><ApartmentOutlined /> PSI稳定性{showTeaching && <ConceptCardButton conceptKey="psi" tagText="📖 PSI" />}</span>,
             children: (
               <Card style={{ background: '#1e293b', border: '1px solid #334155' }}>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }}

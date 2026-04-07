@@ -7,7 +7,7 @@ import asyncio
 import json
 import queue
 import threading
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -28,6 +28,9 @@ class StartAutoMLJobBody(BaseModel):
     random_seed: int = 42
     max_tuning_trials: int = Field(12, ge=0, le=50)
     skip_tuning: bool = False
+    smart_clean: bool = True
+    split_strategy: Literal["auto", "random", "time_series"] = "auto"
+    time_column: str | None = None
 
 
 @router.post("/jobs")
@@ -52,6 +55,9 @@ def start_automl_job(body: StartAutoMLJobBody) -> dict[str, str]:
                 random_seed=body.random_seed,
                 max_tuning_trials=body.max_tuning_trials,
                 skip_tuning=body.skip_tuning,
+                smart_clean=body.smart_clean,
+                split_strategy=body.split_strategy,
+                time_column=body.time_column,
             )
             result_holder["result"] = res
         except Exception as e:  # noqa: BLE001 — 编排层汇总错误

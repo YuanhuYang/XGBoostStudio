@@ -117,3 +117,28 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
     badge: 'red',
   },
 ]
+
+/** 与后端 `report_service.generate_report` 中 legacy_map 一致，用于 G3 预设 → 旧版章节列表（保存自定义模板等） */
+const G3_CHAPTER_TO_LEGACY: Record<string, string[]> = {
+  ch1_executive_summary: ['methodology', 'executive_summary'],
+  ch2_label_dataset: ['data_overview', 'data_relations'],
+  ch3_feature_engineering: ['data_overview'],
+  ch4_modeling_tuning: ['model_params'],
+  ch5_model_accuracy: ['evaluation', 'learning_curve', 'overfitting', 'baseline'],
+  ch6_interpretability: ['shap'],
+  ch7_risk_compliance: ['baseline', 'overfitting'],
+  ch8_business_application: ['business_advice'],
+  ch9_conclusion: ['business_advice'],
+  ch10_appendix: ['model_params'],
+}
+
+/** 由当前 G3 模板类型推导旧版 `include_sections` 令牌集合（去重） */
+export function legacySectionKeysFromG3TemplateType(templateType: string): string[] {
+  const tpl = REPORT_TEMPLATES.find(t => t.type === templateType)
+  if (!tpl) return REPORT_SECTION_OPTIONS.map(o => o.value)
+  const keys = new Set<string>()
+  for (const ch of tpl.chapters) {
+    for (const leg of G3_CHAPTER_TO_LEGACY[ch] || []) keys.add(leg)
+  }
+  return Array.from(keys)
+}
