@@ -27,6 +27,8 @@ server/.venv/
 # Node
 node_modules/
 client/node_modules/
+# TypeScript 增量编译缓存（勿提交）
+*.tsbuildinfo
 
 # 运行时数据（用户数据，不入库）
 *.db
@@ -70,6 +72,10 @@ server/tests/e2e_test_report.pdf
 
 client/out/
 client/dist-electron/
+# 本地/CI 临时与构建旁路产物（勿提交）
+.tmp_rl/
+client/dist-renderer/
+server/.pytest_data_*/
 
 # Playwright E2E 截图产物（文档用图除外，保留 .gitkeep）
 client/e2e/screenshots/**/*.png
