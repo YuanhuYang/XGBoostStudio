@@ -1,6 +1,6 @@
 {
   "name": "xgboost-studio",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "XGBoost Studio - 可视化 XGBoost 建模平台",
   "main": "dist-electron/main.js",
   "author": "XGBoost Studio Team",

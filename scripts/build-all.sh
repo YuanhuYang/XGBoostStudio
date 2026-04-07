@@ -57,18 +57,48 @@ if [[ "$OS_UNAME" == Darwin ]]; then
     cp -f "$SERVER_BIN" "$ARM64_OUT"
     chmod +x "$ARM64_OUT"
     echo "[✓] 已复制 -> $ARM64_OUT (arm64)"
-    echo "[2b/3] Rosetta 下构建 x86_64 后端（Intel Mac 桌面包）..."
-    if ! arch -x86_64 true 2>/dev/null; then
-      echo "[错误] 无法执行 arch -x86_64，不能生成 x64 后端；macOS 发布包请在 Apple Silicon 或 GitHub Actions macos-latest 上构建。" >&2
+    echo "[2b/3] 构建 x86_64 后端（Intel Mac 桌面包）..."
+    # CI 的 `uv` 多为 arm64 单架构，`arch -x86_64 uv` 会报 Bad CPU type。改用官方 x86_64 uv 二进制（在 Apple Silicon 上由 Rosetta 执行）。
+    UV_TAG="${UV_VERSION:-}"
+    if [[ -z "$UV_TAG" ]] && command -v uv >/dev/null 2>&1; then
+      UV_TAG="$(uv --version 2>/dev/null | sed -n 's/^uv \([0-9][0-9.]*\).*/\1/p' || true)"
+    fi
+    [[ -n "$UV_TAG" ]] || UV_TAG="0.8.14"
+    UV_X64_DIR="$ROOT/.cache/uv-releases"
+    UV_X64_BIN="$UV_X64_DIR/uv-x86_64-$UV_TAG"
+    mkdir -p "$UV_X64_DIR"
+    if [[ ! -x "$UV_X64_BIN" ]]; then
+      echo "  下载 astral-sh/uv $UV_TAG (uv-x86_64-apple-darwin.tar.gz)..."
+      UV_TMP="$(mktemp -d)"
+      if ! curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_TAG}/uv-x86_64-apple-darwin.tar.gz" \
+        -o "$UV_TMP/uv.tgz"; then
+        rm -rf "$UV_TMP"
+        echo "[错误] 无法下载 uv x86_64 发行包（版本 ${UV_TAG}）。可设置环境变量 UV_VERSION 为已发布的 tag。" >&2
+        exit 1
+      fi
+      if ! tar -xzf "$UV_TMP/uv.tgz" -C "$UV_TMP"; then
+        rm -rf "$UV_TMP"
+        echo "[错误] 解压 uv 发行包失败。" >&2
+        exit 1
+      fi
+      mv "$UV_TMP/uv" "$UV_X64_BIN"
+      chmod +x "$UV_X64_BIN"
+      rm -rf "$UV_TMP"
+    fi
+    if ! file "$UV_X64_BIN" | grep -q x86_64; then
+      echo "[错误] 缓存的 uv 不是 x86_64: $(file "$UV_X64_BIN")" >&2
       exit 1
     fi
-    # 须使用 x86_64 专属 .venv：复用 arm64 的 .venv 时 Pillow 等 .so 为 arm64，PyInstaller 打 x64 包会报 IncompatibleBinaryArchError
+    if ! arch -x86_64 true 2>/dev/null; then
+      echo "[错误] 本机无法使用 arch -x86_64（Rosetta），无法为 Intel Mac 构建 x86_64 后端。" >&2
+      exit 1
+    fi
+    # 须使用 x86_64 专属 .venv；在 Rosetta bash 内调用 x86_64 uv，保证子进程与 wheel 一致为 x86_64（勿对 arm64-only 的 PATH 中 uv 使用 arch -x86_64）
     arch -x86_64 /bin/bash -c "
       set -euo pipefail
       cd '$ROOT/server'
       rm -rf build dist .venv-x64
-      # 每条 uv 前加 arch -x86_64，避免 arm64 的 uv 本体在 Rosetta shell 里仍走原生 arm64
-      arch -x86_64 uv venv .venv-x64 --python 3.12
+      \"$UV_X64_BIN\" venv .venv-x64 --python 3.12
       export VIRTUAL_ENV='$ROOT/server/.venv-x64'
       export PATH=\"\$VIRTUAL_ENV/bin:\$PATH\"
       PY=\"\$VIRTUAL_ENV/bin/python3\"
@@ -77,8 +107,8 @@ if [[ "$OS_UNAME" == Darwin ]]; then
         file \"\$PY\" || true
         exit 1
       fi
-      arch -x86_64 uv sync --all-groups --frozen --active
-      arch -x86_64 uv run --active pyinstaller build.spec --noconfirm
+      \"$UV_X64_BIN\" sync --all-groups --frozen --active
+      \"$UV_X64_BIN\" run --active pyinstaller build.spec --noconfirm
     "
     cp -f "$ROOT/server/dist/xgboost-server" "$X64_OUT"
     chmod +x "$X64_OUT"
