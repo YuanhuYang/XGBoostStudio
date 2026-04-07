@@ -8,6 +8,9 @@ dist/
 client/dist/
 server/dist/
 
+# 本地预览 GitHub Wiki 导出（scripts/sync_github_wiki.py）
+_wiki_staging/
+
 # 打包后的二进制文件（超出 GitHub 100MB 限制）
 client/resources/*.exe
 client/resources/xgboost-server

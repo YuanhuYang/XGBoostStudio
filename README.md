@@ -254,6 +254,18 @@ npm run typecheck
 | [👨‍💻 开发者指南](docs/guides/developers-guide.md) | 环境配置、代码规范、跨平台开发 |
 | [⌨️ xs-studio CLI](docs/guides/xs-studio-cli.md) | 交互式 AutoML REPL、`run` 子命令、与前端并行 |
 | [📋 报告解读](docs/guides/report-interpretation.md) | PDF 报告结论解读方法 |
+| [📖 GitHub Wiki](https://github.com/YuanhuYang/XGBoostStudio/wiki) | 与 [`docs/wiki/`](docs/wiki/) 同源，默认分支推送后由 Actions 同步（见下节） |
+
+---
+
+## GitHub Wiki 同步
+
+- **编辑入口**：以仓库内 [`docs/wiki/`](docs/wiki/) 为准；请勿依赖在 GitHub Wiki 网页上直接修改正文（会被下一次同步覆盖）。
+- **在线阅读**：[XGBoostStudio Wiki](https://github.com/YuanhuYang/XGBoostStudio/wiki)。
+- **首次启用**：打开仓库 **Wiki** 标签页，点击 **Create the first page** 保存任意首页，以生成可推送的 `.wiki.git` 仓库。
+- **自动同步**：打开 **[本仓库](https://github.com/YuanhuYang/XGBoostStudio)**（不是头像菜单里的个人 **Account settings**），点顶部 **Settings** → 左侧 **Secrets and variables** → **Actions** → **New repository secret**，名称填 **`WIKI_PUSH_TOKEN`**（对本仓库具有 **Contents** 写入权限的 [Personal Access Token](https://github.com/settings/tokens)；fine-grained 令牌需勾选该仓库的 Contents: Read and write）。当向 **`main` 或 `master`** 推送且变更涉及 `docs/wiki/`（或同步脚本 / 本 workflow）时，会运行 [`.github/workflows/sync-wiki.yml`](.github/workflows/sync-wiki.yml)。
+- **手动触发**：**Actions → Sync GitHub Wiki → Run workflow**。
+- **本地导出**（可选）：`python scripts/sync_github_wiki.py --repo <owner>/<repo> --branch main --out <path>`，再将生成目录推送到 `https://github.com/<owner>/<repo>.wiki.git`。
 
 ---
 
