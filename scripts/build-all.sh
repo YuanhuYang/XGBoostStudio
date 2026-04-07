@@ -48,11 +48,45 @@ if [[ ! -f "$SERVER_BIN" ]]; then
   exit 1
 fi
 mkdir -p "$ROOT/client/resources"
-cp -f "$SERVER_BIN" "$RES_BIN"
-if [[ "$OS_UNAME" != MINGW* ]] && [[ "$OS_UNAME" != MSYS* ]] && [[ "$OS_UNAME" != CYGWIN* ]]; then
+
+if [[ "$OS_UNAME" == Darwin ]]; then
+  # Electron 同时打 arm64 / x64 时，内置 PyInstaller 须与目标架构一致（见 client/package.json mac.extraResources）
+  ARM64_OUT="$ROOT/client/resources/xgboost-server-arm64"
+  X64_OUT="$ROOT/client/resources/xgboost-server-x64"
+  if [[ "$(uname -m)" == arm64 ]]; then
+    cp -f "$SERVER_BIN" "$ARM64_OUT"
+    chmod +x "$ARM64_OUT"
+    echo "[✓] 已复制 -> $ARM64_OUT (arm64)"
+    echo "[2b/3] Rosetta 下构建 x86_64 后端（Intel Mac 桌面包）..."
+    if ! arch -x86_64 true 2>/dev/null; then
+      echo "[错误] 无法执行 arch -x86_64，不能生成 x64 后端；macOS 发布包请在 Apple Silicon 或 GitHub Actions macos-latest 上构建。" >&2
+      exit 1
+    fi
+    arch -x86_64 /bin/bash -c "
+      set -euo pipefail
+      cd '$ROOT/server'
+      rm -rf build dist
+      uv sync --all-groups --frozen
+      uv run pyinstaller build.spec --noconfirm
+    "
+    cp -f "$ROOT/server/dist/xgboost-server" "$X64_OUT"
+    chmod +x "$X64_OUT"
+    echo "[✓] 已复制 -> $X64_OUT (x64)"
+  else
+    echo "[错误] macOS 双架构发布需在 arm64 Mac 上执行本脚本（与 CI macos-latest 一致）。Intel Mac 本地请使用开发模式或仅构建单一架构。" >&2
+    exit 1
+  fi
+elif [[ "$OS_UNAME" == Linux ]]; then
+  cp -f "$SERVER_BIN" "$RES_BIN"
   chmod +x "$RES_BIN"
+  echo "[✓] 已复制 -> $RES_BIN"
+else
+  cp -f "$SERVER_BIN" "$RES_BIN"
+  if [[ "$OS_UNAME" != MINGW* ]] && [[ "$OS_UNAME" != MSYS* ]] && [[ "$OS_UNAME" != CYGWIN* ]]; then
+    chmod +x "$RES_BIN"
+  fi
+  echo "[✓] 已复制 -> $RES_BIN"
 fi
-echo "[✓] 已复制 -> $RES_BIN"
 
 if [[ "$SKIP_CLIENT" != true ]]; then
   echo ""

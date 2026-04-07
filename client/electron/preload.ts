@@ -5,6 +5,11 @@ contextBridge.exposeInMainWorld('electron', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   server: {
     getStatus: () => ipcRenderer.invoke('server:status'),
+    getConnectionState: () =>
+      ipcRenderer.invoke('server:getConnectionState') as Promise<{
+        status: 'stopped' | 'starting' | 'running' | 'error'
+        errorMessage: string | null
+      }>,
     getPort: () => ipcRenderer.invoke('server:getPort'),
     onReady: (callback: () => void) => {
       ipcRenderer.on('server:ready', callback)

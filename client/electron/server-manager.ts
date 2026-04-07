@@ -15,6 +15,8 @@ type ServerStatus = 'stopped' | 'starting' | 'running' | 'error'
 export class ServerManager {
   private process: ChildProcess | null = null
   private status: ServerStatus = 'stopped'
+  /** 最近一次启动失败时由主进程展示给渲染进程（避免错过 IPC send） */
+  private lastErrorMessage: string | null = null
 
   /**
    * 获取后端启动命令配置
@@ -22,6 +24,31 @@ export class ServerManager {
    * 生产模式：运行 PyInstaller 打入 extraResources 的内置后端。
    * 开发模式：由用户在 `server/` 下手动 `uv run python main.py`。
    */
+  private chmodExec(path: string): void {
+    try {
+      chmodSync(path, 0o755)
+    } catch {
+      // 若已是可执行或权限不足则仍尝试 spawn
+    }
+  }
+
+  /** 生产包是否包含内置后端（用于错误提示文案） */
+  private bundledBackendExists(): boolean {
+    if (process.platform === 'win32') {
+      return existsSync(join(process.resourcesPath, 'xgboost-server.exe'))
+    }
+    if (process.platform === 'darwin') {
+      const tag = process.arch === 'arm64' ? 'arm64' : 'x64'
+      const named = join(process.resourcesPath, `xgboost-server-${tag}`)
+      if (existsSync(named)) return true
+      return existsSync(join(process.resourcesPath, 'xgboost-server'))
+    }
+    if (process.platform === 'linux') {
+      return existsSync(join(process.resourcesPath, 'xgboost-server'))
+    }
+    return false
+  }
+
   private getServerCommand(): { cmd: string; args: string[] } | null {
     if (is.dev) {
       return null
@@ -35,14 +62,22 @@ export class ServerManager {
       return null
     }
 
-    if (process.platform === 'darwin' || process.platform === 'linux') {
+    if (process.platform === 'darwin') {
+      const tag = process.arch === 'arm64' ? 'arm64' : 'x64'
+      const named = join(process.resourcesPath, `xgboost-server-${tag}`)
+      const legacy = join(process.resourcesPath, 'xgboost-server')
+      const binPath = existsSync(named) ? named : legacy
+      if (existsSync(binPath)) {
+        this.chmodExec(binPath)
+        return { cmd: binPath, args: [] }
+      }
+      return null
+    }
+
+    if (process.platform === 'linux') {
       const binPath = join(process.resourcesPath, 'xgboost-server')
       if (existsSync(binPath)) {
-        try {
-          chmodSync(binPath, 0o755)
-        } catch {
-          // 若已是可执行或权限不足则仍尝试 spawn
-        }
+        this.chmodExec(binPath)
         return { cmd: binPath, args: [] }
       }
     }
@@ -53,6 +88,7 @@ export class ServerManager {
   /** 启动后端服务，并等待健康检查通过后显示窗口 */
   async start(win: BrowserWindow): Promise<void> {
     this.status = 'starting'
+    this.lastErrorMessage = null
 
     const serverCmd = this.getServerCommand()
 
@@ -97,16 +133,12 @@ export class ServerManager {
       win.focus()
     } else {
       this.status = 'error'
-      const bundledBackend =
-        process.platform === 'win32'
-          ? existsSync(join(process.resourcesPath, 'xgboost-server.exe'))
-          : process.platform === 'darwin' || process.platform === 'linux'
-            ? existsSync(join(process.resourcesPath, 'xgboost-server'))
-            : false
+      const bundledBackend = this.bundledBackendExists()
       const msg =
         is.dev || !bundledBackend
           ? `后端服务未就绪\n\n请确保后端已启动：\n$ cd server && uv run python main.py`
           : '后端服务启动超时，请重启应用'
+      this.lastErrorMessage = msg
       win.webContents.send('server:error', msg)
       win.show() // 仍然显示窗口，展示错误信息
     }
@@ -166,6 +198,11 @@ export class ServerManager {
 
   getStatus(): ServerStatus {
     return this.status
+  }
+
+  /** 供渲染进程挂载后同步：避免 server:ready / server:error 早于监听器注册而丢失 */
+  getConnectionState(): { status: ServerStatus; errorMessage: string | null } {
+    return { status: this.status, errorMessage: this.lastErrorMessage }
   }
 }
 

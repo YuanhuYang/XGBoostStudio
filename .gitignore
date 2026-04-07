@@ -4,6 +4,9 @@
 
 # 构建产物
 build/
+# 例外：Electron buildResources（品牌图标等，须入库）
+!client/build/
+!client/build/**
 dist/
 client/dist/
 server/dist/
@@ -14,6 +17,8 @@ _wiki_staging/
 # 打包后的二进制文件（超出 GitHub 100MB 限制）
 client/resources/*.exe
 client/resources/xgboost-server
+client/resources/xgboost-server-arm64
+client/resources/xgboost-server-x64
 client/resources/*.dll
 server/dist/
 

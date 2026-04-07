@@ -1,10 +1,44 @@
+import { appendFileSync, existsSync } from 'fs'
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { ServerManager } from './server-manager'
 
+/** 白屏排查：环境变量 `XGBOOST_STUDIO_DISABLE_GPU=1` 或命令行 `--disable-gpu` 关闭硬件加速 */
+if (
+  process.env['XGBOOST_STUDIO_DISABLE_GPU'] === '1' ||
+  process.argv.some((a) => a === '--disable-gpu' || a.startsWith('--disable-gpu='))
+) {
+  app.disableHardwareAcceleration()
+}
+
 let mainWindow: BrowserWindow | null = null
 const serverManager = new ServerManager()
+
+function appendMainDiagLine(message: string): void {
+  const line = `${new Date().toISOString()} ${message}\n`
+  console.error(`[MainDiag] ${message}`)
+  try {
+    const logPath = join(app.getPath('userData'), 'main-process-diagnostics.log')
+    appendFileSync(logPath, line, 'utf-8')
+  } catch {
+    /* 忽略写入失败（如无 userData 权限） */
+  }
+}
+
+function attachMainWindowDiagnostics(win: BrowserWindow): void {
+  const wc = win.webContents
+  wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    appendMainDiagLine(
+      `did-fail-load code=${errorCode} mainFrame=${isMainFrame} url=${validatedURL} desc=${errorDescription}`,
+    )
+  })
+  wc.on('render-process-gone', (_event, details) => {
+    appendMainDiagLine(
+      `render-process-gone reason=${details.reason} exitCode=${details.exitCode}`,
+    )
+  })
+}
 
 /** 阻止主窗口被内嵌 PDF / blob 预览劫持为顶层导航（否则整窗变白，只剩标题栏） */
 function shouldBlockMainTopNavigation(url: string): boolean {
@@ -24,7 +58,23 @@ function shouldBlockMainTopNavigation(url: string): boolean {
   return false
 }
 
+/** 开发模式下使用仓库内品牌图标；正式包由可执行文件嵌入图标负责任务栏等展示 */
+function resolveDevWindowIcon(): string | undefined {
+  if (!is.dev) return undefined
+  if (process.platform === 'win32') {
+    const p = join(__dirname, '../build/icon.ico')
+    return existsSync(p) ? p : undefined
+  }
+  if (process.platform === 'darwin') {
+    const p = join(__dirname, '../build/icon.icns')
+    return existsSync(p) ? p : undefined
+  }
+  const png = join(__dirname, '../build/icon.png')
+  return existsSync(png) ? png : undefined
+}
+
 function createWindow(): void {
+  const winIcon = resolveDevWindowIcon()
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -33,6 +83,7 @@ function createWindow(): void {
     show: false, // 等待后端就绪再显示
     autoHideMenuBar: true,
     title: 'XGBoost Studio',
+    ...(winIcon ? { icon: winIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -44,6 +95,8 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     // 窗口就绪后不立即显示，等待后端连接成功
   })
+
+  attachMainWindowDiagnostics(mainWindow)
 
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     if (shouldBlockMainTopNavigation(navigationUrl)) {
@@ -64,6 +117,7 @@ function createWindow(): void {
           width: 1200,
           height: 820,
           autoHideMenuBar: true,
+          ...(winIcon ? { icon: winIcon } : {}),
           webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: false,
@@ -94,6 +148,7 @@ app.whenReady().then(async () => {
 
   // IPC 事件处理
   ipcMain.handle('server:status', () => serverManager.getStatus())
+  ipcMain.handle('server:getConnectionState', () => serverManager.getConnectionState())
   ipcMain.handle('server:getPort', () => 18899)
   ipcMain.handle('shell:openExternal', (_event, url: string) => shell.openExternal(url))
   ipcMain.handle('app:isFirstLaunch', () => {

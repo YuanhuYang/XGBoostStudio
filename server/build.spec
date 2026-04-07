@@ -3,9 +3,27 @@
 PyInstaller 构建配置
 输出：Windows 为 dist/xgboost-server.exe；macOS/Linux 为 dist/xgboost-server（无扩展名）。
 """
+import os
 import sys
 
 block_cipher = None
+
+# 与 Electron 桌面包共用的品牌图标（由 client/npm generate:icons 生成）
+try:
+    _spec_dir = os.path.dirname(os.path.abspath(SPEC))
+except NameError:
+    try:
+        _spec_dir = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        _spec_dir = os.getcwd()
+_client_build = os.path.normpath(os.path.join(_spec_dir, "..", "client", "build"))
+if sys.platform == "win32":
+    _brand_icon = os.path.join(_client_build, "icon.ico")
+elif sys.platform == "darwin":
+    _brand_icon = os.path.join(_client_build, "icon.icns")
+else:
+    _brand_icon = None
+_exe_icon = _brand_icon if _brand_icon and os.path.isfile(_brand_icon) else None
 # UPX 在 macOS 上易引发签名/稳定性问题；Linux 上亦先关闭以优先保证可运行。
 _use_upx = sys.platform == 'win32'
 
@@ -125,5 +143,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon=_exe_icon,
 )

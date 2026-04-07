@@ -102,6 +102,7 @@
 
 | 现象 | 可能原因 | 建议处理 |
 |------|----------|----------|
+| 启动后**整块窗口纯白**（仅标题栏正常） | 部分显卡驱动下 Chromium/Electron GPU 合成异常；或渲染资源加载失败、渲染进程崩溃 | 快捷方式「目标」末尾追加 `--disable-gpu` 或设置环境变量 **`XGBOOST_STUDIO_DISABLE_GPU=1`** 后启动；查看 **`%APPDATA%\xgboost-studio\main-process-diagnostics.log`**（`did-fail-load` / `render-process-gone` 会写入）。 |
 | 启动后长时间白屏或无法连接 | 本机 **18899** 端口被占用，或后端进程被拦截 | 关闭占用端口的其它程序；查看任务管理器中是否有残留 `xgboost-server.exe`；企业安全软件是否拦截子进程。 |
 | Windows 防火墙弹窗 | 首次监听端口时系统提示 | 若仅本机使用，可选择「专用网络允许」；架构上为本地 HTTP + SSE，见 [`02-architecture.md`](02-architecture.md)。 |
 | 杀毒报毒 / 自动隔离 | 未签名 exe、PyInstaller 打包行为易被启发式误判 | 将产品加入信任区；研发侧可规划代码签名（当前 `signAndEditExecutable: false`）。 |
@@ -125,3 +126,4 @@
 | 2026-04-07 | v0.5.0：安装包文件名与 `client/package.json` **0.5.0** 一致（如 `XGBoost-Studio-Setup-0.5.0.exe`）；文首「版本对应」与 v0.5.x 对齐。 |
 | 2026-04-07 | 初版：Windows x64 下 NSIS + portable 双产物说明、构建路径、安装与免安装使用指引、FAQ。 |
 | 2026-04-07 | macOS/Linux 分发改由 [`11-mac-linux-distribution.md`](11-mac-linux-distribution.md) 描述；本文仅 Windows。 |
+| 2026-04-07 | FAQ：纯白窗口与 `main-process-diagnostics.log`、GPU 降级环境变量说明。 |
