@@ -7,9 +7,8 @@ import { ToolOutlined, DatabaseOutlined, BarChartOutlined, SettingOutlined, Play
 import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import { useDatasetColumns } from '../../hooks/useDatasetColumns'
-import HelpButton from '../../components/HelpButton'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 const FeatureEngineeringPage: React.FC = () => {
   const activeDatasetId = useAppStore(s => s.activeDatasetId)
@@ -113,7 +112,7 @@ const FeatureEngineeringPage: React.FC = () => {
   const activeModelId = useAppStore(s => s.activeModelId)
 
   const expertSteps = [
-    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '数据工作台', icon: <DatabaseOutlined /> },
     { title: '特征分析', icon: <BarChartOutlined /> },
     { title: '特征工程', icon: <ToolOutlined /> },
     { title: '参数配置', icon: <SettingOutlined /> },
@@ -130,22 +129,12 @@ const FeatureEngineeringPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
-        <ToolOutlined /> 特征工程
-      </Title>
-      <HelpButton pageTitle="特征工程" items={[
-        { title: '标签页应该按什么顺序使用？', content: '建议顺序：缺失值处理 → 异常值处理 → 编码 → 特征缩放 →（可选）PCA降维 → 数据集划分。' },
-        { title: '什么时候用分层采样？', content: '分类任务建议勾选分层采样；当目标列是连续数值（回归）时系统会自动禁用分层采样。' },
-        { title: '划分成功后下一步做什么？', content: '完成数据划分后会生成 Split ID，后续在「模型训练」和「智能工作流」中直接使用该 ID。' },
-        { title: '时间序列划分是什么？', content: '按选定列升序排序后，前段训练、后段测试，避免用未来信息预测过去（与 sklearn TimeSeriesSplit 的单次前向切分思想一致）。' },
-      ]} />
-
       {/* 专家流程进度概览 */}
       <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
         <Steps current={currentStep} size="small" items={expertSteps} />
       </Card>
 
-      {!activeDatasetId && <Alert message="请先在「数据导入」页面选择数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
+      {!activeDatasetId && <Alert message="请先在「数据工作台」页面选择数据集" type="warning" showIcon style={{ marginBottom: 16 }} />}
 
       <Tabs
         items={[

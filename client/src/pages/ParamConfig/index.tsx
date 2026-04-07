@@ -9,11 +9,10 @@ import apiClient from '../../api/client'
 import { useAppStore } from '../../store/appStore'
 import ParamExplainCard from '../../components/ParamExplainCard'
 import ParamLabModal from '../../components/ParamLabModal'
-import HelpButton from '../../components/HelpButton'
 import type { ParamSchema } from '../../components/ParamExplainCard'
 import { showTeachingUi } from '../../utils/teachingUi'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 // 核心参数（面向所有用户）
 const CORE_PARAM_NAMES = ['n_estimators', 'max_depth', 'learning_rate', 'subsample', 'colsample_bytree', 'reg_lambda']
@@ -111,7 +110,7 @@ const ParamConfigPage: React.FC = () => {
       const r = await apiClient.get('/api/params/recommend', { params: { split_id: splitId } })
       setRecommendation(r.data)
       setParams(prev => ({ ...prev, ...r.data.params }))
-      // AI 推荐覆盖了预设参数，清除预设选中状态
+      // 智能推荐覆盖了预设参数，清除预设选中状态
       setSelectedPreset(null)
       try {
         localStorage.removeItem(STORAGE_KEY)
@@ -159,7 +158,7 @@ const ParamConfigPage: React.FC = () => {
   // activeSplitId already declared at top
 
   const expertSteps = [
-    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '数据工作台', icon: <DatabaseOutlined /> },
     { title: '特征分析', icon: <BarChartOutlined /> },
     { title: '特征工程', icon: <ToolOutlined /> },
     { title: '参数配置', icon: <SettingOutlined /> },
@@ -176,15 +175,6 @@ const ParamConfigPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
-        <SettingOutlined /> 超参数配置
-      </Title>
-      <HelpButton pageTitle="超参数配置" items={[
-        { title: '应该用哪个预设？', content: '分类任务推荐「均衡推荐」；回归任务推荐「快速训练」；数据量大（>1万行）用「大数据」。' },
-        { title: '最重要的参数是哪些？', content: 'n_estimators（迭代次数）、max_depth（树深）、learning_rate（学习率）是最关键的三个参数。' },
-        { title: '参数配置好后如何使用？', content: '点击「下载 JSON」保存当前配置，其内容可直接粘贴到「模型训练」页面的参数输入框。' },
-      ]} />
-
       {/* E3: 向导 / 模型调优：教学卡片与参数实验（专家模式不展示） */}
       {showTeaching && (
         <Alert

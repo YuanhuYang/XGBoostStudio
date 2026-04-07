@@ -1,7 +1,8 @@
 import apiClient from './client'
 import type { Dataset, DatasetStats, PreviewData, QualityScore } from '../types'
 
-/** 与 GET /api/datasets/builtin-samples 一致；后端不可用时作下拉回退 */
+/** 与 GET /api/datasets/builtin-samples 一致。
+ * 仅作离线文案参考或测试夹具，勿用作运行时可选列表（须以接口返回为准，避免新旧后端 key 不一致）。 */
 export interface BuiltinSampleItem {
   key: string
   title: string
@@ -15,7 +16,6 @@ export const FALLBACK_BUILTIN_SAMPLES: BuiltinSampleItem[] = [
   { key: 'titanic', title: 'Titanic', task: '二分类', difficulty: '入门', scenario: '生存预测', suggested_target: 'Survived' },
   { key: 'iris', title: 'Iris', task: '多分类', difficulty: '入门', scenario: '经典花种分类', suggested_target: 'species' },
   { key: 'boston', title: 'Boston Housing', task: '回归', difficulty: '入门', scenario: '房价回归（教学用）', suggested_target: 'medv' },
-  { key: 'breast_cancer', title: '威斯康星乳腺癌', task: '二分类', difficulty: '入门', scenario: '医学影像指标 / 表格二分类', suggested_target: 'diagnosis' },
   { key: 'wine', title: 'Wine 化学成分', task: '多分类', difficulty: '进阶', scenario: '酿酒化学特征多分类', suggested_target: 'class' },
   { key: 'german_credit', title: 'German Credit', task: '二分类', difficulty: '进阶', scenario: '信贷评分 / 风控表格', suggested_target: 'class' },
   { key: 'bank_marketing', title: 'Bank Marketing', task: '二分类', difficulty: '进阶', scenario: '营销响应（类流失场景）', suggested_target: 'y' },
@@ -32,14 +32,22 @@ export function builtinDifficultyColor(difficulty: string): string {
   return 'default'
 }
 
+/** 仅从后端拉取；失败或异常响应时返回 []，避免展示当前进程不支持的示例 key。 */
 export async function fetchBuiltinSamples(): Promise<BuiltinSampleItem[]> {
   try {
-    const res = await apiClient.get<BuiltinSampleItem[]>('/api/datasets/builtin-samples')
-    if (Array.isArray(res.data) && res.data.length > 0) return res.data
+    const res = await apiClient.get<unknown>('/api/datasets/builtin-samples')
+    const raw = res.data
+    if (!Array.isArray(raw)) return []
+    return raw.filter(
+      (x): x is BuiltinSampleItem =>
+        x != null &&
+        typeof x === 'object' &&
+        typeof (x as BuiltinSampleItem).key === 'string' &&
+        typeof (x as BuiltinSampleItem).title === 'string'
+    )
   } catch {
-    /* use fallback */
+    return []
   }
-  return FALLBACK_BUILTIN_SAMPLES
 }
 
 /** 一键导入内置示例（本地 tests/data，离线可用） */
@@ -93,6 +101,21 @@ export async function previewDataset(
 /** 获取列统计 */
 export async function getDatasetStats(id: number): Promise<DatasetStats> {
   const res = await apiClient.get(`/api/datasets/${id}/stats`)
+  return res.data
+}
+
+/** 划分测试集单行（与训练管线数值列一致），供交互预测预填 */
+export interface SplitTestRowResponse {
+  row_index: number
+  total_rows: number
+  features: Record<string, number>
+  target: string | number | boolean | null
+}
+
+export async function fetchSplitTestRow(splitId: number, index: number): Promise<SplitTestRowResponse> {
+  const res = await apiClient.get<SplitTestRowResponse>(`/api/datasets/splits/${splitId}/test-row`, {
+    params: { index },
+  })
   return res.data
 }
 

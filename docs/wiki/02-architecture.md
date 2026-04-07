@@ -1,7 +1,7 @@
 # XGBoost Studio · 技术架构
 
-> **版本对应**：v0.4.0
-> **最后更新**：2026-04-06（补充 AutoML 命令行 `server/cli`、同步训练 API）
+> **版本对应**：v0.5.0  
+> **最后更新**：2026-04-07（v0.5.0：文档中心前端模块；`client`/`server` 版本号对齐）
 
 ---
 
@@ -235,7 +235,7 @@ SSE 事件字段说明见 [`04-model-training.md`](04-model-training.md) 和 [`0
 
 ## 六、打包与分发
 
-- **客户端打包**：`electron-vite build + electron-builder`，输出 NSIS 安装包（Windows）
+- **客户端打包**：`electron-vite build + electron-builder`，Windows 输出 **NSIS 安装包** 与 **portable 免安装包**（详见 [`10-windows-distribution.md`](10-windows-distribution.md)）
 - **服务端打包**：`PyInstaller`，输出 `xgboost-server.exe`，内嵌在 Electron `extraResources` 中
 - **版本对齐**：`client/package.json` 和 `server/pyproject.toml` 中的 `version` 字段须保持一致
 
@@ -245,6 +245,7 @@ SSE 事件字段说明见 [`04-model-training.md`](04-model-training.md) 和 [`0
 
 | 版本 | 变更摘要 |
 |------|----------|
+| v0.5.0 | 应用内 **文档中心**（`client/src/pages/Documentation` + `docsManifest` + `docSources` glob）；`client/package.json` 与 `server/pyproject.toml` 版本统一为 **0.5.0** |
 | v0.4.0 | I6-ThreeModeUX：三模式交互架构；`MainLayout` 三态侧栏；专家 Ctrl+K；教学组件落地 |
 | v0.4.x | 顶栏单 Tag；调优侧栏收窄；UI「学习」→「调优」；`teachingUi.ts` 向导默认教学、专家关闭 |
 | v0.4+ AutoML | 新增 `routers/automl.py`、`services/automl_service.py`；`training_service.train_and_persist_sync`；`tuning_service.run_lite_tuning_best_params`；`SmartWorkflow` Step 0 全自动建模 UI；**`server/cli/` xs-studio**；Wiki [`08-automl-wizard.md`](08-automl-wizard.md) |

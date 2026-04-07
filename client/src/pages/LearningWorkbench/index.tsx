@@ -4,12 +4,10 @@ import {
 } from 'antd'
 import {
   AppstoreOutlined,
-  HomeOutlined,
   PlayCircleOutlined,
   SettingOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
-import HelpButton from '../../components/HelpButton'
 import { useAppStore } from '../../store/appStore'
 import { showTeachingUi } from '../../utils/teachingUi'
 
@@ -66,43 +64,17 @@ const LearningWorkbenchPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#a78bfa', marginBottom: 8 }}>
-        <HomeOutlined /> 调优工作台
-      </Title>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        上下文：训练划分#{activeSplitId ?? '—'}
-        {activeDatasetName ? `（${activeDatasetName}）` : activeDatasetId ? `（数据集#${activeDatasetId}）` : ''}
-        {' · '}
-        主模型#{activeModelId ?? '—'}
-      </Text>
-
-      <HelpButton
-        pageTitle="调优工作台"
-        items={[
-          {
-            title: '这个页面做什么？',
-            content:
-              '模型调优模式的聚合入口：查看顶栏上下文、按推荐顺序进入参数配置、训练、超参搜索与模型管理；侧栏各菜单为同一链路的深度页面。',
-          },
-          {
-            title: '没有训练划分怎么办？',
-            content:
-              '请先在顶栏选择「训练划分」；新建划分请在「数据处理 → 特征工程」完成（可从下方入口跳转）。也可切换到「智能向导」用 6 步流程一次性完成数据准备。',
-          },
-        ]}
-      />
-
       {activeSplitId === null && (
         <Alert
           type="warning"
           showIcon
-          style={{ marginTop: 16, marginBottom: 16, background: '#1e293b', borderColor: '#854d0e' }}
+          style={{ marginBottom: 16, background: '#1e293b', borderColor: '#854d0e' }}
           message="尚未选择训练划分"
-          description="请在顶栏选择「训练划分」，或在「数据处理 → 特征工程」创建划分后再进入本链路。上传数据请前往「数据导入」。"
+          description="请在顶栏选择「训练划分」，或在「数据处理 → 特征工程」创建划分后再进入本链路。上传数据请前往「数据工作台」。"
           action={
             <Space>
               <Button size="small" onClick={() => go('data-import')}>
-                数据导入
+                数据工作台
               </Button>
               <Button type="primary" size="small" onClick={() => go('feature-engineering')}>
                 特征工程

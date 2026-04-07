@@ -1,8 +1,9 @@
 # XGBoost Studio · XGBoost专属数据分析
 
-> **版本对应**：v0.4.x（在 v0.3 分析能力上叠加「教学 UI」概念说明与分类单调性对齐；新增目标列智能推荐算法）  
-> **最后更新**：2026-04-06  
-> **对应代码**：`server/services/target_recommend.py`、`server/services/feature_service.py`、`server/services/leakage_service.py`、`client/src/pages/FeatureAnalysis/`、`client/src/pages/DataImport/`
+> **版本对应**：v0.5.x（在 v0.3 分析能力上叠加「教学 UI」概念说明与分类单调性对齐；新增目标列智能推荐算法）  
+> **最后更新**：2026-04-07  
+> **对应代码**：`server/services/target_recommend.py`、`server/services/feature_service.py`、`server/services/leakage_service.py`、`client/src/pages/FeatureAnalysis/`、`client/src/pages/DataImport/`  
+> **质量综合分口径**（工作台与向导同源，含缺失/异常/重复三率）：见 [`09-data-quality-unified-and-smart-clean.md`](09-data-quality-unified-and-smart-clean.md)。
 
 ---
 
@@ -99,8 +100,8 @@ confidence_i = exp(raw_i / T) / (Σ exp(raw_j / T) + 1)
 
 | 页面 | 展示方式 |
 |------|----------|
-| **数据导入**（`DataImport`） | 设置目标列弹窗顶部 AI 推荐横幅 + 下拉选项旁蓝色 Tag（如"推荐 87%"）+ 自动选中 Top-1 |
-| **智能向导**（`SmartWorkflow`） | Step 2 目标列选择 + AI 推荐提示 + 下拉 Tag |
+| **数据导入**（`DataImport`） | 设置目标列弹窗顶部智能推荐横幅 + 下拉选项旁蓝色 Tag（如"推荐 87%"）+ 自动选中 Top-1 |
+| **智能向导**（`SmartWorkflow`） | Step 2 目标列选择 + 智能推荐提示 + 下拉 Tag |
 | **特征分析**（`FeatureAnalysis`） | 目标列下拉框内 Tag + 未选时文字提示 |
 
 ### 测试覆盖
@@ -299,6 +300,7 @@ XGBoost 对共线性具有一定天然鲁棒性（树模型每步仅选最优分
 
 | 版本 | 变更摘要 |
 |------|----------|
-| v0.4.x | 新增§二「目标列智能推荐」：词边界匹配 + 基数信号 + softmax 归一化，10 数据集正确率 10/10；分类目标下单调性分析与 `monotone_constraints` 建议对齐；向导/调优下 IV/KS/PSI 概念 Popover |
+| v0.5.0 | 全文「版本对应」与产品 v0.5.x 对齐；分析能力无破坏性变更 |
+| v0.4.x | 文首增加「质量综合分」链至 Wiki `09`；新增§二「目标列智能推荐」：词边界匹配 + 基数信号 + softmax 归一化，10 数据集正确率 10/10；分类目标下单调性分析与 `monotone_constraints` 建议对齐；向导/调优下 IV/KS/PSI 概念 Popover |
 | v0.3.0 | G3-A 落地：新增 IV/KS/PSI/单调性/标签分析/三类泄露检测 API + FeatureAnalysis 页面扩展为 10 Tab |
 | v0.2.0 | 基础特征分析（分布/相关/VIF/PCA）落地 |

@@ -1,6 +1,6 @@
 {
   "name": "xgboost-studio",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "XGBoost Studio - 可视化 XGBoost 建模平台",
   "main": "dist-electron/main.js",
   "author": "XGBoost Studio Team",
@@ -30,10 +30,12 @@
     "axios": "^1.7.9",
     "echarts": "^5.5.1",
     "echarts-for-react": "^3.0.6",
-    "pdfjs-dist": "4.8.69",
+    "mermaid": "^11.14.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-pdf": "^9.2.0",
+    "react-markdown": "^10.1.0",
+    "rehype-slug": "^6.0.0",
+    "remark-gfm": "^4.0.1",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
@@ -56,10 +58,10 @@
     "electron-vite": "^2.3.0",
     "jsdom": "^29.0.1",
     "playwright": "^1.59.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
-    "vitest": "^3.2.4",
-    "ts-node": "^10.9.2"
+    "vitest": "^3.2.4"
   },
   "build": {
     "appId": "com.xgbooststudio.app",
@@ -83,6 +85,12 @@
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
           "arch": [
             "x64"
           ]

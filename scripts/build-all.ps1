@@ -90,5 +90,8 @@ if (-not $SkipClient) {
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "  [✓] 构建完成！" -ForegroundColor Green
-Write-Host "  安装包位置: dist\XGBoost Studio Setup*.exe" -ForegroundColor Green
+Write-Host "  产物目录（仓库根 dist\，版本号与 package.json 一致）：" -ForegroundColor Green
+Write-Host "    · NSIS 安装包: dist\XGBoost Studio Setup *.exe" -ForegroundColor Green
+Write-Host "    · 免安装便携: dist\XGBoost Studio *.exe（非 Setup 文件名）" -ForegroundColor Green
+Write-Host "  详细说明见 docs\wiki\10-windows-distribution.md" -ForegroundColor Gray
 Write-Host "================================================" -ForegroundColor Cyan

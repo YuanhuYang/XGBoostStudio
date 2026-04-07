@@ -1,8 +1,9 @@
 # XGBoost Studio · 12 章专业 PDF 报告
 
-> **版本对应**：v0.3.0  
-> **最后更新**：2026-04-06  
-> **对应代码**：`server/services/report_service.py`、`server/schemas/model.py`（BrandConfig）、`client/src/pages/Report/`、`client/src/constants/reportSections.ts`
+> **版本对应**：v0.5.x  
+> **最后更新**：2026-04-07  
+> **对应代码**：`server/services/report_service.py`、`server/schemas/model.py`（BrandConfig）、`client/src/pages/Report/`、`client/src/constants/reportSections.ts`  
+> **质量分与预处理审计口径**：见 [`09-data-quality-unified-and-smart-clean.md`](09-data-quality-unified-and-smart-clean.md)
 
 ---
 
@@ -87,11 +88,20 @@ XGBoost Studio 的 PDF 报告**不是图表导出工具**，而是**面向不同
 2. 调优任务记录
    └── tuning_diagnostics_json.phase_records（5阶段完整记录）
 
-3. 实时计算（报告生成时触发）
+3. 数据集侧审计（随模型关联的数据集一并加载）
+   └── datasets.preprocessing_log_json
+       └── 用户在工作台或（启用时）AutoML 智能清洗触发的 handle_missing / drop_duplicates / handle_outliers 等
+       └── 由 dataset_narrative_service._load_preprocessing_audit 解析为叙事条目
+
+4. 实时计算（报告生成时触发）
    └── get_evaluation()（混淆矩阵、ROC、SHAP等）
    └── get_learning_curve()（学习曲线）
-   └── build_data_narrative()（数据叙事，G2-R1）
+   └── build_data_narrative()（数据叙事，G2-R1；含预处理审计列表）
 ```
+
+**与质量分的一致性**：数据工作台与智能向导使用的综合质量分均由 `dataset_service.get_quality_score` 定义（缺失率、行级 3σ 异常率、重复率加权）；PDF 正文不重复打印该分数公式，但在「数据与变量关系」章节含有**固定方法论说明**，并列出 `preprocessing_log_json` 解析出的操作记录（若有）。**训练阶段默认处理**（同章节后续小节）描述的是服务端 XGBoost 训练管线对缺失/标签的约定，与上述用户侧清洗**相互独立**。
+
+**AutoML 策略摘要**：若仅存在于内存任务结果的 `pipeline_plan` 未写入模型 `provenance_json`（或数据集日志），则当前 PDF **不会**单独成章；需要时可后续迭代持久化后再扩展叙事。
 
 ### 文本内容生成规则
 
@@ -189,6 +199,8 @@ POST /api/reports/generate
 
 | 版本 | 变更摘要 |
 |------|----------|
+| v0.5.0 | 全文「版本对应」与产品 v0.5.x 对齐；报告生成主路径无破坏性变更 |
+| v0.4.x | §四数据来源补充 `preprocessing_log_json` / 预处理审计与质量分口径说明；链至 Wiki `09`；PDF `data_relations` 增加质量口径固定短文 |
 | v0.3.0 | G3-C：report_service 重构为12章 + 4种模板 + BrandConfig schema；Report 页面新增模板选择 + 品牌定制面板；reportSections.ts 更新为 CHAPTERS_12 + REPORT_TEMPLATES |
 | v0.2.0 | I3 报告增强：章节选择、模板管理（保存/加载）、APA 格式、data-narrative（G2-R1）落地 |
 | v0.1.0 | 基础 PDF 报告框架（ReportLab + 中文字体跨平台支持）落地 |

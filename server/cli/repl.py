@@ -70,6 +70,9 @@ def _parse_automl_flags(tokens: list[str]) -> dict[str, Any]:
                 raise ValueError("--random-seed 需要数值")
             body["random_seed"] = int(tokens[i])
             i += 1
+        elif t == "--no-smart-clean":
+            body["smart_clean"] = False
+            i += 1
         else:
             raise ValueError(f"未知参数: {t}")
     return body
@@ -129,7 +132,7 @@ class StudioREPL(cmd.Cmd):
   sample <key>            导入内置示例（无参列出全部 key）
   datasets                列出数据集
   automl [选项]           对当前数据集全自动建模
-      --skip-tuning  --max-tuning-trials N  --target COL  --train-ratio R  --random-seed N
+      --skip-tuning  --no-smart-clean  --max-tuning-trials N  --target COL  --train-ratio R  --random-seed N
   candidates / last       显示上次 AutoML 候选与推荐
   select <n>              按列表序号选用模型（从 1 开始）
   select_model <id>       按 model_id 选用（计划中的 select-model）

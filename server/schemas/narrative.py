@@ -143,6 +143,15 @@ class DataNarrativeBullets(BaseModel):
     )
 
 
+class PreprocessingAuditEntry(BaseModel):
+    """用户在数据/特征流程中的预处理操作审计项（与统计 profile 互补）。"""
+
+    ts: str = Field(..., description="ISO8601 UTC 时间戳")
+    kind: str = Field(..., description="missing_values / outliers_strategy / outliers_drop_rows / drop_duplicates 等")
+    summary: str = Field(..., description="一句话摘要，供 PDF 列表展示")
+    detail: Optional[dict[str, Any]] = Field(None, description="结构化细节，如 per_column 策略")
+
+
 class DataNarrativeResponse(BaseModel):
     """GET …/data-narrative 的完整响应体。"""
 
@@ -164,3 +173,7 @@ class DataNarrativeResponse(BaseModel):
     target_relations: list[TargetRelationItem] = Field(default_factory=list)
     charts: list[ChartSpec] = Field(default_factory=list)
     bullets: DataNarrativeBullets = Field(default_factory=DataNarrativeBullets)
+    preprocessing_audit: list[PreprocessingAuditEntry] = Field(
+        default_factory=list,
+        description="数据集上已记录的预处理操作（缺失值、异常值、去重等），供 PDF 审计章节使用",
+    )

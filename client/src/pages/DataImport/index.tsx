@@ -15,17 +15,16 @@ import {
   datasetsApi,
   fetchBuiltinSamples,
   builtinDifficultyColor,
-  FALLBACK_BUILTIN_SAMPLES,
   type BuiltinSampleItem,
 } from '../../api/datasets'
 import { getDatasetSummary, type CandidateTarget } from '../../api/wizard'
 import apiClient from '../../api/client'
+import { getRequestErrorMessage } from '../../utils/apiError'
+import { formatUtcToBeijing } from '../../utils/datetime'
 import { useAppStore } from '../../store/appStore'
 import type { QualityScore } from '../../types'
-import HelpButton from '../../components/HelpButton'
-
 const { Dragger } = Upload
-const { Title, Text } = Typography
+const { Text } = Typography
 
 const DIFFICULTY_ORDER = ['入门', '进阶', '挑战'] as const
 const DIFFICULTY_TIER_HINT: Record<(typeof DIFFICULTY_ORDER)[number], string> = {
@@ -82,10 +81,14 @@ const DataImportPage: React.FC = () => {
   const [deduping, setDeduping] = useState(false)
   const [sampleKeyLoading, setSampleKeyLoading] = useState<string | null>(null)
   const [sampleSelectNonce, setSampleSelectNonce] = useState(0)
-  const [builtinSamples, setBuiltinSamples] = useState<BuiltinSampleItem[]>(FALLBACK_BUILTIN_SAMPLES)
+  const [builtinSamples, setBuiltinSamples] = useState<BuiltinSampleItem[]>([])
+  const [builtinCatalogLoading, setBuiltinCatalogLoading] = useState(true)
 
   React.useEffect(() => {
-    void fetchBuiltinSamples().then(setBuiltinSamples)
+    void fetchBuiltinSamples().then((items) => {
+      setBuiltinSamples(items)
+      setBuiltinCatalogLoading(false)
+    })
   }, [])
 
   const sampleGroupedOptions = useMemo(
@@ -205,8 +208,7 @@ const DataImportPage: React.FC = () => {
         openTargetModal(newRecord)
       }
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '上传失败')
+      message.error(getRequestErrorMessage(e, '上传失败'))
       onError?.(new Error('上传失败'))
     } finally {
       setUploading(false)
@@ -221,8 +223,7 @@ const DataImportPage: React.FC = () => {
       message.success(`已添加示例数据集「${label}」，可在列表中设置目标列`)
       await fetchDatasets()
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '添加示例数据失败')
+      message.error(getRequestErrorMessage(e, '添加示例数据失败'))
     } finally {
       setSampleKeyLoading(null)
     }
@@ -299,7 +300,7 @@ const DataImportPage: React.FC = () => {
       title: '目标列', dataIndex: 'target_column', key: 'target_column',
       render: (v) => v ? <Tag color="blue">{v}</Tag> : <Tag color="default">未设置</Tag>
     },
-    { title: '上传时间', dataIndex: 'created_at', key: 'created_at', render: (v) => v?.slice(0, 19) },
+    { title: '上传时间', dataIndex: 'created_at', key: 'created_at', render: (v) => formatUtcToBeijing(v) },
     {
       title: '数据质量', key: 'quality',
       render: (_: unknown, record: DatasetRow) => {
@@ -356,7 +357,7 @@ const DataImportPage: React.FC = () => {
 
   // 专家模式流程进度
   const expertSteps = [
-    { title: '数据导入', icon: <DatabaseOutlined /> },
+    { title: '数据工作台', icon: <DatabaseOutlined /> },
     { title: '特征分析', icon: <BarChartOutlined /> },
     { title: '特征工程', icon: <ToolOutlined /> },
     { title: '参数配置', icon: <SettingOutlined /> },
@@ -373,15 +374,6 @@ const DataImportPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 16 }}>
-        <DatabaseOutlined /> 数据导入
-      </Title>
-      <HelpButton pageTitle="数据导入" items={[
-        { title: '支持怎样的文件？', content: '支持 CSV、Excel（.xlsx / .xls），单文件不超过 200MB。' },
-        { title: '上传后必须设置目标列', content: '目标列（要预测的列）是模型训练的必要条件；本地上传成功后系统会自动弹出设置对话框。从「添加示例数据」加入的数据集不会自动弹出，可在列表中点击勾选按钮自行设置。' },
-        { title: '数据质量检测是什么？', content: '点击表格中的「检测」按鈕，系统会评分缺失率、异常率、重复行等指标。' },
-      ]} />
-
       {/* 专家流程进度概览 */}
       <Card style={{ marginBottom: 24, background: '#1e293b', border: '1px solid #334155' }}>
         <Steps current={currentStep} size="small" items={expertSteps} />
@@ -440,10 +432,20 @@ const DataImportPage: React.FC = () => {
               <Select
                 key={sampleSelectNonce}
                 size="small"
-                placeholder="添加示例数据（可搜索）"
+                placeholder={
+                  builtinCatalogLoading
+                    ? '正在加载示例目录…'
+                    : builtinSamples.length === 0
+                      ? '暂无可用示例（请确认后端已启动且版本匹配）'
+                      : '添加示例数据（可搜索）'
+                }
                 style={{ minWidth: 240 }}
-                loading={sampleKeyLoading !== null}
-                disabled={sampleKeyLoading !== null}
+                loading={builtinCatalogLoading || sampleKeyLoading !== null}
+                disabled={
+                  builtinCatalogLoading ||
+                  sampleKeyLoading !== null ||
+                  builtinSamples.length === 0
+                }
                 optionLabelProp="title"
                 popupMatchSelectWidth={false}
                 listHeight={320}
@@ -513,7 +515,7 @@ const DataImportPage: React.FC = () => {
         {candidateTargets.length > 0 && (
           <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              AI 推荐：<Text strong style={{ color: '#60a5fa' }}>{candidateTargets[0].col}</Text>
+              智能推荐：<Text strong style={{ color: '#60a5fa' }}>{candidateTargets[0].col}</Text>
               <Tag color="blue" style={{ fontSize: 10, marginLeft: 6 }}>
                 {Math.round(candidateTargets[0].confidence * 100)}%
               </Tag>

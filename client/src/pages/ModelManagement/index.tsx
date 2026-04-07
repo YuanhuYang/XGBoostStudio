@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Card, Table, Button, Space, Tag, Typography, Popconfirm,
   Modal, Form, Input, Row, Col, Statistic, message, Tooltip, Empty, Tabs
 } from 'antd'
-import { AppstoreOutlined, DeleteOutlined, EditOutlined, DownloadOutlined, DiffOutlined, FilePdfOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, DownloadOutlined, DiffOutlined, FilePdfOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import ReactECharts from 'echarts-for-react'
-import apiClient from '../../api/client'
-import HelpButton from '../../components/HelpButton'
+import apiClient, { BASE_URL } from '../../api/client'
+import { formatUtcToBeijing } from '../../utils/datetime'
+import PDFViewer from '../../components/PDFViewer'
 import { useAppStore } from '../../store/appStore'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 // 过滤内部指标（不应展示在对比图中）
 const INTERNAL_METRIC_KEYS = new Set([
@@ -39,7 +40,20 @@ const ModelManagementPage: React.FC = () => {
   const [compareData, setCompareData] = useState<ModelRecord[]>([])
   const [compareVisible, setCompareVisible] = useState(false)
   const [compareReportLoading, setCompareReportLoading] = useState(false)
+  const [comparePdfModalOpen, setComparePdfModalOpen] = useState(false)
+  const [comparePdfReportId, setComparePdfReportId] = useState<number | null>(null)
+  const [comparePdfFilename, setComparePdfFilename] = useState('compare_report.pdf')
+  const [lastComparePdfMeta, setLastComparePdfMeta] = useState<{ id: number; idsKey: string } | null>(null)
   const [form] = Form.useForm()
+
+  const compareIdsKey = useMemo(
+    () => [...compareIds].sort((a, b) => a - b).join(','),
+    [compareIds],
+  )
+
+  useEffect(() => {
+    setLastComparePdfMeta(null)
+  }, [compareIdsKey])
 
   const filteredModels = models.filter(m =>
     !searchText || m.name.toLowerCase().includes(searchText.toLowerCase())
@@ -60,8 +74,29 @@ const ModelManagementPage: React.FC = () => {
     try {
       await apiClient.delete(`/api/models/${id}`)
       message.success('已删除')
+      setCompareIds(prev => prev.filter(i => i !== id))
       fetchModels()
     } catch { message.error('删除失败') }
+  }
+
+  const handleBatchDelete = async () => {
+    if (compareIds.length === 0) return
+    const ids = [...compareIds]
+    setLoading(true)
+    try {
+      const results = await Promise.allSettled(ids.map(id => apiClient.delete(`/api/models/${id}`)))
+      const ok = results.filter(r => r.status === 'fulfilled').length
+      const fail = results.length - ok
+      if (ok > 0) message.success(`已删除 ${ok} 个模型`)
+      if (fail > 0) message.error(`${fail} 个删除失败`)
+      setCompareIds([])
+      fetchModels()
+    } catch {
+      message.error('批量删除失败')
+      fetchModels()
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleRename = async () => {
@@ -92,24 +127,62 @@ const ModelManagementPage: React.FC = () => {
     } catch { message.error('对比失败') }
   }
 
-  const handleCompareReport = async () => {
-    if (compareIds.length < 2) { message.warning('请至少选择2个模型'); return }
+  const postCompareReport = async () => {
+    if (compareIds.length < 2) return null
+    const names = compareData.map((m) => m.name).join(' vs ')
+    const resp = await apiClient.post('/api/reports/compare', {
+      model_ids: compareIds,
+      title: `多模型对比报告 — ${names}`,
+    })
+    return { id: resp.data.id as number }
+  }
+
+  const handleCompareReportPreview = async () => {
+    if (compareIds.length < 2) {
+      message.warning('请至少选择2个模型')
+      return
+    }
     setCompareReportLoading(true)
     try {
-      const names = compareData.map(m => m.name).join(' vs ')
-      const resp = await apiClient.post('/api/reports/compare', {
-        model_ids: compareIds,
-        title: `多模型对比报告 — ${names}`,
-      })
-      message.success(`对比报告已生成（ID: ${resp.data.id}）`)
-      // 直接触发下载
-      const r = await apiClient.get(`/api/reports/${resp.data.id}/download`, { responseType: 'blob' })
+      const result = await postCompareReport()
+      if (!result) return
+      setComparePdfReportId(result.id)
+      setLastComparePdfMeta({ id: result.id, idsKey: compareIdsKey })
+      setComparePdfFilename(`compare_report_${compareIds.join('_')}.pdf`)
+      setComparePdfModalOpen(true)
+      message.success('对比报告已生成，可在预览中查看或下载')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '生成对比报告失败')
+    } finally {
+      setCompareReportLoading(false)
+    }
+  }
+
+  const handleCompareReportDownload = async () => {
+    if (compareIds.length < 2) {
+      message.warning('请至少选择2个模型')
+      return
+    }
+    setCompareReportLoading(true)
+    try {
+      let reportId: number
+      if (lastComparePdfMeta && lastComparePdfMeta.idsKey === compareIdsKey) {
+        reportId = lastComparePdfMeta.id
+      } else {
+        const result = await postCompareReport()
+        if (!result) return
+        reportId = result.id
+        setLastComparePdfMeta({ id: reportId, idsKey: compareIdsKey })
+      }
+      const r = await apiClient.get(`/api/reports/${reportId}/download`, { responseType: 'blob' })
       const url = URL.createObjectURL(r.data)
       const a = document.createElement('a')
       a.href = url
       a.download = `compare_report_${compareIds.join('_')}.pdf`
       a.click()
       URL.revokeObjectURL(url)
+      message.success('对比 PDF 已下载')
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail || '生成对比报告失败')
@@ -119,6 +192,20 @@ const ModelManagementPage: React.FC = () => {
   }
 
   const columns: ColumnsType<ModelRecord> = [
+    {
+      title: '模型编号',
+      dataIndex: 'id',
+      key: 'id',
+      width: 96,
+      fixed: 'left' as const,
+      render: (v: number) => (
+        <Tooltip title="与 API、导出文件名等一致的数据库主键">
+          <Text code copyable={{ text: String(v) }} style={{ color: '#94a3b8', fontSize: 12 }}>
+            {v}
+          </Text>
+        </Tooltip>
+      ),
+    },
     { title: '模型名称', dataIndex: 'name', key: 'name', render: v => <Text strong style={{ color: '#60a5fa' }}>{v}</Text> },
     { title: '任务类型', dataIndex: 'task_type', key: 'task_type', render: v => <Tag color={v === 'classification' ? 'blue' : 'orange'}>{v}</Tag> },
     {
@@ -147,13 +234,15 @@ const ModelManagementPage: React.FC = () => {
       title: '备注', dataIndex: 'notes', key: 'notes',
       render: (v: string | undefined) => v ? <Text style={{ color: '#94a3b8', fontSize: 12 }}>{v}</Text> : <Text style={{ color: '#334155' }}>-</Text>
     },
-    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: v => v?.slice(0, 19) },
     {
-      title: '对比', key: 'compare',
-      render: (_, r) => (
-        <input type="checkbox" checked={compareIds.includes(r.id)}
-          onChange={e => setCompareIds(prev => e.target.checked ? [...prev, r.id] : prev.filter(i => i !== r.id))} />
-      )
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (v: string) => (
+        <Tooltip title="北京时间 (UTC+8)">
+          <span>{formatUtcToBeijing(v)}</span>
+        </Tooltip>
+      ),
     },
     {
       title: '操作', key: 'action',
@@ -229,15 +318,6 @@ const ModelManagementPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} style={{ color: '#60a5fa', marginBottom: 24 }}>
-        <AppstoreOutlined /> 模型管理
-      </Title>
-      <HelpButton pageTitle="模型管理" items={[
-        { title: '如何对比多个模型？', content: '勾选模型行右侧复选框（至少2个），点击「对比已选」即可查看雷达图和柱状图。' },
-        { title: '如何导出模型文件？', content: '点击操作列的下载图标，可下载 .ubj 格式的模型文件供其他系统使用。' },
-        { title: '性能标签（优秀/良好）含义？', content: '以 AUC/Accuracy/R² 为准：≥0.9 优秀，≥0.75 良好，≥0.6 尚可，<0.6 待提升。' },
-      ]} />
-
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card style={{ background: '#1e293b', border: '1px solid #334155' }}><Statistic title="模型总数" value={models.length} valueStyle={{ color: '#60a5fa' }} /></Card></Col>
         <Col span={6}><Card style={{ background: '#1e293b', border: '1px solid #334155' }}><Statistic title="分类模型" value={models.filter(m => m.task_type === 'classification').length} valueStyle={{ color: '#3b82f6' }} /></Card></Col>
@@ -261,10 +341,34 @@ const ModelManagementPage: React.FC = () => {
             onSearch={v => setSearchText(v)}
             onChange={e => setSearchText(e.target.value)}
           />
+          <Popconfirm
+            title={`确认删除选中的 ${compareIds.length} 个模型？`}
+            description="删除为软删除，记录仍保留在库中但不再显示。"
+            okText="删除"
+            okButtonProps={{ danger: true }}
+            disabled={compareIds.length === 0}
+            onConfirm={handleBatchDelete}
+          >
+            <Button size="small" danger disabled={compareIds.length === 0}>
+              批量删除{compareIds.length > 0 ? ` (${compareIds.length})` : ''}
+            </Button>
+          </Popconfirm>
           <Button size="small" onClick={fetchModels}>刷新</Button>
         </Space>
       }>
-        <Table columns={columns} dataSource={filteredModels} loading={loading} rowKey="id" size="small" scroll={{ x: 'max-content' }} />
+        <Table
+          columns={columns}
+          dataSource={filteredModels}
+          loading={loading}
+          rowKey="id"
+          size="small"
+          scroll={{ x: 'max-content' }}
+          rowSelection={{
+            selectedRowKeys: compareIds,
+            onChange: (keys) => setCompareIds(keys.map(k => Number(k))),
+            preserveSelectedRowKeys: true,
+          }}
+        />
       </Card>
 
       <Modal title="编辑模型" open={renameModal.open} onOk={handleRename} onCancel={() => setRenameModal({ open: false, id: null, name: '', notes: '' })}>
@@ -308,7 +412,7 @@ const ModelManagementPage: React.FC = () => {
                     ? (m.metrics.ks - baseKs)
                     : null
                   return {
-                    key: m.id, name: m.name, task_type: m.task_type,
+                    key: m.id, id: m.id, name: m.name, task_type: m.task_type,
                     _aucDiff: aucDiff,
                     _ksDiff: ksDiff,
                     ...Object.fromEntries(
@@ -343,6 +447,7 @@ const ModelManagementPage: React.FC = () => {
                     size="small"
                     dataSource={tableData}
                     columns={[
+                      { title: '模型编号', dataIndex: 'id', key: 'id', width: 88, render: v => <Text code style={{ color: '#94a3b8', fontSize: 12 }}>{v}</Text> },
                       { title: '模型', dataIndex: 'name', key: 'name', render: v => <Text style={{ color: '#60a5fa' }}>{v}</Text> },
                       { title: '类型', dataIndex: 'task_type', key: 'task_type', render: v => <Tag color={v === 'classification' ? 'blue' : 'orange'}>{v}</Tag> },
                       ...compareMetricKeys.map(k => ({
@@ -358,20 +463,56 @@ const ModelManagementPage: React.FC = () => {
             },
           ]}
         />
-        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <span style={{ fontSize: 12, color: '#475569' }}>
             ↑ 越大越好 &nbsp;|&nbsp; ↓ 越小越好（雷达图中已反向映射，外圈 = 更优）
           </span>
-          <Button
-            type="primary"
-            icon={<FilePdfOutlined />}
-            loading={compareReportLoading}
-            onClick={handleCompareReport}
-            disabled={compareIds.length < 2}
-          >
-            导出对比报告 PDF
-          </Button>
+          <Space wrap>
+            <Button
+              type="primary"
+              icon={<FilePdfOutlined />}
+              loading={compareReportLoading}
+              onClick={handleCompareReportPreview}
+              disabled={compareIds.length < 2}
+            >
+              预览对比 PDF
+            </Button>
+            <Button
+              icon={<DownloadOutlined />}
+              loading={compareReportLoading}
+              onClick={handleCompareReportDownload}
+              disabled={compareIds.length < 2}
+            >
+              下载 PDF
+            </Button>
+          </Space>
         </div>
+      </Modal>
+
+      <Modal
+        title={`预览: ${comparePdfFilename}`}
+        open={comparePdfModalOpen}
+        onCancel={() => {
+          setComparePdfModalOpen(false)
+          setComparePdfReportId(null)
+        }}
+        footer={null}
+        width="90%"
+        style={{ top: 20 }}
+        bodyStyle={{ height: 'calc(100vh - 120px)', overflow: 'hidden' }}
+      >
+        {comparePdfReportId !== null ? (
+          <PDFViewer
+            source={`${BASE_URL}/api/reports/${comparePdfReportId}/preview`}
+            downloadUrl={`${BASE_URL}/api/reports/${comparePdfReportId}/download`}
+            filename={comparePdfFilename}
+            showDownload
+            showFullscreen
+            onError={() => message.error('PDF 加载失败')}
+          />
+        ) : (
+          <Empty description="未能加载 PDF" />
+        )}
       </Modal>
     </div>
   )

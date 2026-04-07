@@ -116,6 +116,16 @@ def list_splits(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/splits/{split_id}/test-row")
+def get_split_test_row(
+    split_id: int,
+    index: int = Query(0, ge=0, description="测试集行索引，从 0 起"),
+    db: Session = Depends(get_db),
+):
+    """供交互预测：按训练管线规则取测试集单行数值特征（及可选真实标签）。"""
+    return svc.get_split_test_row(split_id, index, db)
+
+
 # ── 预览 / 统计 ───────────────────────────────────────────────────────────────
 
 @router.get("/{dataset_id}/preview", response_model=PreviewResponse)

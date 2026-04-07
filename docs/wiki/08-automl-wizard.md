@@ -1,6 +1,6 @@
 # 全自动建模（AutoML）与向导集成
 
-> **版本对应**：v0.4.x（与根目录 README / `01-product-overview` 一致）  
+> **版本对应**：v0.5.x（与根目录 README / `01-product-overview` 一致）  
 > **最后更新**：2026-04-06（补充命令行模式 `xs-studio`）
 
 ---
@@ -21,7 +21,7 @@
 ### 2.1 向导模式（图形界面）
 
 - **页面**：`client/src/pages/SmartWorkflow/index.tsx`，**Step 0（选择数据集）** 下方卡片「全自动建模（一键完成）」。
-- **选项**：**快速模式**（跳过轻量调优，仅训练两个候选）；非快速模式下可配置 **调优试验次数**（上限由后端约束）。
+- **选项**：**智能清洗**（默认开，与 CLI 同源）；**快速模式**（跳过轻量调优，仅训练两个候选）；非快速模式下可配置 **调优试验次数**（上限由后端约束）。完成后可展开 **流水线策略摘要** 查看 `pipeline_plan` JSON。
 - **交互**：`EventSource` 订阅 `GET /api/automl/jobs/{job_id}/progress` 展示步骤日志；完成后 `GET /api/automl/jobs/{job_id}/result` 拉取结构化结果；**Radio** 切换主模型并同步全局 `activeDatasetId` / `activeSplitId` / `activeModelId` 与 `pipelineResult`，可跳转「结果总结」。
 - **前端封装**：`client/src/api/automl.ts`（`startAutoMLJob`、`getAutoMLJobResult`）。
 
@@ -46,9 +46,9 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/automl/jobs` | Body：`dataset_id`（必填），`target_column`、`train_ratio`、`random_seed`、`max_tuning_trials`、`skip_tuning`（可选）。返回 `{ "job_id": "..." }`。后台线程执行编排，**任务状态仅存内存**，进程重启后丢失。 |
+| POST | `/api/automl/jobs` | Body：`dataset_id`（必填）；`target_column`、`train_ratio`、`random_seed`、`max_tuning_trials`、`skip_tuning`、`smart_clean`（默认 `true`）、`split_strategy`（`auto` / `random` / `time_series`）、`time_column`（可选）。返回 `{ "job_id": "..." }`。后台线程执行编排，**任务状态仅存内存**，进程重启后丢失。 |
 | GET | `/api/automl/jobs/{job_id}/progress` | **SSE**。多行 `data: {JSON}` 为步骤事件；流结束为 `event: done`。若失败，先推送含 `error` 的 `data:`，仍以 `done` 结束。 |
-| GET | `/api/automl/jobs/{job_id}/result` | `status === completed` 时返回完整结果；失败或未结束时返回 400/404。 |
+| GET | `/api/automl/jobs/{job_id}/result` | `status === completed` 时返回完整结果（含 `pipeline_plan`、`warnings` 等）；失败或未结束时返回 400/404。 |
 
 ---
 
@@ -56,14 +56,17 @@
 
 实现位置：`server/services/automl_service.py`。
 
-1. **目标列**：`target_recommend.recommend_target_columns` 生成 `candidate_targets`（多维度评分 + softmax 归一化，详见 [03-data-analysis.md §二](03-data-analysis.md#二目标列智能推荐)）→ 已设 `target_column` → 末列兜底；可请求体覆盖。  
-2. **划分**：`dataset_service.split_dataset`（`stratify` 由任务类型推断）。  
-3. **基线参数**：`params_service.recommend_params`。  
-4. **候选训练**：`training_service.train_and_persist_sync`（不落 `TrainingTask`）。  
+**质量分与智能清洗**：`GET /api/wizard/dataset-summary` 与数据工作台 **`get_quality_score` 同源**。AutoML 默认在划分前调用 **`plan_and_apply_smart_clean`**（去重 → 填缺失 → IQR 截断），写入 `preprocessing_log_json` 与 **`automl_smart_clean`** 审计条目；可通过 `smart_clean: false` 关闭。划分策略由 **`split_strategy`**（`auto` 时按时间列启发式可选 `time_series`）解析。详见 [**09-data-quality-unified-and-smart-clean**](09-data-quality-unified-and-smart-clean.md)。
+
+1. **（可选）智能清洗与划分解析**：`automl_preprocess_service`（默认启用）→ `dataset_service.split_dataset`。  
+2. **目标列**：`target_recommend.recommend_target_columns` 生成 `candidate_targets`（多维度评分 + softmax 归一化，详见 [03-data-analysis.md §二](03-data-analysis.md#二目标列智能推荐)）→ 已设 `target_column` → 末列兜底；可请求体覆盖。  
+3. **划分**：`split_dataset`（`stratify` 由任务类型推断；`split_strategy` / `time_column` 见请求体）。  
+4. **基线参数**：`params_service.recommend_params`。  
+5. **候选训练**：`training_service.train_and_persist_sync`（不落 `TrainingTask`）。  
    - 候选 A：规则基线。  
    - 候选 B：保守正则（更浅树、更强正则等启发式）。  
    - 候选 C（可选）：`tuning_service.run_lite_tuning_best_params` 后再同步训练。  
-5. **排序**：分类侧重 AUC/accuracy，回归侧重 RMSE；对 `overfitting_level === high/medium` 施加惩罚，结果写入 `score_for_rank` 与 `chosen_recommendation.reason`。
+6. **排序**：分类侧重 AUC/accuracy，回归侧重 RMSE；对 `overfitting_level === high/medium` 施加惩罚，结果写入 `score_for_rank` 与 `chosen_recommendation.reason`。
 
 路由与内存任务表：`server/routers/automl.py`（`JOBS` dict），于 `server/main.py` 注册。
 
@@ -91,4 +94,6 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-04-07 | v0.5.0：文首「版本对应」与产品 v0.5.x 对齐；AutoML 能力无破坏性变更 |
+| 2026-04-07 | §四 增加质量分同源与智能清洗模块说明，链至 Wiki `09` |
 | 2026-04-06 | 新增 §2.2 命令行模式（xs-studio）、测试与相关文档链接更新 |

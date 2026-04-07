@@ -3,9 +3,11 @@
 """
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -47,15 +49,6 @@ BUILTIN_SAMPLE_SPECS: tuple[BuiltinSampleSpec, ...] = (
         "入门",
         "房价回归（教学用）",
         "medv",
-    ),
-    BuiltinSampleSpec(
-        "breast_cancer",
-        "breast_cancer.csv",
-        "威斯康星乳腺癌",
-        "二分类",
-        "入门",
-        "医学影像指标 / 表格二分类",
-        "diagnosis",
     ),
     BuiltinSampleSpec(
         "wine",
@@ -342,16 +335,39 @@ def get_missing_pattern(dataset: Dataset) -> dict[str, Any]:
     return {"columns": list(df.columns), "matrix": matrix}
 
 
+# ── 预处理审计（持久化到 datasets.preprocessing_log_json）──────────────────────
+
+
+def _append_preprocessing_log(dataset: Dataset, entry: dict[str, Any]) -> None:
+    """追加一条预处理审计记录；调用方须在随后 db.commit 中一并提交。"""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    row = {"ts": ts, **entry}
+    log: list[Any] = []
+    raw = dataset.preprocessing_log_json
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                log = parsed
+        except json.JSONDecodeError:
+            pass
+    log.append(row)
+    dataset.preprocessing_log_json = json.dumps(log, ensure_ascii=False)
+
+
 # ── 处理缺失值 ────────────────────────────────────────────────────────────────
 
 def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dataset:
     """按列配置批量处理缺失值并持久化。"""
     df = _load_df(dataset)
+    applied: dict[str, dict[str, Any]] = {}
     for col, cfg in config.items():
         if col not in df.columns:
             continue
         strategy = cfg.get("strategy", "none")
         fill_value = cfg.get("fill_value")
+        if strategy == "none":
+            continue
         if strategy == "mean":
             df[col] = df[col].fillna(df[col].mean())
         elif strategy == "median":
@@ -376,6 +392,18 @@ def handle_missing(dataset: Dataset, config: dict[str, Any], db: Session) -> Dat
                     else (df[col].mode().iloc[0] if not df[col].mode().empty else None)
                 )
                 df[col] = df[col].fillna(fallback)
+        else:
+            continue
+        applied[col] = {"strategy": strategy, "fill_value": fill_value}
+    if applied:
+        _append_preprocessing_log(
+            dataset,
+            {
+                "kind": "missing_values",
+                "summary": f"缺失值处理：已配置 {len(applied)} 列",
+                "detail": {"per_column": applied, "rows_after": len(df)},
+            },
+        )
     new_path = _save_df(df, dataset.path)
     dataset.path = new_path
     dataset.file_type = 'csv'
@@ -417,9 +445,23 @@ def get_outliers(dataset: Dataset) -> list[dict[str, Any]]:
 def handle_outliers(dataset: Dataset, action: str, row_indices: list[int], db: Session) -> Dataset:
     """按行索引处理异常值（当前支持删除行）。"""
     df = _load_df(dataset)
+    n_before = len(df)
     if action == "drop":
         valid_indices = [i for i in row_indices if i < len(df)]
         df = df.drop(index=valid_indices).reset_index(drop=True)
+        _append_preprocessing_log(
+            dataset,
+            {
+                "kind": "outliers_drop_rows",
+                "summary": f"按索引删除疑似异常行：{len(valid_indices)} 行",
+                "detail": {
+                    "action": action,
+                    "row_indices_sample": valid_indices[:80],
+                    "rows_before": n_before,
+                    "rows_after": len(df),
+                },
+            },
+        )
     new_path = _save_df(df, dataset.path)
     dataset.path = new_path
     dataset.file_type = 'csv'
@@ -432,6 +474,7 @@ def handle_outliers(dataset: Dataset, action: str, row_indices: list[int], db: S
 def handle_outliers_by_strategy(dataset: Dataset, strategy: str, db: Session) -> Dataset:
     """按策略（clip/drop/mean）批量处理全部数值列的异常值（IQR 方法）"""
     df = _load_df(dataset)
+    n_before = len(df)
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if strategy == "clip":
         for col in numeric_cols:
@@ -456,6 +499,19 @@ def handle_outliers_by_strategy(dataset: Dataset, strategy: str, db: Session) ->
             iqr = q3 - q1
             mask = (df[col] < q1 - 1.5 * iqr) | (df[col] > q3 + 1.5 * iqr)
             df.loc[mask, col] = df[col].mean()
+    _append_preprocessing_log(
+        dataset,
+        {
+            "kind": "outliers_strategy",
+            "summary": f"数值列异常值（IQR）：策略 {strategy}",
+            "detail": {
+                "strategy": strategy,
+                "numeric_columns": numeric_cols,
+                "rows_before": n_before,
+                "rows_after": len(df),
+            },
+        },
+    )
     new_path = _save_df(df, dataset.path)
     dataset.path = new_path
     dataset.file_type = 'csv'
@@ -477,7 +533,18 @@ def get_duplicates(dataset: Dataset) -> dict[str, Any]:
 def drop_duplicates(dataset: Dataset, db: Session) -> Dataset:
     """删除重复行并保存更新后的数据集。"""
     df = _load_df(dataset)
+    n_before = len(df)
     df = df.drop_duplicates().reset_index(drop=True)
+    n_drop = n_before - len(df)
+    if n_drop > 0:
+        _append_preprocessing_log(
+            dataset,
+            {
+                "kind": "drop_duplicates",
+                "summary": f"删除完全重复行：{n_drop} 行",
+                "detail": {"rows_before": n_before, "rows_after": len(df)},
+            },
+        )
     new_path = _save_df(df, dataset.path)
     dataset.path = new_path
     dataset.file_type = 'csv'
@@ -603,3 +670,63 @@ def split_dataset(
     db.commit()
     db.refresh(split)
     return split
+
+
+def get_split_test_row(split_id: int, row_index: int, db: Session) -> dict[str, Any]:
+    """
+    读取划分对应测试集中一行，特征列与 training_service 一致：
+    去掉目标列后的数值列，且取 train/test 数值列交集。
+    """
+    sp = db.query(DatasetSplit).filter(DatasetSplit.id == split_id).first()
+    if not sp:
+        raise HTTPException(status_code=404, detail=f"划分 {split_id} 不存在")
+    dataset = db.query(Dataset).filter(Dataset.id == sp.dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+
+    train_path = DATA_DIR / sp.train_path
+    test_path = DATA_DIR / sp.test_path
+    if not train_path.exists() or not test_path.exists():
+        raise HTTPException(status_code=404, detail="训练/测试文件不存在")
+
+    train_df = pd.read_csv(train_path, encoding="utf-8-sig")
+    test_df = pd.read_csv(test_path, encoding="utf-8-sig")
+
+    target_col = dataset.target_column
+    if not target_col or target_col not in train_df.columns:
+        target_col = train_df.columns[-1]
+
+    total = len(test_df)
+    if row_index < 0 or row_index >= total:
+        raise HTTPException(
+            status_code=400,
+            detail=f"index 越界：有效范围为 0～{total - 1}" if total else "测试集为空",
+        )
+
+    X_train = train_df.drop(columns=[target_col]).select_dtypes(include=[np.number])
+    X_test = test_df.drop(columns=[target_col], errors="ignore").select_dtypes(include=[np.number])
+    common_cols = X_train.columns.intersection(X_test.columns)
+    if len(common_cols) == 0:
+        raise HTTPException(status_code=400, detail="训练/测试无数值特征列交集")
+
+    X_test = X_test[list(common_cols)].fillna(0)
+    feat_row = X_test.iloc[row_index]
+    features = {str(k): float(feat_row[k]) for k in common_cols}
+
+    target_val: Any = None
+    if target_col in test_df.columns:
+        raw = test_df.iloc[row_index][target_col]
+        if pd.notna(raw):
+            if isinstance(raw, (np.integer, np.floating)):
+                target_val = float(raw)
+            elif isinstance(raw, (int, float)):
+                target_val = float(raw) if isinstance(raw, float) else int(raw)
+            else:
+                target_val = str(raw)
+
+    return {
+        "row_index": row_index,
+        "total_rows": total,
+        "features": features,
+        "target": target_val,
+    }

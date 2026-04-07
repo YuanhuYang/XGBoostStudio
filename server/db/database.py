@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 # 数据目录（跨平台）
@@ -53,9 +53,21 @@ DATABASE_URL = f"sqlite:///{DB_PATH}"
 # SQLAlchemy 引擎配置
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 120.0},
     echo=False,
 )
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_on_connect(dbapi_conn, _connection_record):
+    """WAL 提升读写并发；busy_timeout 避免后台重任务持锁时 API 立刻 SQLITE_BUSY。"""
+    cur = dbapi_conn.cursor()
+    try:
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=120000")
+    finally:
+        cur.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -100,6 +112,7 @@ def _run_migrations():
         ("models", "cv_summary_json", "TEXT"),
         ("models", "cv_k", "INTEGER"),
         ("tuning_tasks", "tuning_diagnostics_json", "TEXT"),
+        ("datasets", "preprocessing_log_json", "TEXT"),
     ]
 
     with engine.connect() as conn:

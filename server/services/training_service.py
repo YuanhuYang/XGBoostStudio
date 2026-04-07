@@ -30,6 +30,33 @@ def _load_split(split_id: int, db: Session) -> tuple[pd.DataFrame, pd.DataFrame]
     return pd.read_csv(train_path, encoding="utf-8-sig"), pd.read_csv(test_path, encoding="utf-8-sig")
 
 
+def _valid_target_mask(y: pd.Series) -> pd.Series:
+    """监督学习：排除标签缺失；数值型标签同时排除 inf。"""
+    ok = y.notna()
+    if pd.api.types.is_numeric_dtype(y):
+        arr = np.asarray(y, dtype=np.float64)
+        ok = ok & np.isfinite(arr)
+    return ok
+
+
+def _drop_invalid_supervised_rows(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    y_test: pd.Series | None,
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series | None]:
+    tm = _valid_target_mask(y_train)
+    X_train = X_train.loc[tm]
+    y_train = y_train.loc[tm]
+    if y_test is not None and len(y_test):
+        vm = _valid_target_mask(y_test)
+        X_test = X_test.loc[vm]
+        y_test = y_test.loc[vm]
+        if len(y_test) == 0:
+            y_test = None
+    return X_train, y_train, X_test, y_test
+
+
 def _detect_task_type(y: pd.Series) -> str:
     if y.nunique() <= 20 and y.dtype in (int, "int64", "int32", object):
         return "classification"
@@ -116,6 +143,13 @@ async def training_stream(task_id: str, db: Session, model_name: Optional[str] =
         common_cols = X_train.columns.intersection(X_test.columns)
         X_train = X_train[common_cols].fillna(0)
         X_test = X_test[common_cols].fillna(0)
+
+        X_train, y_train, X_test, y_test = _drop_invalid_supervised_rows(
+            X_train, y_train, X_test, y_test
+        )
+        if len(X_train) == 0:
+            yield f"data: {json.dumps({'error': '训练集中无有效标签行（目标列缺失或无效）'})}\n\n"
+            return
 
         task_type = _detect_task_type(y_train)
         merged_params = {**_default_params(task_type), **params}
@@ -379,6 +413,12 @@ def train_and_persist_sync(
     common_cols = X_train.columns.intersection(X_test.columns)
     X_train = X_train[common_cols].fillna(0)
     X_test = X_test[common_cols].fillna(0)
+
+    X_train, y_train, X_test, y_test = _drop_invalid_supervised_rows(
+        X_train, y_train, X_test, y_test
+    )
+    if len(X_train) == 0:
+        raise ValueError("训练集中无有效标签行（目标列缺失或无效）")
 
     task_type = _detect_task_type(y_train)
     merged_params = {**_default_params(task_type), **params}

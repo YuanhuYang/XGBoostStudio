@@ -12,12 +12,12 @@ import {
   datasetsApi,
   fetchBuiltinSamples,
   builtinDifficultyColor,
-  FALLBACK_BUILTIN_SAMPLES,
   type BuiltinSampleItem,
 } from '../../api/datasets'
+import { getRequestErrorMessage } from '../../utils/apiError'
 import { useAppStore } from '../../store/appStore'
 
-const { Title, Paragraph } = Typography
+const { Title, Paragraph, Text } = Typography
 
 const steps = [
   {
@@ -53,10 +53,14 @@ const WelcomePage: React.FC = () => {
   const setActiveDatasetId = useAppStore(s => s.setActiveDatasetId)
   const setActiveDatasetName = useAppStore(s => s.setActiveDatasetName)
   const [sampleLoading, setSampleLoading] = useState<string | null>(null)
-  const [builtinSamples, setBuiltinSamples] = useState<BuiltinSampleItem[]>(FALLBACK_BUILTIN_SAMPLES)
+  const [builtinSamples, setBuiltinSamples] = useState<BuiltinSampleItem[]>([])
+  const [builtinCatalogLoading, setBuiltinCatalogLoading] = useState(true)
 
   useEffect(() => {
-    void fetchBuiltinSamples().then(setBuiltinSamples)
+    void fetchBuiltinSamples().then((items) => {
+      setBuiltinSamples(items)
+      setBuiltinCatalogLoading(false)
+    })
   }, [])
 
   const handleImportSample = async (key: string) => {
@@ -65,11 +69,12 @@ const WelcomePage: React.FC = () => {
       const res = await datasetsApi.importSample(key)
       setActiveDatasetId(res.data.id)
       setActiveDatasetName(res.data.name ?? null)
-      message.success('已添加示例数据，正在前往数据导入…')
+      message.success('已添加示例数据，正在前往数据工作台…')
       navigateTo('data-import')
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || '导入失败，请确认后端已启动且资源完整')
+      message.error(
+        getRequestErrorMessage(e, '导入失败，请确认后端已启动且资源完整')
+      )
     } finally {
       setSampleLoading(null)
     }
@@ -99,32 +104,58 @@ const WelcomePage: React.FC = () => {
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <Paragraph type="secondary" style={{ margin: 0, flex: '1 1 200px' }}>
             <ImportOutlined style={{ color: '#1677ff', marginRight: 6 }} />
-            试用随安装包提供的示例 CSV（无需上传），导入后出现在数据导入页的数据集列表中，需要时再设置目标列。完整列表与<strong>按难度分组、关键词搜索</strong>请打开「数据导入」页：
+            试用随安装包提供的示例 CSV（无需上传），导入后出现在数据工作台的数据集列表中，需要时再设置目标列。完整列表与<strong>按难度分组、关键词搜索</strong>请打开「数据工作台」页：
           </Paragraph>
           <Space wrap size={8}>
-            {builtinSamples.map(s => (
-              <Button
-                key={s.key}
-                size="small"
-                type="primary"
-                ghost
-                loading={sampleLoading === s.key}
-                disabled={sampleLoading !== null && sampleLoading !== s.key}
-                onClick={() => void handleImportSample(s.key)}
-                title={`${s.scenario} · 建议目标列: ${s.suggested_target ?? '（见数据导入）'}`}
-              >
-                <Space size={4}>
-                  <span>{s.title}</span>
-                  <Tag color={builtinDifficultyColor(s.difficulty)} style={{ margin: 0 }}>{s.difficulty}</Tag>
-                  <span style={{ opacity: 0.85 }}>（{s.task}）</span>
-                </Space>
-              </Button>
-            ))}
+            {builtinCatalogLoading ? (
+              <Text type="secondary" style={{ fontSize: 13 }}>正在加载示例列表…</Text>
+            ) : builtinSamples.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                无法从后端加载示例目录。请确认服务已启动；若刚升级过前端，请同步重新构建并替换 <Text code>xgboost-server.exe</Text>，使内置示例 key 与当前版本一致。
+              </Text>
+            ) : (
+              builtinSamples.map(s => (
+                <Button
+                  key={s.key}
+                  size="small"
+                  type="primary"
+                  ghost
+                  loading={sampleLoading === s.key}
+                  disabled={sampleLoading !== null && sampleLoading !== s.key}
+                  onClick={() => void handleImportSample(s.key)}
+                  title={`${s.scenario} · 建议目标列: ${s.suggested_target ?? '（见数据工作台）'}`}
+                >
+                  <Space size={4}>
+                    <span>{s.title}</span>
+                    <Tag color={builtinDifficultyColor(s.difficulty)} style={{ margin: 0 }}>{s.difficulty}</Tag>
+                    <span style={{ opacity: 0.85 }}>（{s.task}）</span>
+                  </Space>
+                </Button>
+              ))
+            )}
             <Button type="link" size="small" onClick={() => navigateTo('data-import')}>
-              进入数据导入 →
+              进入数据工作台 →
             </Button>
           </Space>
         </div>
+      </Card>
+
+      <Card
+        title={
+          <Space>
+            <BookOutlined style={{ color: '#a78bfa' }} />
+            <span style={{ color: '#e2e8f0' }}>产品文档与知识库</span>
+          </Space>
+        }
+        style={{ background: '#1e293b', border: '1px solid #334155', marginBottom: 24 }}
+        styles={{ body: { padding: '16px 20px' } }}
+      >
+        <Paragraph style={{ color: '#94a3b8', marginBottom: 12 }}>
+          在应用内查看格式化 Wiki、仓库 README 与开发指南：左侧目录、正文排版、右侧章节导航；支持文内跳转与 Mermaid 图。
+        </Paragraph>
+        <Button type="primary" ghost icon={<BookOutlined />} onClick={() => navigateTo('documentation')}>
+          打开文档中心
+        </Button>
       </Card>
 
       <Divider style={{ borderColor: '#334155' }} />
@@ -157,7 +188,7 @@ const WelcomePage: React.FC = () => {
 
       <div style={{ textAlign: 'center', marginTop: 40 }}>
         <Paragraph style={{ color: '#475569', fontSize: 12 }}>
-          遇到问题？点击页面右下角的&quot;帮助&quot;按钮查看功能说明
+          遇到问题？点击顶栏右侧「帮助」查看功能说明（在 Ctrl+K 旁）
         </Paragraph>
       </div>
     </div>

@@ -11,6 +11,7 @@ G2-R1b（迭代计划缺口表）：低基数类别 Cramér's V、数值×类别
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -36,11 +37,34 @@ from schemas.narrative import (
     MissingVsTargetItem,
     MulticollinearityFlag,
     NarrativeDepth,
+    PreprocessingAuditEntry,
     TargetRelationItem,
     TargetRelationMetric,
     VariableProfile,
     VariableRole,
 )
+
+
+def _load_preprocessing_audit(ds: Dataset) -> list[PreprocessingAuditEntry]:
+    if not ds.preprocessing_log_json:
+        return []
+    try:
+        arr = json.loads(ds.preprocessing_log_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(arr, list):
+        return []
+    out: list[PreprocessingAuditEntry] = []
+    for item in arr:
+        if not isinstance(item, dict):
+            continue
+        ts = str(item.get("ts", ""))
+        kind = str(item.get("kind", "unknown"))
+        summary = str(item.get("summary") or kind)
+        detail = item.get("detail")
+        detail_dict = detail if isinstance(detail, dict) else None
+        out.append(PreprocessingAuditEntry(ts=ts, kind=kind, summary=summary, detail=detail_dict))
+    return out
 
 # --- depth 参数（验收与设计对齐）---
 STANDARD_MAX_NUMERIC = 12
@@ -262,7 +286,7 @@ def _missing_vs_target_item(
             test_name="chi2_missing_vs_target",
             pvalue=pf,
             narrative_hint=(
-                f"「{feat}」的缺失与目标「{target_col}」类别分布存在统计关联（χ² 检验 p={pf:.4f}），"
+                f"「{feat}」的缺失与目标「{target_col}」类别分布存在统计关联（χ² 检验 p=\u00a0{pf:.4f}），"
                 "提示可能为非随机缺失，建模与解释时需谨慎。"
             ),
         )
@@ -285,7 +309,7 @@ def _missing_vs_target_item(
         test_name="ttest_missing_vs_target",
         pvalue=pf,
         narrative_hint=(
-            f"「{feat}」缺失组与非缺失组在「{target_col}」上均值差异显著（Welch t 检验 p={pf:.4f}），"
+            f"「{feat}」缺失组与非缺失组在「{target_col}」上均值差异显著（Welch t 检验 p=\u00a0{pf:.4f}），"
             "请关注缺失机制及对模型的影响。"
         ),
     )
@@ -341,6 +365,7 @@ def build_data_narrative(
             meta=meta,
             variables=vars_,
             bullets=DataNarrativeBullets(findings=[], caveats=caveats),
+            preprocessing_audit=_load_preprocessing_audit(ds),
         )
 
     sp = db.query(DatasetSplit).filter(DatasetSplit.id == split_id).first()
@@ -423,7 +448,7 @@ def build_data_narrative(
                     method=CorrelationMethod.pearson,
                     coefficient=r,
                     narrative_hint=(
-                        f"数值列「{a}」与「{b}」Pearson 相关系数为 {r:.3f}，"
+                        f"数值列「{a}」与「{b}」Pearson 相关系数为\u00a0{r:.3f}，"
                         f"{'正相关较强' if r > 0.5 else '负相关较强' if r < -0.5 else '存在线性关联'}，建模时需注意信息重叠。"
                     ),
                 )
@@ -476,7 +501,7 @@ def build_data_narrative(
                         method=CorrelationMethod.spearman,
                         coefficient=r,
                         narrative_hint=(
-                            f"数值列「{a}」与「{b}」Spearman 秩相关系数为 {r:.3f}，"
+                            f"数值列「{a}」与「{b}」Spearman 秩相关系数为\u00a0{r:.3f}，"
                             "对秩次/单调非线性关系较敏感，可与 Pearson 对照解读。"
                         ),
                     )
@@ -509,7 +534,7 @@ def build_data_narrative(
                 feature=col,
                 vif=v,
                 note=(
-                    f"特征「{col}」方差膨胀因子 VIF≈{v:.2f}（≥{VIF_WARN:.0f} 提示多重共线性风险），"
+                    f"特征「{col}」方差膨胀因子 VIF≈\u00a0{v:.2f}（≥{VIF_WARN:.0f} 提示多重共线性风险），"
                     "可考虑正则化、降维或删减冗余特征。"
                 ),
             )
@@ -521,7 +546,7 @@ def build_data_narrative(
         v = vif_dict.get(col)
         note = "特征「{}」与其他数值特征存在较高 Pearson 相关（|r|≥0.75）".format(col)
         if v is not None and np.isfinite(v):
-            note += f"；当前样本下 VIF≈{v:.2f}。"
+            note += f"；当前样本下 VIF≈\u00a0{v:.2f}。"
         else:
             note += "；若 VIF 在部分样本下无法稳定估计，请结合业务判断是否保留。"
         mc_map[col] = MulticollinearityFlag(feature=col, vif=v, note=note)
@@ -548,7 +573,7 @@ def build_data_narrative(
                 assoc_raw.append((ca, cb, v, p))
     assoc_raw.sort(key=lambda t: t[2], reverse=True)
     for ca, cb, v, p in assoc_raw[:cat_pair_top]:
-        pv_txt = f"χ² p={p:.4f}" if p is not None else "p 值未可靠估计"
+        pv_txt = f"χ² p=\u00a0{p:.4f}" if p is not None else "p 值未可靠估计"
         categorical_associations.append(
             CategoricalAssociationItem(
                 col_a=ca,
@@ -556,7 +581,7 @@ def build_data_narrative(
                 cramers_v=v,
                 chi2_pvalue=p,
                 narrative_hint=(
-                    f"类别列「{ca}」与「{cb}」关联强度 Cramér's V≈{v:.3f}（{pv_txt}），"
+                    f"类别列「{ca}」与「{cb}」关联强度 Cramér's V≈\u00a0{v:.3f}（{pv_txt}），"
                     "需结合列语义解读。"
                 ),
             )
@@ -628,8 +653,8 @@ def build_data_narrative(
                     value=float(val),
                     rank=rank,
                     narrative_hint=(
-                        f"特征「{fname}」与目标「{target_col}」的互信息为 {val:.4f}，"
-                        f"在当前特征中排名第 {rank}，对模型可能较有信息量。"
+                        f"特征「{fname}」与目标「{target_col}」的互信息为\u00a0{val:.4f}，"
+                        f"在当前特征中排名第\u00a0{rank}，对模型可能较有信息量。"
                     ),
                 )
             )
@@ -701,6 +726,7 @@ def build_data_narrative(
         target_relations=target_relations,
         charts=charts,
         bullets=DataNarrativeBullets(findings=findings[:7], caveats=caveats),
+        preprocessing_audit=_load_preprocessing_audit(ds),
     )
     if _pdf_assets is not None:
         if heatmap_png:

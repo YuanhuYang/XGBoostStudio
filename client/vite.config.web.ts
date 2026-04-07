@@ -31,6 +31,9 @@ export default defineConfig({
     port: 5173,
     host: '127.0.0.1',
     open: false,
+    fs: {
+      allow: [resolve(__dirname, '..')],
+    },
   },
   // 告知 Vite 这是一个浏览器应用，不处理 Node.js 相关 API
   define: {

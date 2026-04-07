@@ -44,6 +44,7 @@ def generate(body: ReportGenerateRequest, db: Session = Depends(get_db)) -> dict
         format_style=body.format_style or "default",
         template_type=body.template_type or "full_12_chapters",
         brand_config=brand_config_dict,
+        compare_model_ids=body.compare_model_ids,
     )
 
 

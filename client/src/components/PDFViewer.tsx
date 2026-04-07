@@ -1,151 +1,105 @@
-import { FC, useState, useRef, useEffect, useCallback } from 'react'
-import { Spin, Button, Space, message, Row, Col } from 'antd'
+import { FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { Spin, Button, Space, message, Tooltip } from 'antd'
 import {
-  ZoomInOutlined,
-  ZoomOutOutlined,
   DownloadOutlined,
   FullscreenOutlined,
   FullscreenExitOutlined,
-  LeftOutlined,
-  RightOutlined,
+  ExportOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons'
-import { Document, Page, pdfjs } from 'react-pdf'
-import 'react-pdf/dist/Page/AnnotationLayer.css'
-import 'react-pdf/dist/Page/TextLayer.css'
 import styles from './PDFViewer.module.css'
 
-// 配置 PDF.js worker —— 使用本地文件，避免 CDN 版本不匹配和网络依赖
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString()
+/**
+ * 将「可直接访问的 PDF 文件 URL」转为内嵌预览地址。
+ * 可选：设置环境变量 VITE_KKFILEVIEW_URL（如 http://127.0.0.1:8012）时使用 kkFileView，
+ * 需自行部署 kkFileView，且服务能访问该 PDF 的完整 URL（内网/公网可达）。
+ */
+export function embedPdfSrc(fileAbsoluteUrl: string): string {
+  const kk = (import.meta.env.VITE_KKFILEVIEW_URL as string | undefined)?.trim()
+  if (kk) {
+    const base = kk.replace(/\/$/, '')
+    const base64 = btoa(unescape(encodeURIComponent(fileAbsoluteUrl)))
+    return `${base}/onlinePreview?url=${encodeURIComponent(base64)}`
+  }
+  return fileAbsoluteUrl
+}
+
+function defaultDownloadUrl(previewSrc: string): string {
+  return previewSrc.replace(/\/preview(?=\?|#|$)/, '/download')
+}
+
+function useKkFileViewMode(): boolean {
+  return Boolean((import.meta.env.VITE_KKFILEVIEW_URL as string | undefined)?.trim())
+}
+
+function isElectronDesktop(): boolean {
+  return typeof window !== 'undefined' && Boolean((window as Window & { electron?: unknown }).electron)
+}
 
 interface PDFViewerProps {
-  /** PDF 文件 URL 或 Base64 数据 */
+  /** 用于拉取 PDF 的地址（建议 API 的 /preview） */
   source: string
-  /** PDF 文件名（用于下载） */
+  /** 文件名（下载时） */
   filename?: string
-  /** 初始缩放比例 (%) */
-  initialScale?: number
-  /** 是否显示下载按钮 */
+  /** 下载用地址；缺省时若 source 含路径 …/preview 则自动换成 …/download */
+  downloadUrl?: string
   showDownload?: boolean
-  /** 是否显示全屏按钮 */
   showFullscreen?: boolean
-  /** 加载失败时的回调 */
   onError?: (error: Error) => void
-  /** 加载成功时的回调 */
   onSuccess?: () => void
 }
 
 /**
- * PDF 查看器组件
+ * PDF 预览组件。
  *
- * 功能：
- * - 页码导航（上一页/下一页）
- * - 缩放控制（放大/缩小）
- * - PDF 下载
- * - 全屏预览（可选）
+ * 非 kkFileView 模式：直接将 API 的 PDF URL 作为 iframe src，
+ * 不设 sandbox（Chrome/Electron 的 PDF 查看器扩展在 sandbox 下无法激活）。
+ * 顶层导航劫持由 Electron 主进程 will-navigate 拦截，浏览器端由 Chrome
+ * PDF 查看器自身保证安全。
  *
- * 使用示例：
- * ```tsx
- * <PDFViewer
- *   source="http://example.com/report.pdf"
- *   filename="report.pdf"
- *   showDownload={true}
- * />
- * ```
+ * kkFileView 模式：仍通过 iframe 加载 kkFileView 页面，保留 sandbox。
  */
 export const PDFViewer: FC<PDFViewerProps> = ({
   source,
   filename = 'document.pdf',
-  initialScale = 100,
+  downloadUrl: downloadUrlProp,
   showDownload = true,
   showFullscreen = false,
   onError,
   onSuccess,
 }) => {
-  const [numPages, setNumPages] = useState<number | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [scale, setScale] = useState(initialScale)
+  const useKk = useKkFileViewMode()
   const [loading, setLoading] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const pageRefs = useRef<(HTMLDivElement | null)[]>([])
-  const contentRef = useRef<HTMLDivElement | null>(null)
 
-  const handleLoadSuccess = ({ numPages }: { numPages: number }) => {
-    setNumPages(numPages)
-    setLoading(false)
-    onSuccess?.()
-  }
+  const kkIframeSrc = useMemo(
+    () => (useKk ? embedPdfSrc(source) : null),
+    [source, useKk],
+  )
+  const downloadSrc = downloadUrlProp ?? defaultDownloadUrl(source)
 
-  const handleLoadError = (error: Error) => {
-    setLoading(false)
-    message.error('PDF 加载失败')
-    onError?.(error)
-    console.error('PDF 加载错误:', error)
-  }
+  const iframeSrc = useKk ? (kkIframeSrc ?? '') : source
 
-  const handleZoomIn = () => {
-    setScale((s) => Math.min(s + 10, 200))
-  }
-
-  const handleZoomOut = () => {
-    setScale((s) => Math.max(s - 10, 50))
-  }
-
-  const scrollToPage = useCallback((page: number) => {
-    const el = pageRefs.current[page - 1]
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, [])
-
-  const handlePrevPage = () => {
-    const target = Math.max(currentPage - 1, 1)
-    setCurrentPage(target)
-    scrollToPage(target)
-  }
-
-  const handleNextPage = () => {
-    if (numPages) {
-      const target = Math.min(currentPage + 1, numPages)
-      setCurrentPage(target)
-      scrollToPage(target)
-    }
-  }
-
-  // IntersectionObserver：跟踪当前可见页码
   useEffect(() => {
-    const container = contentRef.current
-    if (!container || !numPages) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let maxRatio = 0
-        let visiblePage = currentPage
-        entries.forEach((entry) => {
-          if (entry.intersectionRatio > maxRatio) {
-            maxRatio = entry.intersectionRatio
-            const idx = pageRefs.current.indexOf(entry.target as HTMLDivElement)
-            if (idx !== -1) visiblePage = idx + 1
-          }
-        })
-        if (maxRatio > 0) setCurrentPage(visiblePage)
-      },
-      { root: container, threshold: Array.from({ length: 11 }, (_, i) => i * 0.1) },
-    )
-    pageRefs.current.forEach((el) => { if (el) observer.observe(el) })
-    return () => observer.disconnect()
-  }, [numPages]) // eslint-disable-line react-hooks/exhaustive-deps
+    setLoading(true)
+  }, [iframeSrc])
 
-  // 全屏时禁止背景滚动
   useEffect(() => {
     document.body.style.overflow = isFullscreen ? 'hidden' : ''
-    return () => { document.body.style.overflow = '' }
+    return () => {
+      document.body.style.overflow = ''
+    }
   }, [isFullscreen])
+
+  const handleIframeLoad = useCallback(() => {
+    setLoading(false)
+    onSuccess?.()
+  }, [onSuccess])
 
   const handleDownload = async () => {
     try {
-      const response = await fetch(source)
+      const response = await fetch(downloadSrc)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -162,110 +116,91 @@ export const PDFViewer: FC<PDFViewerProps> = ({
     }
   }
 
-  const handleFullscreen = () => {
-    setIsFullscreen((v) => !v)
+  const handleOpenExternal = () => {
+    window.open(source, '_blank', 'noopener,noreferrer')
+  }
+
+  const hintText = useKk
+    ? '由 kkFileView 提供预览。'
+    : isElectronDesktop()
+      ? '桌面端 PDF 内嵌预览。'
+      : 'PDF 内嵌预览；缩放与翻页请使用下方阅读器工具栏。'
+
+  const floatBtnProps = {
+    type: 'text' as const,
+    size: 'small' as const,
+    className: styles.floatBtn,
   }
 
   return (
     <div className={isFullscreen ? styles.fullscreenContainer : styles.container}>
-      {/* 工具栏 */}
-      <div className={styles.toolbar}>
-        <Space>
-          {/* 缩放 */}
-          <Button
-            icon={<ZoomOutOutlined />}
-            onClick={handleZoomOut}
-            title="缩小"
+      <div className={styles.content}>
+        {iframeSrc && (
+          <iframe
+            key={iframeSrc}
+            className={styles.pdfIframe}
+            title={filename}
+            src={iframeSrc}
+            {...(useKk
+              ? {
+                  sandbox:
+                    'allow-scripts allow-same-origin allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox',
+                }
+              : {})}
+            referrerPolicy="no-referrer"
+            onLoad={handleIframeLoad}
+            onError={() => {
+              setLoading(false)
+              const err = new Error('PDF 在 iframe 中加载失败')
+              message.error('PDF 加载失败，请尝试「新窗口」打开')
+              onError?.(err)
+            }}
           />
-          <span className={styles.scaleText}>{scale}%</span>
-          <Button
-            icon={<ZoomInOutlined />}
-            onClick={handleZoomIn}
-            title="放大"
-          />
-
-          {/* 分隔符 */}
-          <div className={styles.divider} />
-
-          {/* 页码导航 */}
-          <Button
-            icon={<LeftOutlined />}
-            onClick={handlePrevPage}
-            disabled={currentPage <= 1}
-            title="上一页"
-          />
-          <span className={styles.pageText}>
-            {currentPage} / {numPages || '?'}
-          </span>
-          <Button
-            icon={<RightOutlined />}
-            onClick={handleNextPage}
-            disabled={!numPages || currentPage >= numPages}
-            title="下一页"
-          />
-
-          {/* 分隔符 */}
-          <div className={styles.divider} />
-
-          {/* 下载与全屏 */}
-          {showDownload && (
-            <Button
-              icon={<DownloadOutlined />}
-              onClick={handleDownload}
-              title="下载 PDF"
-            />
-          )}
-          {showFullscreen && (
-            <Button
-              icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-              onClick={handleFullscreen}
-              title={isFullscreen ? '退出全屏' : '全屏预览'}
-            />
-          )}
-        </Space>
-      </div>
-
-      {/* PDF 显示区域 */}
-      <div className={styles.content} ref={contentRef}>
+        )}
+        <div className={styles.floatActions} role="toolbar" aria-label="PDF 操作">
+          <Space size={2} align="center">
+            <Tooltip title={hintText}>
+              <Button
+                {...floatBtnProps}
+                icon={<QuestionCircleOutlined />}
+                aria-label="预览说明"
+              />
+            </Tooltip>
+            {showDownload && (
+              <Tooltip title="下载 PDF">
+                <Button
+                  {...floatBtnProps}
+                  icon={<DownloadOutlined />}
+                  onClick={handleDownload}
+                  aria-label="下载 PDF"
+                />
+              </Tooltip>
+            )}
+            <Tooltip title="新窗口打开">
+              <Button
+                {...floatBtnProps}
+                icon={<ExportOutlined />}
+                onClick={handleOpenExternal}
+                aria-label="新窗口打开"
+              />
+            </Tooltip>
+            {showFullscreen && (
+              <Tooltip title={isFullscreen ? '退出全屏' : '全屏预览'}>
+                <Button
+                  {...floatBtnProps}
+                  icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  onClick={() => setIsFullscreen((v) => !v)}
+                  aria-label={isFullscreen ? '退出全屏' : '全屏预览'}
+                />
+              </Tooltip>
+            )}
+          </Space>
+        </div>
         {loading && (
-          <div className={styles.loadingContainer}>
+          <div className={styles.loadingOverlay}>
             <Spin size="large" tip="加载 PDF 中..." />
           </div>
         )}
-
-        <div
-          className={styles.pdfWrapper}
-          style={{
-            transform: `scale(${scale / 100})`,
-            transformOrigin: 'top center',
-          }}
-        >
-          <Document
-            file={source}
-            onLoadSuccess={handleLoadSuccess}
-            onLoadError={handleLoadError}
-            loading={<div />}
-          >
-            {numPages
-              ? Array.from({ length: numPages }, (_, i) => (
-                  <div
-                    key={i + 1}
-                    ref={(el) => { pageRefs.current[i] = el }}
-                    className={styles.pageWrapper}
-                  >
-                    <Page pageNumber={i + 1} />
-                  </div>
-                ))
-              : <Page pageNumber={1} />}
-          </Document>
-        </div>
-      </div>
-
-      {/* 页码输入（可选高级功能） */}
-      <div className={styles.footer}>
-        <small style={{ color: '#999' }}>
-          Page {currentPage} of {numPages || '?'}
-        </small>
       </div>
     </div>
   )

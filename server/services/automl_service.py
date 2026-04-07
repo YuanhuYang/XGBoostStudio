@@ -9,6 +9,7 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from db.models import Dataset
+from services import automl_preprocess_service
 from services.dataset_service import _load_df, split_dataset as do_split
 from services.params_service import recommend_params
 from services.training_service import train_and_persist_sync, _detect_task_type
@@ -62,6 +63,9 @@ def run_automl_job(
     random_seed: int = 42,
     max_tuning_trials: int = 12,
     skip_tuning: bool = False,
+    smart_clean: bool = True,
+    split_strategy: str = "auto",
+    time_column: str | None = None,
 ) -> dict[str, Any]:
     """
     同步执行 AutoML 全流程，通过 emit 推送事件 dict（由路由层转为 SSE）。
@@ -71,6 +75,19 @@ def run_automl_job(
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset:
         raise ValueError("数据集不存在")
+
+    smart_clean_audit: dict[str, Any] | None = None
+    if smart_clean:
+        emit({"step": "smart_clean", "message": "智能清洗（去重 / 填缺失 / IQR 截断）…"})
+        smart_clean_audit = automl_preprocess_service.plan_and_apply_smart_clean(dataset, db)
+        warnings.extend(smart_clean_audit.get("warnings") or [])
+        emit({
+            "step": "smart_clean_done",
+            "message": "智能清洗完成",
+            "quality_after": smart_clean_audit.get("quality_after"),
+        })
+    else:
+        emit({"step": "smart_clean_skip", "message": "已跳过智能清洗"})
 
     emit({"step": "summary", "message": "分析数据集与目标列候选…"})
     summary = wizard_service.dataset_summary(dataset_id, db)
@@ -83,7 +100,18 @@ def run_automl_job(
     emit({"step": "target", "message": f"目标列: {target_col}", "target_column": target_col})
 
     stratify = _detect_task_type(df[target_col]) == "classification"
-    emit({"step": "split", "message": f"划分训练/测试集（stratify={stratify}）…"})
+    resolved_split, resolved_time_col = automl_preprocess_service.resolve_split_strategy(
+        df, split_strategy, time_column,
+    )
+    if split_strategy == "time_series" and resolved_split != "time_series":
+        warnings.append("请求时间序列划分但未找到可用时间列，已回退为随机划分。")
+
+    split_msg = (
+        f"划分训练/测试集（策略={resolved_split}"
+        f"{f', time_column={resolved_time_col}' if resolved_time_col else ''}"
+        f", stratify={stratify}）…"
+    )
+    emit({"step": "split", "message": split_msg})
     split = do_split(
         dataset,
         train_ratio=train_ratio,
@@ -91,6 +119,8 @@ def run_automl_job(
         stratify=stratify,
         target_column=target_col,
         db=db,
+        split_strategy=resolved_split,
+        time_column=resolved_time_col,
     )
     split_id = split.id
     emit({"step": "split_done", "split_id": split_id, "train_rows": split.train_rows, "test_rows": split.test_rows})
@@ -174,6 +204,22 @@ def run_automl_job(
 
     emit({"step": "rank", "message": "候选排序完成", "chosen_model_id": chosen["model_id"]})
 
+    pipeline_plan: dict[str, Any] = {
+        "smart_clean": smart_clean_audit if smart_clean else {"applied": False, "skipped": True},
+        "split": {
+            "requested": split_strategy,
+            "resolved": resolved_split,
+            "time_column": resolved_time_col,
+            "train_ratio": train_ratio,
+            "random_seed": random_seed,
+            "stratify": stratify,
+        },
+        "tuning": {
+            "skip_tuning": skip_tuning,
+            "max_tuning_trials": max_tuning_trials,
+        },
+    }
+
     result = {
         "dataset_id": dataset_id,
         "target_column": target_col,
@@ -183,6 +229,7 @@ def run_automl_job(
         "chosen_recommendation": chosen,
         "warnings": warnings,
         "param_notes": rec.get("notes"),
+        "pipeline_plan": pipeline_plan,
     }
     emit({"step": "completed", "result_summary": {"n_candidates": len(candidates), "chosen_model_id": chosen["model_id"]}})
     return result
