@@ -19,7 +19,7 @@
 | [`08-automl-wizard.md`](08-automl-wizard.md) | 全自动建模（AutoML）：能力边界、`/api/automl`、向导 Step 0、**命令行 xs-studio**、SSE 交互 | 产品、全栈、算法（编排复用训练/调优服务） |
 | [`09-data-quality-unified-and-smart-clean.md`](09-data-quality-unified-and-smart-clean.md) | **统一质量分**（工作台=向导）、**智能清洗**启发式、`preprocessing_log_json` 与 PDF 审计链路、白皮书摘要 | 产品、算法、合规审计、全栈 |
 | [`10-windows-distribution.md`](10-windows-distribution.md) | **Windows 分发**：NSIS 安装包与 portable 免安装版、一键构建产物位置、安装步骤、内置后端、FAQ | 研发、运维、终端用户（安装说明） |
-| [`11-mac-linux-distribution.md`](11-mac-linux-distribution.md) | **macOS / Linux 桌面分发**：Release 资产说明、签名与 glibc 边界、[`scripts/build-all.sh`](../../scripts/build-all.sh)、与 Windows 差异 | 研发、运维、终端用户（安装说明） |
+| [`11-mac-linux-distribution.md`](11-mac-linux-distribution.md) | **macOS 桌面包** + **Linux 无 Electron**（Release 后端 tar、浏览器、CLI）、[`scripts/build-all.sh`](../../scripts/build-all.sh)、与 Windows 差异 | 研发、运维、终端用户 |
 
 本目录共 **11 篇** Markdown（`01`–`11`）。**应用内文档中心**（v0.5）左侧目录由 [`client/src/constants/docsManifest.ts`](../../client/src/constants/docsManifest.ts) 的 `DOCS_MANIFEST` 决定：当前收录 Wiki **`01`–`09`** 与多篇 guides；**`10` / `11` 未在 manifest 中**，请在仓库或 GitHub 打开本篇。
 
@@ -34,7 +34,7 @@
 - **我要生成专业报告** → [`07-pdf-report.md`](07-pdf-report.md) · 质量分与清洗审计口径 → [`09-data-quality-unified-and-smart-clean.md`](09-data-quality-unified-and-smart-clean.md)
 - **我要了解系统架构** → [`02-architecture.md`](02-architecture.md)
 - **我要在 Windows 上安装或使用免安装版 / 打包发布** → [`10-windows-distribution.md`](10-windows-distribution.md)
-- **我要在 macOS / Linux 上安装桌面包或本地打包** → [`11-mac-linux-distribution.md`](11-mac-linux-distribution.md)
+- **我要在 macOS 上装桌面包，或在 Linux 上用 Release 后端 + 浏览器** → [`11-mac-linux-distribution.md`](11-mac-linux-distribution.md)
 
 ---
 

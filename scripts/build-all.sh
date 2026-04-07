@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# XGBoost Studio 一键构建（macOS / Linux，与 CI release 任务对齐）
+# XGBoost Studio 一键构建（Bash）
+# - macOS：PyInstaller 后端 + Electron 安装包（与 CI build-macos 对齐）
+# - Linux：仅 PyInstaller 后端 + 同步 resources（不打 Electron；浏览器 + CLI 见 Wiki）
 # 用法：在仓库根目录执行 ./scripts/build-all.sh
 # 可选：--skip-server 仅打客户端；--skip-client 仅打后端（需已有 dist 内二进制）
 
@@ -54,11 +56,15 @@ echo "[✓] 已复制 -> $RES_BIN"
 
 if [[ "$SKIP_CLIENT" != true ]]; then
   echo ""
-  echo "[3/3] Electron 前端..."
+  echo "[3/3] 前端..."
   cd "$ROOT/client"
-  npm ci
-  npm run build
-  echo "[✓] 产物目录: $ROOT/dist/（与 client/package.json directories.output 一致）"
+  if [[ "$OS_UNAME" == Linux ]]; then
+    echo "[✓] Linux 跳过 Electron 打包（产品策略）。浏览器访问: npm ci && npm run dev:web（另需已启动后端，见 docs/wiki/11-mac-linux-distribution.md）"
+  else
+    npm ci
+    npm run build
+    echo "[✓] 产物目录: $ROOT/dist/（与 client/package.json directories.output 一致）"
+  fi
 else
   echo "[3/3] 跳过前端 (--skip-client)"
 fi

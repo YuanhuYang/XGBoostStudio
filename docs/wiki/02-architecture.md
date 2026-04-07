@@ -247,8 +247,8 @@ SSE 事件字段说明见 [`04-model-training.md`](04-model-training.md) 和 [`0
 
 ## 六、打包与分发
 
-- **客户端打包**：`electron-vite build + electron-builder`；Windows 输出 **NSIS** 与 **portable**（[`10-windows-distribution.md`](10-windows-distribution.md)）；macOS **dmg/zip**、Linux **AppImage/deb**（[`11-mac-linux-distribution.md`](11-mac-linux-distribution.md)）
-- **服务端打包**：`PyInstaller` onefile；Windows 为 `xgboost-server.exe`，Unix 为 `xgboost-server`，按平台写入 Electron `extraResources`
+- **客户端打包**：`electron-vite build + electron-builder`；Windows **NSIS** 与 **portable**（[`10-windows-distribution.md`](10-windows-distribution.md)）；macOS **dmg/zip**（[`11-mac-linux-distribution.md`](11-mac-linux-distribution.md)）。**Linux 不发布 Electron**；用户用浏览器 + 独立后端或 CLI。
+- **服务端打包**：`PyInstaller` onefile；Windows 为 `xgboost-server.exe`，Unix 为 `xgboost-server`；Win/mac 写入 Electron `extraResources`；Linux Release 仅分发 **tar.gz** 内同名二进制。
 - **版本对齐**：`client/package.json` 和 `server/pyproject.toml` 中的 `version` 字段须保持一致
 
 ---
