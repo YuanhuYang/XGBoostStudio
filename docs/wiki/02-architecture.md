@@ -45,7 +45,7 @@
 
 2. **渲染进程**（`client/src/`）：纯前端 SPA，通过 `http://127.0.0.1:18899` 与后端通信。Electron `preload.ts` 提供安全的 IPC bridge。
 
-3. **FastAPI 服务进程**（`server/`）：以子进程方式被主进程拉起（打包后为 `xgboost-server.exe` via PyInstaller），**独立进程，随应用启动/退出**。
+3. **FastAPI 服务进程**（`server/`）：以子进程方式被主进程拉起（打包后 Windows 为 `xgboost-server.exe`，macOS/Linux 为同名无扩展名二进制，均经 PyInstaller），**独立进程，随应用启动/退出**。
 
 ---
 
@@ -247,8 +247,8 @@ SSE 事件字段说明见 [`04-model-training.md`](04-model-training.md) 和 [`0
 
 ## 六、打包与分发
 
-- **客户端打包**：`electron-vite build + electron-builder`，Windows 输出 **NSIS 安装包** 与 **portable 免安装包**（详见 [`10-windows-distribution.md`](10-windows-distribution.md)）
-- **服务端打包**：`PyInstaller`，输出 `xgboost-server.exe`，内嵌在 Electron `extraResources` 中
+- **客户端打包**：`electron-vite build + electron-builder`；Windows 输出 **NSIS** 与 **portable**（[`10-windows-distribution.md`](10-windows-distribution.md)）；macOS **dmg/zip**、Linux **AppImage/deb**（[`11-mac-linux-distribution.md`](11-mac-linux-distribution.md)）
+- **服务端打包**：`PyInstaller` onefile；Windows 为 `xgboost-server.exe`，Unix 为 `xgboost-server`，按平台写入 Electron `extraResources`
 - **版本对齐**：`client/package.json` 和 `server/pyproject.toml` 中的 `version` 字段须保持一致
 
 ---

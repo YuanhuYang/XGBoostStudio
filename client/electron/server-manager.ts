@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { chmodSync, existsSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 
 const BACKEND_PORT = 18899
@@ -18,26 +18,35 @@ export class ServerManager {
 
   /**
    * 获取后端启动命令配置
-   * 
-   * Windows (生产): 运行内置 xgboost-server.exe
-   * Windows (开发): 用户手动 `uv run python main.py`
-   * macOS/Linux (所有): 用户手动或容器运行
+   *
+   * 生产模式：运行 PyInstaller 打入 extraResources 的内置后端。
+   * 开发模式：由用户在 `server/` 下手动 `uv run python main.py`。
    */
   private getServerCommand(): { cmd: string; args: string[] } | null {
     if (is.dev) {
-      // 开发模式：所有平台都由用户手动启动
       return null
     }
 
-    // 生产模式：平台特定逻辑
     if (process.platform === 'win32') {
-      // Windows: 内置 exe
       const exePath = join(process.resourcesPath, 'xgboost-server.exe')
       if (existsSync(exePath)) {
         return { cmd: exePath, args: [] }
       }
+      return null
     }
-    // macOS / Linux 生产模式：不自动启动（可能在容器或其他环境）
+
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      const binPath = join(process.resourcesPath, 'xgboost-server')
+      if (existsSync(binPath)) {
+        try {
+          chmodSync(binPath, 0o755)
+        } catch {
+          // 若已是可执行或权限不足则仍尝试 spawn
+        }
+        return { cmd: binPath, args: [] }
+      }
+    }
+
     return null
   }
 
@@ -48,12 +57,11 @@ export class ServerManager {
     const serverCmd = this.getServerCommand()
 
     if (serverCmd) {
-      // Windows 生产模式：启动内置 exe
       try {
         this.process = spawn(serverCmd.cmd, serverCmd.args, {
           detached: false,
           stdio: 'pipe',
-          windowsHide: true,
+          windowsHide: process.platform === 'win32',
         })
 
         this.process.stdout?.on('data', (data: Buffer) => {
@@ -76,9 +84,8 @@ export class ServerManager {
         this.status = 'error'
       }
     } else {
-      // 开发模式或 macOS/Linux 生产模式：假设后端已启动或由外部管理
       console.log(
-        `[Server] 跳过启动后端 (模式: ${is.dev ? '开发' : '生产-${process.platform}'})`
+        `[Server] 跳过启动内置后端 (模式: ${is.dev ? '开发' : `生产-${process.platform}`}，未找到打包资源或平台未支持)`
       )
     }
 
@@ -90,8 +97,14 @@ export class ServerManager {
       win.focus()
     } else {
       this.status = 'error'
+      const bundledBackend =
+        process.platform === 'win32'
+          ? existsSync(join(process.resourcesPath, 'xgboost-server.exe'))
+          : process.platform === 'darwin' || process.platform === 'linux'
+            ? existsSync(join(process.resourcesPath, 'xgboost-server'))
+            : false
       const msg =
-        is.dev || process.platform !== 'win32'
+        is.dev || !bundledBackend
           ? `后端服务未就绪\n\n请确保后端已启动：\n$ cd server && uv run python main.py`
           : '后端服务启动超时，请重启应用'
       win.webContents.send('server:error', msg)

@@ -12,7 +12,7 @@
 | **终端用户** | 从发布页或内网镜像获取已构建的 `.exe`，按下文选择安装版或免安装版。 |
 | **研发 / 打包** | 在 **Windows x64** 开发机上执行一键脚本，在仓库根目录 `dist\` 生成两种 Windows 产物。 |
 
-当前官方构建配置仅为 **Windows x64**（与 [`client/package.json`](../../client/package.json) 中 `electron-builder` 的 `win.target` 一致）。macOS / Linux 分发形态见同文件中的 `mac` / `linux` 配置，不在本文展开。
+本文仅展开 **Windows x64**。**macOS / Linux** 桌面安装包与 Release 说明见 [`11-mac-linux-distribution.md`](11-mac-linux-distribution.md)（与 [`client/package.json`](../../client/package.json) 中 `mac` / `linux` 及 GitHub Actions `release.yml` 对齐）。
 
 ---
 
@@ -124,3 +124,4 @@
 |------|------|
 | 2026-04-07 | v0.5.0：安装包文件名与 `client/package.json` **0.5.0** 一致（如 `XGBoost-Studio-Setup-0.5.0.exe`）；文首「版本对应」与 v0.5.x 对齐。 |
 | 2026-04-07 | 初版：Windows x64 下 NSIS + portable 双产物说明、构建路径、安装与免安装使用指引、FAQ。 |
+| 2026-04-07 | macOS/Linux 分发改由 [`11-mac-linux-distribution.md`](11-mac-linux-distribution.md) 描述；本文仅 Windows。 |
