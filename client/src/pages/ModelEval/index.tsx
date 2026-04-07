@@ -52,7 +52,7 @@ const EVAL_CHART_TAB_ORDER = [
   'cm', 'roc', 'pr', 'cal', 'thr', 'res', 'shap', 'lc', 'pdp', 'robust', 'badsample', 'fairness',
 ] as const
 
-// 向导/模型调优：指标 Tooltip 解读文案
+// 智能向导 / 数据处理 / 模型调优：指标 Tooltip 解读文案
 const metricExplanations: Record<string, string> = {
   auc: 'AUC（ROC曲线下面积）：衡量模型区分正负样本的能力。0.5=随机猜测，0.7=尚可，0.8=良好，0.9以上=优秀。数值越高说明模型在不同阈值下的区分能力越强。',
   ks: 'KS统计量：模型预测概率在正负样本上累计分布的最大差距。KS>0.3表示较强区分能力，KS>0.5表示优秀。',

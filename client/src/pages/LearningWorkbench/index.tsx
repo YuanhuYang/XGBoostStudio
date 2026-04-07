@@ -90,7 +90,7 @@ const LearningWorkbenchPage: React.FC = () => {
           showIcon
           icon={<ThunderboltOutlined />}
           message="学习提示"
-          description="调优模式与向导相同，参数页可使用「学习此参数」与 ⚗️ 参数实验；训练完成后关注过拟合提示，再决定是否进入超参调优。"
+          description="模型调优模式与智能向导、数据处理相同，参数页可使用「学习此参数」与 ⚗️ 参数实验；训练完成后关注过拟合提示，再决定是否进入超参调优。"
           style={{ marginBottom: 16, background: '#1e293b', borderColor: '#334155' }}
         />
       )}

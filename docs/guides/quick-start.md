@@ -160,7 +160,7 @@ cd ../client && npm run dev:web
 ## 🔗 后续步骤
 
 - **开发类**：[开发者指南](developers-guide.md) · [xs-studio 命令行](xs-studio-cli.md)
-- **产品/功能类**：[产品概览（三模式、顶栏上下文、向导默认教学）](../wiki/01-product-overview.md) · [全自动建模 AutoML（含命令行）](../wiki/08-automl-wizard.md)
+- **产品/功能类**：[产品概览（四模式、顶栏划分/主模型/专家对比、向导与数据处理默认教学）](../wiki/01-product-overview.md) · [技术架构](../wiki/02-architecture.md) · [全自动建模 AutoML（含命令行）](../wiki/08-automl-wizard.md)
 - **归档需求/验收**（历史权威副本）：[`../archive/legacy-product/需求文档.md`](../archive/legacy-product/需求文档.md) · [`../archive/legacy-product/验收标准文档.md`](../archive/legacy-product/验收标准文档.md)
 - **部署类**：[部署说明](部署说明.md)
 

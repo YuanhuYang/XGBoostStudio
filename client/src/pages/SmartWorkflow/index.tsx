@@ -716,7 +716,7 @@ const SmartWorkflow: React.FC = () => {
           type="info"
           showIcon
           message="智能向导工作台"
-          description="本页即侧栏「向导工作台」：6 步全程引导，自动推荐配置。已默认开启与「调优」相同的参数教学卡片、预处理说明展开与参数实验，无需切换即可查看算法直觉与过拟合风险。划分完成后若只需侧栏训练/调优链路，可切换到「调优」；全模块与主模型深度分析请用「专家」。"
+          description="本页即侧栏「向导工作台」：6 步全程引导，自动推荐配置。已默认开启与「模型调优」「数据处理」相同的参数教学卡片、预处理说明展开与参数实验。分步做数据准备可切到顶部「数据处理」；划分完成后若只需参数配置/训练/超参/管理链路，可切到「模型调优」；评估、报告与预测交付请用「专家分析」。"
           style={{ marginBottom: 16 }}
           closable
         />
@@ -727,7 +727,7 @@ const SmartWorkflow: React.FC = () => {
           showIcon
           icon={<BookOutlined />}
           message="模型调优模式"
-          description="与向导相同，默认展示参数教学卡片与概念解释；侧栏聚焦训练、超参调优与模型管理。"
+          description="与智能向导、数据处理相同，默认展示参数教学卡片与概念解释；侧栏以「调优工作台」为首，下挂参数配置、模型训练、超参数调优与模型管理。"
           style={{ marginBottom: 16 }}
           closable
         />
@@ -1562,7 +1562,7 @@ const SmartWorkflow: React.FC = () => {
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#94a3b8', lineHeight: 1.65 }}>
                     <li><strong>主指标</strong>（如 AUC、R²）反映在当前划分测试集上的表现；绿色「优秀」不等于部署后一定同等水平。</li>
                     <li><strong>过拟合提示</strong>：比较训练与验证差距；可与上一步参数教学中的「正则 / 树深」建议对照，或使用「一键抑制过拟合」做保守重训。</li>
-                    <li>需要 SHAP、稳定性等深度分析时，可使用「切换到专家模式继续分析」。</li>
+                    <li>需要 SHAP、稳定性等深度分析时，可使用「切换到专家分析继续分析」。</li>
                   </ul>
                 ),
               }]}
@@ -1583,7 +1583,7 @@ const SmartWorkflow: React.FC = () => {
                   </p>
                   <p style={{ margin: '0 0 8px' }}>
                     <strong>无需自己改参数：</strong>点击下方「一键抑制过拟合并重训」，系统会按规则自动微调复杂度与正则，并<strong>完整重跑</strong>一键训练流程。
-                    通常<strong>1～3 次</strong>内告警会减弱或消失，但<strong>不保证</strong>一定清零；若主指标明显下降，可在专家模式里细调或保留当前「高精度但略冒进」的模型。
+                    通常<strong>1～3 次</strong>内告警会减弱或消失，但<strong>不保证</strong>一定清零；若主指标明显下降，可切换到「模型调优」细调或保留当前「高精度但略冒进」的模型。
                   </p>
                   <p style={{ margin: 0, fontSize: 12, color: 'rgba(0,0,0,0.65)' }}>
                     （技术说明：后台用验证集与训练集误差比值判断等级；这不是「模型坏了」，而是提醒您关注换数据后的表现。）
@@ -1647,7 +1647,7 @@ const SmartWorkflow: React.FC = () => {
               }}
               style={{ borderColor: '#22c55e', color: '#22c55e' }}
             >
-              切换到专家模式继续分析
+              切换到专家分析继续分析
             </Button>
             {(overfittingLevel === 'high' || overfittingLevel === 'medium') && (
               <>

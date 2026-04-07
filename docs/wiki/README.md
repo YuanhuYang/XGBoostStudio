@@ -9,7 +9,7 @@
 
 | 文件 | 内容摘要 | 适合读者 |
 |------|----------|----------|
-| [`01-product-overview.md`](01-product-overview.md) | 产品定位、用户画像、三种体验模式（向导 / 模型调优 / 专家）、顶栏上下文与教学 UI 策略 | 产品经理、新入职成员、商务 |
+| [`01-product-overview.md`](01-product-overview.md) | 产品定位、用户画像、**四种**体验模式（智能向导 / 数据处理 / 模型调优 / 专家分析）、顶栏划分·主模型·对比与教学 UI 策略 | 产品经理、新入职成员、商务 |
 | [`02-architecture.md`](02-architecture.md) | 技术栈全景、模块划分、进程模型、数据存储、API 契约边界 | 后端/前端工程师、架构师 |
 | [`03-data-analysis.md`](03-data-analysis.md) | XGBoost专属数据分析全流程：标签分析、特征效力、PSI、单调性、泄露检测 | 数据分析师、算法工程师 |
 | [`04-model-training.md`](04-model-training.md) | 模型训练流程：划分策略、训练执行、K折交叉验证、过拟合防控 | 算法工程师 |
@@ -20,11 +20,13 @@
 | [`09-data-quality-unified-and-smart-clean.md`](09-data-quality-unified-and-smart-clean.md) | **统一质量分**（工作台=向导）、**智能清洗**启发式、`preprocessing_log_json` 与 PDF 审计链路、白皮书摘要 | 产品、算法、合规审计、全栈 |
 | [`10-windows-distribution.md`](10-windows-distribution.md) | **Windows 分发**：NSIS 安装包与 portable 免安装版、一键构建产物位置、安装步骤、内置后端、FAQ | 研发、运维、终端用户（安装说明） |
 
+本目录共 **10 篇** Markdown（`01`–`10`）。**应用内文档中心**（v0.5）左侧目录由 [`client/src/constants/docsManifest.ts`](../../client/src/constants/docsManifest.ts) 的 `DOCS_MANIFEST` 决定：当前收录 Wiki **`01`–`09`** 与多篇 guides；**`10-windows-distribution` 未在 manifest 中**，请在仓库或 GitHub 打开本篇。
+
 ---
 
 ## 快速导航
 
-- **我是新用户，想快速上手** → [`01-product-overview.md`](01-product-overview.md)（三种模式 + 向导 6 步 + 默认教学能力说明）
+- **我是新用户，想快速上手** → [`01-product-overview.md`](01-product-overview.md)（**四种模式** + 向导 6 步 + 默认教学能力说明）
 - **我要一键自动建模** → [`08-automl-wizard.md`](08-automl-wizard.md)（UI 见 §2.1；命令行见 §2.2） · 实操命令见 [`../guides/xs-studio-cli.md`](../guides/xs-studio-cli.md)
 - **我要做数据分析** → [`03-data-analysis.md`](03-data-analysis.md)
 - **我要训练并调优模型** → [`04-model-training.md`](04-model-training.md) + [`05-auto-tuning.md`](05-auto-tuning.md)

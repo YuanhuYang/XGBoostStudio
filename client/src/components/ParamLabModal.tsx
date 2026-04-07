@@ -149,7 +149,7 @@ const ParamLabModal: React.FC<ParamLabModalProps> = ({
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
           <Alert
             type="info"
-            message="智能向导与模型调优模式：用同一份数据对比两组参数的训练效果，直观体验参数对模型的影响（专家分析不展示入口）"
+            message="智能向导、数据处理与模型调优模式：用同一份数据对比两组参数的训练效果，直观体验参数对模型的影响（专家分析不展示入口）"
             showIcon
           />
           {!splitId && (

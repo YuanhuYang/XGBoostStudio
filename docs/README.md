@@ -6,22 +6,22 @@
 
 - **文档规范（必读）**：[`CONVENTIONS.md`](CONVENTIONS.md) — 目录结构、迭代 ID 格式、固定文件名、禁止日期文件名等。**凡新建或修改文档**必须先读。
 
-## 二、 产品/规格/验收 → [`product/`](product/)
+## 二、 历史产品规格与验收（归档）
 
-产品需求、验收标准、迭代规划文档汇总：
+> **`docs/product/` 目录不再存放文件**：下列材料已迁至 [`archive/legacy-product/`](archive/legacy-product/)，供审计与历史对照；**日常产品与导航以 [`wiki/01-product-overview.md`](wiki/01-product-overview.md)、[`wiki/02-architecture.md`](wiki/02-architecture.md) 及当前代码为准**。
 
 | 文件 | 说明 |
 |------|------|
-| [`需求文档.md`](product/需求文档.md) | 功能规格说明（What）|
-| [`验收标准文档.md`](product/验收标准文档.md) | AC 验证步骤和标准 |
-| [`迭代计划.md`](product/迭代计划.md) | 路线图与验收门槛 |
-| [`功能需求与验收状态.md`](product/功能需求与验收状态.md) | 实现和验收状态表 |
-| [`验收追踪.md`](product/验收追踪.md) | 实现# → 自动化 |
-| [`验收-AC证据矩阵.md`](product/验收-AC证据矩阵.md) | AC 证据矩阵 |
-| [`迭代规划-G2+.md`](product/迭代规划-G2+.md) | G2+ 路线图规划 |
-| [`版本与发布.md`](product/版本与发布.md) | 产品版本号（SemVer）与迭代 ID 关联 |
-| [`RELEASE_CHECKLIST.md`](product/RELEASE_CHECKLIST.md) | 发版检查表 |
-| [`项目管理术语-五领域.md`](product/项目管理术语-五领域.md) | 术语与领域说明 |
+| [`archive/legacy-product/需求文档.md`](archive/legacy-product/需求文档.md) | 历史功能规格（What） |
+| [`archive/legacy-product/验收标准文档.md`](archive/legacy-product/验收标准文档.md) | 历史 AC 验证步骤 |
+| [`archive/legacy-product/迭代计划.md`](archive/legacy-product/迭代计划.md) | 历史路线图 |
+| [`archive/legacy-product/功能需求与验收状态.md`](archive/legacy-product/功能需求与验收状态.md) | 历史实现与验收状态表 |
+| [`archive/legacy-product/验收追踪.md`](archive/legacy-product/验收追踪.md) | 历史实现# → 自动化映射 |
+| [`archive/legacy-product/验收-AC证据矩阵.md`](archive/legacy-product/验收-AC证据矩阵.md) | 历史 AC 证据矩阵 |
+| [`archive/legacy-product/迭代规划-G2+.md`](archive/legacy-product/迭代规划-G2+.md) | G2+ 路线图规划 |
+| [`archive/legacy-product/版本与发布.md`](archive/legacy-product/版本与发布.md) | 版本号与迭代 ID 关联 |
+| [`archive/legacy-product/RELEASE_CHECKLIST.md`](archive/legacy-product/RELEASE_CHECKLIST.md) | 发版检查表 |
+| [`archive/legacy-product/项目管理术语-五领域.md`](archive/legacy-product/项目管理术语-五领域.md) | 术语与领域说明 |
 
 ## 三、 工程与上手 → [`guides/`](guides/)
 
@@ -36,7 +36,7 @@
 | [`xs-studio-cli.md`](guides/xs-studio-cli.md) | **xs-studio 命令行**：AutoML REPL、`run`、与前端并行 | 开发人员 / 自动化 |
 | [`report-interpretation.md`](guides/report-interpretation.md) | 报告解读：常见问题解答 | 用户 / 数据分析师 |
 | [`frontend-ui-automation-testing.md`](guides/frontend-ui-automation-testing.md) | QA / 测试专家 | 前端 UI 自动化测试方案调研与实施指南 |
-| [`AGENT_PROMPT.md`](guides/AGENT_PROMPT.md) | AI 提示词 | 历史自动化提示（参考） |
+| [`AGENT_PROMPT.md`](guides/AGENT_PROMPT.md) | AI 提示词 | 历史自动化提示（已更新为与 v0.5 主干一致的结构说明） |
 
 ## 四、 按迭代的过程文档 → [`iterations/`](iterations/)
 
@@ -56,7 +56,7 @@
 | [`I3-Report-Enhancement/`](iterations/I3-Report-Enhancement/) | 报告增强 |
 | [`I4-Commercialization/`](iterations/I4-Commercialization/) | 商业化迭代 |
 | [`I5-Frontend-Test-Infra/`](iterations/I5-Frontend-Test-Infra/) | 前端测试基础设施 |
-| [`I6-ThreeModeUX/`](iterations/I6-ThreeModeUX/) | **v0.4 三模式（向导 / 模型调优 / 专家）**；顶栏单上下文、调优侧栏收窄、`showTeachingUi`；AutoML 见 [`wiki/08-automl-wizard.md`](wiki/08-automl-wizard.md) |
+| [`I6-ThreeModeUX/`](iterations/I6-ThreeModeUX/) | **I6 交付三模式**（向导 / 模型调优 / 专家）；**v0.5+** 已演进为 **四模式**（增加数据处理）、专家侧栏收窄、顶栏划分/主模型/对比模型，以 Wiki **01 / 02** 与代码为准 |
 | [`SkillOpt-I1/`](iterations/SkillOpt-I1/) | Skill 优化迭代 1 |
 | [`CQ-1/`](iterations/CQ-1/) 至 [`CQ-2/`](iterations/CQ-2/) | 代码质量迭代 |
 
@@ -88,7 +88,7 @@
 | 入口 | 说明 |
 |------|------|
 | [`wiki/README.md`](wiki/README.md) | Wiki 总索引与快速导航 |
-| [`wiki/01-product-overview.md`](wiki/01-product-overview.md) | 产品概览与三模式 |
+| [`wiki/01-product-overview.md`](wiki/01-product-overview.md) | 产品概览与**四种**体验模式 |
 | [`wiki/02-architecture.md`](wiki/02-architecture.md) | 技术架构与 API 边界 |
 | [`wiki/08-automl-wizard.md`](wiki/08-automl-wizard.md) | 全自动建模（AutoML）：向导 Step 0 + **命令行 xs-studio** |
 
@@ -102,4 +102,4 @@
 
 ---
 
-**最后更新**：2026-04-06 | **XGBoostStudio v0.4.x**（三模式 UX 修订 + 向导默认教学 + AutoML 索引）
+**最后更新**：2026-04-07 | **XGBoostStudio v0.5.x**（四模式导航、文档中心、产品规格归档路径修正）

@@ -93,7 +93,7 @@ function extractApiError(e: unknown): string {
   return ''
 }
 
-// 向导/模型调优：IV/KS/PSI 概念卡片按钮
+// 智能向导 / 数据处理 / 模型调优：IV/KS/PSI 概念卡片按钮
 const conceptCards: Record<string, { title: string; content: React.ReactNode }> = {
   iv: {
     title: 'IV（信息价值）',
@@ -578,7 +578,7 @@ const FeatureAnalysisPage: React.FC = () => {
               )}
             </Space>
             {!isExpert && (
-              <Text type="secondary" style={{ fontSize: 12 }}>学习/向导模式下也可使用一键分析；专家模式下更建议先确认目标列与时间列。</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>智能向导、数据处理、模型调优模式下也可使用一键分析；专家分析模式下更建议先确认目标列与时间列。</Text>
             )}
             {lastBatchSummary && (
               <Collapse

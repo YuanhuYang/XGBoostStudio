@@ -391,7 +391,7 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     if (workflowMode === 'expert' && activeModelId && !expertTakeoverShown.current) {
       expertTakeoverShown.current = true
-      const tip = `已接管向导进度：训练划分#${activeSplitId ?? '—'}${activeDatasetName ? `（${activeDatasetName}）` : ''} / 主模型#${activeModelId ?? '—'}`
+      const tip = `已同步建模上下文（专家分析）：训练划分#${activeSplitId ?? '—'}${activeDatasetName ? `（${activeDatasetName}）` : ''} / 主模型#${activeModelId ?? '—'}`
       message.info({ content: tip, duration: 3 })
     }
     if (workflowMode !== 'expert') {
